@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const text=fs.readFileSync('module/webroot/parity.js','utf8');
+const p=await import('data:text/javascript;base64,'+Buffer.from(text).toString('base64'));
+const status=p.passwordStatus({configured:true,password_revision:2});
+assert.equal(status.revision,2);
+const rec=p.recoveryPresentation({password_recoverable:false,provenance_healthy:true,managed_crypt_remotes:2,current_password_remotes:1,older_password_remotes:1,unmanaged_crypt_remotes:0,backup_required:true,guidance:'Backup'},status);
+assert.equal(rec.password_revision,2);assert.equal(rec.skybind_managed_remotes,2);
+assert.equal(rec.older_password_remotes,1);assert.equal(rec.unmanaged_crypt_remotes,0);
+assert.throws(()=>p.recoveryPresentation({password_recoverable:false,managed_crypt_remotes:2,current_password_remotes:2,older_password_remotes:1,unmanaged_crypt_remotes:0},status));
+const unknown=p.recoveryPresentation({password_recoverable:false,explanation:'not yet tracked'},{configured:true,revision:null});
+assert.equal(unknown.password_revision,null);
+assert.equal(unknown.skybind_managed_remotes,null);
+const bridge=fs.readFileSync('module/webroot/bridge.js','utf8');
+assert.match(bridge,/managed_by_skybind:Boolean\(r\.managed_by_skybind\)/);
+console.log('SB-FP02 original-WebUI crypt provenance adapters: PASS');

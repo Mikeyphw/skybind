@@ -106,6 +106,17 @@ func run(args []string) int {
 			return 2
 		}
 		return rpcCommand([]string{"system.capabilities", "query", "{}"})
+	case "mount", "jobs", "job", "crypt", "remotes", "namespace", "doctor", "platform", "runtime", "rc":
+		return domainCommand(args, os.Stdin, func(op string, payload []byte) int {
+			item, ok := control.Lookup(op)
+			if !ok {
+				return 2
+			}
+			return rpcCommandAllowed([]string{op, string(item.OperationClass), string(payload)}, true)
+		})
+	case "help", "-h", "--help":
+		usage()
+		return 0
 	case "operation":
 		if len(args) < 2 || len(args) > 3 {
 			return 2
@@ -128,7 +139,7 @@ func run(args []string) int {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: skybind <version|paths|runtime-status|daemon|capabilities|operation NAME [ARGS_JSON]|rpc OP CLASS [ARGS_JSON]>")
+	fmt.Fprintln(os.Stderr, "usage: skybind <mount|jobs|job|crypt|remotes|namespace|doctor|platform|runtime|rc|webui|daemon|capabilities|operation|rpc|version|paths|help>")
 }
 func daemonCommand() int {
 	if os.Geteuid() != 0 {
@@ -219,7 +230,8 @@ func daemonCommand() int {
 	}
 	return 0
 }
-func rpcCommand(args []string) int {
+func rpcCommand(args []string) int { return rpcCommandAllowed(args, false) }
+func rpcCommandAllowed(args []string, trustedStdin bool) int {
 	if len(args) < 2 || len(args) > 3 {
 		usage()
 		return 2
@@ -229,7 +241,7 @@ func rpcCommand(args []string) int {
 		raw = []byte(args[2])
 	}
 	item, known := control.Lookup(args[0])
-	if !known || string(item.OperationClass) != args[1] {
+	if !known || string(item.OperationClass) != args[1] || (!trustedStdin && args[0] == "provider.crypt.password.set") {
 		fmt.Fprintln(os.Stderr, "unknown operation or class mismatch")
 		return 2
 	}

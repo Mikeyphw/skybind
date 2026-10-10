@@ -352,7 +352,7 @@ async function compatibleSend(envelope) {
  }
  if(name==='provider.remotes'){
   const remotes=await native(name,'query');
-  return responseFor(id,{remotes:(remotes||[]).map(r=>r.name),details:(remotes||[]).map(r=>({...r,encryption:r.encrypted?'rclone-crypt':'plain',managed_by_skybind:false}))});
+  return responseFor(id,{remotes:(remotes||[]).map(r=>r.name),details:(remotes||[]).map(r=>({...r,encryption:r.encrypted?'rclone-crypt':'plain',managed_by_skybind:Boolean(r.managed_by_skybind),password_revision:r.password_revision||null,password_current:Boolean(r.password_current)}))});
  }
  if(name==='provider.browse'){
   const path=String(args.path||'').replace(/^\/+|\/+$/g,'');

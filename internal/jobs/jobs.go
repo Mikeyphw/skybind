@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"skybind/internal/atomicfile"
 	"skybind/internal/mounts/config"
@@ -28,19 +29,76 @@ import (
 var jobName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,62}$`)
 var endpointRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,62}:(?:[^:\\\r\n\x00]*)$`)
 
+// validEndpoint accepts credential-free remote paths and bounded Android media
+// paths. Local paths never resolve into the private Skybind state or system tree.
 func validEndpoint(s string) bool {
-	if !endpointRE.MatchString(s) || len(s) > 768 {
+	if s == "" || len(s) > 768 || strings.ContainsAny(s, "\\\x00\r\n\t") {
 		return false
 	}
-	if strings.HasPrefix(strings.SplitN(s, ":", 2)[1], "/") {
+	if strings.HasPrefix(s, "/") {
+		return validLocalEndpoint(s)
+	}
+	if !endpointRE.MatchString(s) {
 		return false
 	}
-	for _, segment := range strings.Split(strings.SplitN(s, ":", 2)[1], "/") {
-		if segment == "." || segment == ".." {
+	p := strings.SplitN(s, ":", 2)[1]
+	if strings.HasPrefix(p, "/") || strings.Contains(p, "//") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "." || seg == ".." {
 			return false
 		}
 	}
 	return true
+}
+func validLocalEndpoint(s string) bool {
+	if !filepath.IsAbs(s) || filepath.Clean(s) != s || strings.Contains(s, ":") || strings.ContainsAny(s, "\\\x00\r\n\t") {
+		return false
+	}
+	// Deliberately restrict privileged local transfer endpoints to Android
+	// media trees. A job must never read/write /data/adb, /proc, /sys, /etc,
+	// or an arbitrary app's private data through a root-owned daemon.
+	allowed := []string{"/storage/emulated/", "/storage/self/primary/", "/storage/", "/sdcard/", "/mnt/media_rw/", "/mnt/user/", "/data/media/"}
+	for _, prefix := range allowed {
+		if strings.HasPrefix(s, prefix) && len(s) > len(prefix) {
+			for _, seg := range strings.Split(s[len(prefix):], "/") {
+				if seg == "" || seg == "." || seg == ".." {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// Local symlink escape guard: validate existing leaf/ancestors before executing
+// a privileged external rclone process. Android's /sdcard alias itself is
+// allowed, but arbitrary symlinks beneath media directories are not.
+func validateLocalExisting(s string) error {
+	if !strings.HasPrefix(s, "/") {
+		return nil
+	}
+	if !validLocalEndpoint(s) {
+		return errors.New("unsafe local job path")
+	}
+	begin := "/"
+	parts := strings.Split(strings.TrimPrefix(s, "/"), "/")
+	for _, part := range parts {
+		begin = filepath.Join(begin, part)
+		info, err := os.Lstat(begin)
+		if errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		if err != nil {
+			return errors.New("local job path inspection failed")
+		}
+		if info.Mode()&os.ModeSymlink != 0 && begin != "/sdcard" && begin != "/storage/self/primary" {
+			return errors.New("local job path traverses a symlink")
+		}
+	}
+	return nil
 }
 
 type Job struct {
@@ -91,6 +149,12 @@ func (r execRunner) Execute(ctx context.Context, j Job) error {
 	return r.ExecuteWithProgress(ctx, j, nil)
 }
 func (execRunner) ExecuteWithProgress(ctx context.Context, j Job, update func(int64, float64, int64)) error {
+	if err := validateLocalExisting(j.Source); err != nil {
+		return err
+	}
+	if err := validateLocalExisting(j.Destination); err != nil {
+		return err
+	}
 	args := []string{"--config", paths.RcloneConfig, j.Kind, j.Source, j.Destination, "--stats", "1s", "--stats-log-level", "NOTICE", "--use-json-log", "--log-level", "NOTICE"}
 	c := exec.CommandContext(ctx, paths.Engine, args...)
 	c.Env = []string{"PATH=/system/bin:/system/xbin", "HOME=/data/adb/skybind"}
@@ -178,7 +242,9 @@ func validate(r Registry) (Registry, error) {
 		if j.Kind != "copy" && j.Kind != "sync" && j.Kind != "check" {
 			return r, errors.New("invalid job kind")
 		}
-		if !validEndpoint(j.Source) || !validEndpoint(j.Destination) || j.Source == j.Destination {
+		if !validEndpoint(j.Source) || !validEndpoint(j.Destination) || j.Source == j.Destination ||
+			(strings.HasPrefix(j.Source, "/") && strings.HasPrefix(j.Destination, "/") &&
+				(strings.HasPrefix(j.Source, j.Destination+"/") || strings.HasPrefix(j.Destination, j.Source+"/"))) {
 			return r, errors.New("unsafe job endpoints")
 		}
 		if j.IntervalSeconds != 0 && (j.IntervalSeconds < 300 || j.IntervalSeconds > 31536000) {

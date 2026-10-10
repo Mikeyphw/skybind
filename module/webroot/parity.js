@@ -43,15 +43,21 @@ export async function supportDownload(v, requestedID) {
   return { ...v, data:v.content, filename:`skybind-support-${v.id}.zip`,size:v.bytes};
 }
 export function passwordStatus(v) {
-  if (!v || typeof v.configured !== 'boolean') throw new Error('Malformed crypt password status');
-  return {...v,revision:Number.isSafeInteger(v.revision)&&v.revision>0?v.revision:null};
+ if (!v || typeof v.configured !== 'boolean') throw new Error('Malformed crypt password status');
+ const revision=v.password_revision??v.revision;
+ return {...v,revision:Number.isSafeInteger(revision)&&revision>0?revision:null};
 }
-export function recoveryPresentation(v, status) {
-  if (!v || v.password_recoverable !== false) throw new Error('Malformed crypt recovery status');
-  return {
-    ...v,password_configured:Boolean(status?.configured),password_revision:status?.revision??null,
-    // There is no generation inventory in the current backend. Never substitute zero.
-    skybind_managed_remotes:null,current_password_remotes:null,older_password_remotes:null,unmanaged_crypt_remotes:null,
-    guidance:String(v.explanation || 'Recovery history is not yet tracked. Keep your passwords and rclone configuration backed up.'),
-  };
+export function recoveryPresentation(v,status) {
+ if (!v || v.password_recoverable !== false) throw new Error('Malformed crypt recovery status');
+ const fields=['managed_crypt_remotes','current_password_remotes','older_password_remotes','unmanaged_crypt_remotes'];
+ const populated=fields.every(k=>Number.isSafeInteger(v[k])&&v[k]>=0);
+ if (populated && v.current_password_remotes+v.older_password_remotes!==v.managed_crypt_remotes) throw new Error('Inconsistent crypt provenance counts');
+ return {...v,
+  password_configured:Boolean(status?.configured),password_revision:status?.revision??null,
+  skybind_managed_remotes:populated?v.managed_crypt_remotes:null,
+  current_password_remotes:populated?v.current_password_remotes:null,
+  older_password_remotes:populated?v.older_password_remotes:null,
+  unmanaged_crypt_remotes:populated?v.unmanaged_crypt_remotes:null,
+  guidance:String(v.guidance||v.explanation||'Recovery history is not yet tracked. Keep your passwords and rclone configuration backed up.'),
+ };
 }

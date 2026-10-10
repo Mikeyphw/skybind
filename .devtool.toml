@@ -74,6 +74,7 @@ native = ["job:foundation-go"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
+feature-parity-provider = ["job:fp02-cli-provider-parity"]
 typed-control = ["job:typed-control-source"]
 api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
@@ -523,4 +524,16 @@ metadata = { read_only = true, qualification = "source-parity-only", visual_qual
 [wrapper.commands.feature-parity-webui]
 description = "Source-level SB-FP01 semantic WebUI parity; original layout preserved, device gates blocked"
 workflow = "feature-parity-webui"
+target = "skybind"
+
+# SB-FP02: backend and CLI feature parity with original static-runtime product.
+[targets.skybind.jobs.fp02-cli-provider-parity]
+runner = "command"
+command = ["bash", "scripts/devtool/check_fp02_cli_provider_parity.sh"]
+inputs = ["cmd/skybind/**", "internal/jobs/**", "internal/provider/**", "module/webroot/parity.js", "module/webroot/bridge.js", "tests/integration/test_fp02_crypto_parity.mjs", "scripts/devtool/check_fp02_cli_provider_parity.sh"]
+metadata = { read_only = true, qualification = "source-parity-only", cloud_qualification = false, device_qualification = false, final_seal = false }
+
+[wrapper.commands.feature-parity-provider]
+description = "Targeted SB-FP02 CLI/crypt/local-job parity; independent qualification remains blocked"
+workflow = "feature-parity-provider"
 target = "skybind"
