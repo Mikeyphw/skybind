@@ -158,6 +158,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+final-audit = ["job:cfs1-audit-definition"]
 cg1-definitions = ["job:cg1-gate-definitions"]
 g03 = ["job:cg1-g03"]
 g04 = ["job:cg1-g04"]
@@ -474,3 +475,16 @@ runner = "command"
 command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G08"]
 inputs = ["../docs/gates/SB-G08_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
 metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+# SB-CFS1: installable independent final-seal verifier. Definition validation is
+# deliberately distinct from actual independently qualified final-seal promotion.
+[targets.skybind_release.jobs.cfs1-audit-definition]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_cfs1_final.sh"]
+inputs = ["../scripts/dev/seal/**", "../scripts/dev/gates/**", "../docs/gates/**", "../tests/seal/**", "../docs/roadmap/**", "../scripts/devtool/check_cfs1_final.sh"]
+metadata = {read_only = true, qualification = "final-auditor-source-only", final_seal = false, device_qualification = false}
+
+[wrapper.commands.final-audit]
+description = "Check independent SB-CFS1 final auditor; never issue a seal without real evidence"
+workflow = "final-audit"
+target = "skybind_release"

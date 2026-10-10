@@ -49,13 +49,13 @@ def check_all():
  assert all(x['status'] in ('SOURCE_IMPLEMENTED_NOT_PROMOTED','PLANNED') for x in packages)
 
  assert 'dynamic runtime' in ' '.join(data['explicit_exclusions']).lower()
- assert not any('seal' in k for t in cfg['targets'].values() for k in t['workflows'])
+ assert all(j.get('metadata',{}).get('final_seal') is not True for t in cfg['targets'].values() for j in t.get('jobs',{}).values())
  return cfg,data
 def check_component(component):
  _,data=check_all()
  if component=='webui':assert 'direct' in str(data['preserved_contracts']).lower()
  elif component=='runtime':assert 'runtime' in str(data['preserved_contracts']).lower()
  elif component=='android':assert 'SB-G04' in data['coverage_map']
- elif component=='release':assert data['artifact_sequence'][-1]['status']=='PLANNED'
+ elif component=='release':assert data['artifact_sequence'][-1]['status'] in ('PLANNED','SOURCE_IMPLEMENTED_NOT_PROMOTED')
  else:raise ValueError('Unknown bootstrap component: '+component)
  return f'SKYBIND {component}: planning contract checked; implementation/device/seal NOT certified'

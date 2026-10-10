@@ -8,7 +8,7 @@ class C04Contract(unittest.TestCase):
         p=json.loads((ROOT/'docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json').read_text())
         self.assertEqual([x['status'] for x in p['artifact_sequence'][:4]], ['SOURCE_IMPLEMENTED_NOT_PROMOTED']*4)
         self.assertTrue(all(x['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED' for x in p['artifact_sequence'][4:6]))
-        self.assertEqual([x['status'] for x in p['artifact_sequence'][6:]],['SOURCE_IMPLEMENTED_NOT_PROMOTED','PLANNED'])
+        self.assertEqual([x['status'] for x in p['artifact_sequence'][6:]],['SOURCE_IMPLEMENTED_NOT_PROMOTED']*2)
         self.assertEqual(p['starting_position']['gate_qualification'],{'SB-G01':'BLOCKED','SB-G02':'BLOCKED'})
     def test_no_webui_visual_parity_claim(self):
         self.assertTrue((ROOT/'module/webroot/index.html').exists())

@@ -21,7 +21,7 @@ assert c['targets']['skybind']['workflows']['android-platform']==['job:android-p
 i=json.load(open('docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json'))
 assert all(i['coverage_map'][f'SB-O{x}']=='SB-C02' for x in range(15,20))
 assert i['artifact_sequence'][1]['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED'
-assert i['artifact_sequence'][-1]['status']=='PLANNED'
+assert i['artifact_sequence'][-1]['status'] in ('PLANNED','SOURCE_IMPLEMENTED_NOT_PROMOTED')
 assert i['starting_position']['gate_qualification']=={'SB-G01':'BLOCKED','SB-G02':'BLOCKED'}
 print('SB-C02 SOURCE ONLY; device/app visibility not certified; gates not promoted; final seal not issued')
 PY

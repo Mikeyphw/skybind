@@ -30,3 +30,7 @@ installed-runtime system or migration logic is implemented.
 ## Independent milestone gate package
 
 SB-CG1 installs six read-only gate evaluators (SB-G03..G08), original-promise ledgers, and Devtool-owned validation. The definitions are source implemented, not promoted. SB-G01/G02 remain blocked and SB-CFS1 is not issued. No unsigned or user-supplied evidence can qualify Android devices or releases.
+
+## Final seal verifier (SB-CFS1)
+
+The independent, read-only final auditor is implemented and is exercised automatically by Devtool. It **does not issue a seal** from source tests or sign any evidence. Qualification remains BLOCKED until all G01–G08 independently pass and source-, package-, and device-bound external attestation is verified. No root-shell test substitutes for ordinary Android app access.

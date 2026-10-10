@@ -21,7 +21,7 @@ class SkybindPlanningContracts(unittest.TestCase):
 
     def test_final_seal_unissued(self):
         _, index = load()
-        self.assertEqual(index["artifact_sequence"][-1]["status"], "PLANNED")
+        self.assertIn(index["artifact_sequence"][-1]["status"], ("PLANNED", "SOURCE_IMPLEMENTED_NOT_PROMOTED"))
         self.assertIn("NOT certified", check_component("release"))
 
     def test_unknown_component_fail_closed(self):

@@ -681,7 +681,7 @@
       ],
       "promotion_requires": [],
       "kind": "final_seal",
-      "status": "PLANNED",
+      "status": "SOURCE_IMPLEMENTED_NOT_PROMOTED",
       "archive_name": "skybind-SB-CFS1-final-seal.devtool-overlay.zip",
       "files_owned": [],
       "tests_required": [],
@@ -691,7 +691,7 @@
         "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
         "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
       },
-      "qualification": "GATE_DEFINITION_AND_EVALUATION_ONLY; never equate installed gate with passed gate"
+      "qualification": "SOURCE_AUDITOR_INSTALLED_GATES_BLOCKED_FINAL_SEAL_NOT_ISSUED"
     }
   ],
   "coverage_map": {

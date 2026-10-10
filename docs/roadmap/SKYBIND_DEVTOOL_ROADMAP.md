@@ -1,6 +1,6 @@
 # SKYBIND — Consolidated Devtool Implementation Roadmap
 
-**Current status: SB-C01–SB-C06 source-implemented (NOT PROMOTED); G01/G02 BLOCKED; physical-device, UI screenshot and independent milestone gates NOT ATTESTED; final seal NOT ISSUED.**
+**Current status: SB-C01–SB-C06, SB-CG1 and SB-CFS1 source-implemented (NOT PROMOTED); G01/G02 BLOCKED; physical-device, UI screenshot and independent milestone gates NOT ATTESTED; final seal NOT ISSUED.**
 
 ## Decision: 34 remaining obligations, only 8 future overlay artifacts
 
@@ -212,7 +212,7 @@ The previous campaign separated 36 implementation obligations, 8 milestone gates
 ### SB-CFS1 — Final Skybind Whole-Product Qualification Seal
 **Archive:** `skybind-SB-CFS1-final-seal.devtool-overlay.zip`
 
-**Dependencies:** `SB-CG1`. **Promotion gates:** none. **Targets:** `skybind_release`, `skybind_android_device`. **Risk:** critical. **State:** `PLANNED`.
+**Dependencies:** `SB-CG1`. **Promotion gates:** none. **Targets:** `skybind_release`, `skybind_android_device`. **Risk:** critical. **State:** `SOURCE_IMPLEMENTED_NOT_PROMOTED` (independent verifier installed; all actual qualifications BLOCKED, final seal NOT ISSUED).
 
 **Retained original obligations:** `SB-FS1`.
 
