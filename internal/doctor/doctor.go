@@ -4,8 +4,11 @@ package doctor
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"skybind/internal/diagnostics"
+	"skybind/internal/mounts/config"
 	"skybind/internal/paths"
+	"skybind/internal/rootmgr"
 	"skybind/internal/runtimeauth"
 )
 
@@ -79,8 +82,82 @@ func Canonical() Reporter {
 			}
 			return "PASS", "private_state_mode_verified"
 		},
-		"platform":  func(context.Context) (string, string) { return "INFO", "device_not_qualified" },
-		"namespace": func(context.Context) (string, string) { return "WARN", "app_visibility_not_device_qualified" },
-		"webui":     func(context.Context) (string, string) { return "INFO", "transport_requires_live_probe" },
+		"platform": func(context.Context) (string, string) {
+			v, err := rootmgr.CanonicalDetector{}.Status()
+			if err != nil {
+				return "FAIL", "root_manager_inspection_failed"
+			}
+			if !v.Root {
+				return "WARN", "root_privilege_unavailable"
+			}
+			if !v.ModulePresent {
+				return "WARN", "skybind_module_absent"
+			}
+			if !v.Confirmed {
+				return "WARN", "root_manager_unconfirmed"
+			}
+			return "INFO", "manager_present_device_not_qualified"
+		},
+		"namespace": func(context.Context) (string, string) {
+			if _, err := os.Readlink("/proc/self/ns/mnt"); err != nil {
+				return "WARN", "namespace_inspection_unavailable"
+			}
+			return "INFO", "namespace_inspectable_exact_app_visibility_not_qualified"
+		},
+		"mounts": func(context.Context) (string, string) {
+			path := filepath.Join(paths.StateRoot, "config", config.RegistryName)
+			b, err := os.ReadFile(path)
+			if os.IsNotExist(err) {
+				return "INFO", "no_mount_registry"
+			}
+			if err != nil || len(b) > 1<<20 {
+				return "WARN", "mount_registry_unreadable"
+			}
+			registry, e := config.Validate(b)
+			if e != nil {
+				return "FAIL", "mount_registry_invalid"
+			}
+			if len(registry.Mounts) == 0 {
+				return "INFO", "no_mounts_configured"
+			}
+			return "INFO", "mount_registry_valid_health_requires_owned_mount_probe"
+		},
+		"jobs": func(context.Context) (string, string) {
+			return inspectPrivateFile(filepath.Join(paths.StateRoot, "jobs", "jobs-v1.json"), "job_registry")
+		},
+		"rc": func(context.Context) (string, string) {
+			return inspectPrivateDirectory(filepath.Join(paths.StateRoot, "rc"), "rc_state")
+		},
+		"remotes": func(context.Context) (string, string) {
+			return inspectPrivateFile(paths.RcloneConfig, "remote_configuration")
+		},
+		"webui": func(context.Context) (string, string) {
+			if _, err := os.Stat(filepath.Join(paths.ModuleRoot, "webroot", "index.html")); err != nil {
+				return "WARN", "webui_assets_unavailable"
+			}
+			return "INFO", "webui_assets_present_auth_and_browser_not_qualified"
+		},
 	}}
+}
+
+// Presence checks never read or return secrets and never claim a live session.
+func inspectPrivateFile(path, noun string) (string, string) {
+	st, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return "INFO", noun + "_not_configured"
+	}
+	if err != nil || !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 {
+		return "FAIL", noun + "_unsafe_or_unreadable"
+	}
+	return "INFO", noun + "_present_not_execution_qualified"
+}
+func inspectPrivateDirectory(path, noun string) (string, string) {
+	st, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return "INFO", noun + "_not_initialized"
+	}
+	if err != nil || !st.IsDir() || st.Mode().Perm()&0077 != 0 {
+		return "FAIL", noun + "_unsafe_or_unreadable"
+	}
+	return "INFO", noun + "_private_state_present_not_live_qualified"
 }

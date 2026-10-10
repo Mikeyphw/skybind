@@ -114,18 +114,28 @@ func classifyVisibility(g *Group, items []Signature, wanted Signature) {
 		g.Reason = "incomplete namespace evidence"
 		return
 	}
+	var exact []Signature
 	for _, m := range items {
 		if m.Target == wanted.Target {
-			g.Observed = m
-			if sameSource(m, wanted) {
-				g.Visibility = VisibleAtTarget
-				g.Reason = "matching source at exact target"
-			} else {
-				g.Visibility = IdentityMismatch
-				g.Reason = "target occupied by other filesystem"
-			}
-			return
+			exact = append(exact, m)
 		}
+	}
+	if len(exact) > 1 {
+		g.Visibility = IdentityMismatch
+		g.Reason = "ambiguous stacked mounts at exact target"
+		return
+	}
+	if len(exact) == 1 {
+		m := exact[0]
+		g.Observed = m
+		if sameSource(m, wanted) {
+			g.Visibility = VisibleAtTarget
+			g.Reason = "matching source at exact target"
+		} else {
+			g.Visibility = IdentityMismatch
+			g.Reason = "target occupied by other filesystem"
+		}
+		return
 	}
 	for _, member := range g.Members {
 		for _, alias := range aliases(member.User) {
@@ -146,6 +156,7 @@ func classifyVisibility(g *Group, items []Signature, wanted Signature) {
 	g.Visibility = NotVisible
 	g.Reason = "expected source not found at exact target"
 }
+
 func (s Scanner) Scan(ctx context.Context, source Signature) (Snapshot, error) {
 	if !filepath.IsAbs(source.Target) || filepath.Clean(source.Target) != source.Target || !strings.HasPrefix(source.FS, "fuse") || source.MountID == "" || source.Source == "" {
 		return Snapshot{}, errors.New("expected FUSE source identity is incomplete")

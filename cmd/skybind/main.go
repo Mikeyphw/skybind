@@ -196,7 +196,7 @@ func daemonCommand() int {
 		fmt.Fprintln(os.Stderr, "private UI settings:", err)
 		return 1
 	}
-	engine := daemon.EngineWithObservability(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}, jobStore, providerEngine, rcEngine, logStore, bundleStore, doctor.Canonical())
+	engine := daemon.EngineWithObservability(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.SampleAndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}, jobStore, providerEngine, rcEngine, logStore, bundleStore, doctor.Canonical())
 	if err = daemon.RegisterUISettings(engine, uiStore); err != nil {
 		fmt.Fprintln(os.Stderr, "UI settings registry:", err)
 		return 1

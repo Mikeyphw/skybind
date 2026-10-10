@@ -2,8 +2,13 @@ package policy
 
 import (
 	"bufio"
+	"context"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -73,16 +78,36 @@ func AndroidFacts(cachePath string) Facts {
 			}
 		}
 	}
-	if f.Network != Unknown && f.Network != Offline {
-		f.NetworkAt = time.Now().Add(-time.Hour)
-	} // readiness observed now, avoid fabricating network age
+	// Metered state is obtained from Android's *active default network* only.
+	// A Wi-Fi interface by itself does not prove an unmetered connection.
+	if runtime.GOOS == "android" && f.Network != Unknown && f.Network != Offline {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "/system/bin/dumpsys", "connectivity")
+		cmd.Env = []string{"PATH=/system/bin:/system/xbin"}
+		cmd.Stderr = io.Discard
+		pipe, err := cmd.StdoutPipe()
+		if err == nil && cmd.Start() == nil {
+			out, e := io.ReadAll(io.LimitReader(pipe, (1<<20)+1))
+			if len(out) > 1<<20 || e != nil {
+				_ = cmd.Process.Kill()
+			}
+			waitErr := cmd.Wait()
+			if e == nil && waitErr == nil && ctx.Err() == nil && len(out) <= 1<<20 {
+				f.Metered = parseActiveMetered(out)
+			}
+		}
+	}
+	// NetworkAt is deliberately not set by this stateless observer: only the
+	// daemon-lifetime sampler may establish an observed transition timestamp.
 	return f
 }
 
 var sampler struct {
 	sync.Mutex
-	network Network
-	since   time.Time
+	network  Network
+	metering string
+	since    time.Time
 }
 
 // SampleAndroidFacts persists the instant a network class was first observed
@@ -91,12 +116,85 @@ func SampleAndroidFacts(cachePath string) Facts {
 	f := AndroidFacts(cachePath)
 	sampler.Lock()
 	defer sampler.Unlock()
-	if sampler.network != f.Network {
+	stamp := "unknown"
+	if f.Metered != nil {
+		if *f.Metered {
+			stamp = "metered"
+		} else {
+			stamp = "unmetered"
+		}
+	}
+	if sampler.network != f.Network || sampler.metering != stamp || sampler.since.IsZero() {
 		sampler.network = f.Network
+		sampler.metering = stamp
 		sampler.since = time.Now()
 	}
 	if f.Network != Unknown && f.Network != Offline {
 		f.NetworkAt = sampler.since
 	}
 	return f
+}
+
+// parseActiveMetered never guesses from a nearby non-default network. The
+// active network id must match exactly one NetworkAgentInfo and its single
+// capabilities declaration. Any incomplete or ambiguous evidence is unknown.
+var activeDefaultRE = regexp.MustCompile(`(?m)^\s*Active default network:\s*(?:Network\s*)?(\d+)\b`)
+var agentIDRE = regexp.MustCompile(`\bnetwork\{(\d+)\}`)
+
+func parseActiveMetered(raw []byte) *bool {
+	if len(raw) == 0 || len(raw) > 1<<20 {
+		return nil
+	}
+	text := string(raw)
+	matches := activeDefaultRE.FindAllStringSubmatch(text, -1)
+	if len(matches) != 1 {
+		return nil
+	}
+	id := matches[0][1]
+	lines := strings.Split(text, "\n")
+	agents := 0
+	result := false
+	found := false
+	for i, line := range lines {
+		if !strings.Contains(line, "NetworkAgentInfo") {
+			continue
+		}
+		ids := agentIDRE.FindStringSubmatch(line)
+		if ids == nil || ids[1] != id {
+			continue
+		}
+		agents++
+		if agents > 1 {
+			return nil
+		}
+		// NetworkAgentInfo capabilities are bounded to its block, never another
+		// agent's capabilities or a VPN/underlying network.
+		for j := i; j < len(lines) && j < i+18; j++ {
+			if j > i && strings.Contains(lines[j], "NetworkAgentInfo") {
+				break
+			}
+			capLine := lines[j]
+			at := strings.Index(capLine, "Capabilities:")
+			if at < 0 {
+				continue
+			}
+			capLine = capLine[at+len("Capabilities:"):]
+			if found {
+				return nil
+			}
+			found = true
+			// A bounded word token prevents unrelated capability descriptions from
+			// advertising NOT_METERED for this network.
+			result = true
+			for _, token := range strings.FieldsFunc(capLine, func(r rune) bool { return !(r >= 'A' && r <= 'Z' || r == '_' || r >= '0' && r <= '9') }) {
+				if token == "NOT_METERED" {
+					result = false
+				}
+			}
+		}
+	}
+	if agents != 1 || !found {
+		return nil
+	}
+	return &result
 }

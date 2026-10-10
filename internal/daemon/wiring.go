@@ -92,10 +92,21 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 			if p.ID == "" {
 				return nil, errors.New("empty id")
 			}
-			if rec, e := j.Get(p.ID); e == nil {
-				return rec, nil
+			rec, e := j.Get(p.ID)
+			if e != nil {
+				rec, e = j.ByRequest(p.ID)
 			}
-			return j.ByRequest(p.ID)
+			if e != nil {
+				return nil, e
+			}
+			if rec.RunID != "" && jobStore != nil {
+				run, e := jobStore.RunStatus(rec.RunID)
+				if e != nil {
+					return map[string]any{"id": rec.ID, "request_id": rec.RequestID, "state": "unknown", "stage": "job_status_unavailable", "job_run_id": rec.RunID, "evidence": "job_run_not_observable"}, nil
+				}
+				return map[string]any{"id": rec.ID, "request_id": rec.RequestID, "state": run.State, "stage": "job_execution", "job_run_id": run.ID, "progress": map[string]any{"bytes": run.Bytes, "speed_bytes_per_second": run.SpeedBytesPerSecond, "eta_seconds": run.ETASeconds}, "finished_unix": run.FinishedUnix}, nil
+			}
+			return rec, nil
 		})
 		register("operation.cancel", protocol.Cancel, func(_ context.Context, a json.RawMessage) (any, error) {
 			var p struct {
@@ -289,7 +300,18 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 			if err := emptyArgs(a); err != nil {
 				return nil, err
 			}
-			return policy.Profiles(), nil
+			profiles := policy.Profiles()
+			// Add optional advisory metadata without changing the historical
+			// array response contract consumed by the copied WebUI.
+			advice := policy.DeviceAdvice("/data/adb/skybind/cache")
+			for i := range profiles {
+				if advice.Known && profiles[i].Name == advice.Profile {
+					profiles[i].Recommended = true
+					profiles[i].SuggestedMaxBytes = advice.SuggestedMaxBytes
+					profiles[i].RecommendationReason = advice.Reason
+				}
+			}
+			return profiles, nil
 		})
 	}
 	if caches != nil {

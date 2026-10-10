@@ -76,20 +76,23 @@ func Evaluate(m config.Mount, f Facts, now time.Time) Decision {
 }
 
 type Profile struct {
-	Name            string `json:"name"`
-	CacheMode       string `json:"cache_mode"`
-	MaxBytes        int64  `json:"max_bytes"`
-	MaxAgeSeconds   int64  `json:"max_age_seconds"`
-	DirCacheSeconds int64  `json:"dir_cache_seconds"`
-	PollSeconds     int64  `json:"poll_seconds"`
+	Name                 string `json:"name"`
+	CacheMode            string `json:"cache_mode"`
+	MaxBytes             int64  `json:"max_bytes"`
+	MaxAgeSeconds        int64  `json:"max_age_seconds"`
+	DirCacheSeconds      int64  `json:"dir_cache_seconds"`
+	PollSeconds          int64  `json:"poll_seconds"`
+	Recommended          bool   `json:"recommended,omitempty"`
+	SuggestedMaxBytes    int64  `json:"suggested_max_bytes,omitempty"`
+	RecommendationReason string `json:"recommendation_reason,omitempty"`
 }
 
-var profiles = []Profile{{"streaming", "full", 4 << 30, 86400, 600, 60}, {"balanced", "full", 2 << 30, 43200, 300, 60}, {"offline", "full", 8 << 30, 604800, 3600, 0}, {"minimal", "minimal", 512 << 20, 3600, 60, 120}}
+var profiles = []Profile{{Name: "streaming", CacheMode: "full", MaxBytes: 4 << 30, MaxAgeSeconds: 86400, DirCacheSeconds: 600, PollSeconds: 60}, {Name: "balanced", CacheMode: "full", MaxBytes: 2 << 30, MaxAgeSeconds: 43200, DirCacheSeconds: 300, PollSeconds: 60}, {Name: "offline", CacheMode: "full", MaxBytes: 8 << 30, MaxAgeSeconds: 604800, DirCacheSeconds: 3600, PollSeconds: 0}, {Name: "minimal", CacheMode: "minimal", MaxBytes: 512 << 20, MaxAgeSeconds: 3600, DirCacheSeconds: 60, PollSeconds: 120}}
 
 func Profiles() []Profile { return append([]Profile(nil), profiles...) }
 func Resolve(m config.Mount) (Profile, error) {
 	if m.VFSProfile == "custom" || m.VFSProfile == "" {
-		return Profile{"custom", m.CacheMode, m.CacheMaxBytes, m.CacheMaxAgeSeconds, m.DirCacheSeconds, m.PollSeconds}, nil
+		return Profile{Name: "custom", CacheMode: m.CacheMode, MaxBytes: m.CacheMaxBytes, MaxAgeSeconds: m.CacheMaxAgeSeconds, DirCacheSeconds: m.DirCacheSeconds, PollSeconds: m.PollSeconds}, nil
 	}
 	for _, p := range profiles {
 		if p.Name == m.VFSProfile {
@@ -97,4 +100,42 @@ func Resolve(m config.Mount) (Profile, error) {
 		}
 	}
 	return Profile{}, errors.New("unknown VFS profile")
+}
+
+// Advice is a non-authoritative recommendation, not a change to the user's
+// mount configuration. Unknown device facts result in no recommendation.
+type Advice struct {
+	Known             bool   `json:"known"`
+	Profile           string `json:"profile,omitempty"`
+	SuggestedMaxBytes int64  `json:"suggested_max_bytes,omitempty"`
+	Reason            string `json:"reason"`
+}
+
+func Recommend(memoryBytes, freeBytes int64) Advice {
+	if memoryBytes <= 0 || freeBytes <= 0 {
+		return Advice{Reason: "memory_or_storage_unknown"}
+	}
+	// Leave at least half of the observed free space untouched. A lower RAM
+	// device favours the minimal cache; recommendations never mutate settings.
+	cap := freeBytes / 2
+	if cap < 256<<20 {
+		return Advice{Known: true, Profile: "minimal", SuggestedMaxBytes: cap, Reason: "low_free_storage"}
+	}
+	profile := "balanced"
+	limit := int64(2) << 30
+	reason := "balanced_resources"
+	if memoryBytes < 3<<30 {
+		profile = "minimal"
+		limit = 512 << 20
+		reason = "limited_memory"
+	}
+	if memoryBytes >= 6<<30 && freeBytes >= 12<<30 {
+		profile = "streaming"
+		limit = 4 << 30
+		reason = "ample_memory_and_storage"
+	}
+	if cap < limit {
+		limit = cap
+	}
+	return Advice{Known: true, Profile: profile, SuggestedMaxBytes: limit, Reason: reason}
 }

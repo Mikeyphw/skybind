@@ -75,6 +75,7 @@ repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
 feature-parity-provider = ["job:fp02-cli-provider-parity"]
+feature-parity-platform = ["job:fp03-platform-parity"]
 typed-control = ["job:typed-control-source"]
 api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
@@ -536,4 +537,16 @@ metadata = { read_only = true, qualification = "source-parity-only", cloud_quali
 [wrapper.commands.feature-parity-provider]
 description = "Targeted SB-FP02 CLI/crypt/local-job parity; independent qualification remains blocked"
 workflow = "feature-parity-provider"
+target = "skybind"
+
+# SB-FP03: platform/source parity; no device or release gate is promoted.
+[targets.skybind.jobs.fp03-platform-parity]
+runner = "command"
+command = ["bash", "scripts/devtool/check_fp03_platform_parity.sh"]
+inputs = ["internal/mounts/policy/**", "internal/doctor/**", "internal/namespace/**", "internal/jobs/**", "internal/daemon/**", "cmd/skybind/main.go", "scripts/devtool/check_fp03_platform_parity.sh"]
+metadata = { read_only = true, qualification = "source-parity-only", device_qualification = false, final_seal = false }
+
+[wrapper.commands.feature-parity-platform]
+description = "Automatic SB-FP03 source parity, Android policy faults, Doctor, VFS, namespace and operation progress"
+workflow = "feature-parity-platform"
 target = "skybind"

@@ -334,6 +334,22 @@ func (s *Store) Snapshot() (Registry, error) {
 	return clone(s.state.Registry), nil
 }
 func clone(r Registry) Registry { r.Jobs = append([]Job(nil), r.Jobs...); return r }
+
+// RunStatus returns only a previously claimed job run; it cannot launch work.
+func (s *Store) RunStatus(id string) (Run, error) {
+	if len(id) != 32 {
+		return Run{}, errors.New("invalid run identity")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, item := range s.state.Runs {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return Run{}, os.ErrNotExist
+}
+
 func (s *Store) Status() (any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
