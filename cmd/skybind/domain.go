@@ -64,7 +64,7 @@ func translateDomain(args []string, input io.Reader) (string, []byte, error) {
 		case "status":
 			return named("mount.status")
 		case "health":
-			return empty("mount.health")
+			return named("mount.health")
 		case "preview":
 			return named("mount.start.preview")
 		case "start":
@@ -74,7 +74,7 @@ func translateDomain(args []string, input io.Reader) (string, []byte, error) {
 		case "restart":
 			return named("mount.restart")
 		case "reconcile":
-			return named("mount.reconcile")
+			return empty("mount.reconcile")
 		}
 	case "jobs":
 		switch sub {

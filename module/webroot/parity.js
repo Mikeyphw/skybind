@@ -61,3 +61,36 @@ export function recoveryPresentation(v,status) {
   guidance:String(v.guidance||v.explanation||'Recovery history is not yet tracked. Keep your passwords and rclone configuration backed up.'),
  };
 }
+
+// Adapt source-only native Doctor reports to the preserved UI presentation
+// model. Missing device attestation must never be rendered as an all-green pass.
+export function doctorPresentation(v) {
+  if (!v || v.schema_version !== 1 || !Array.isArray(v.checks) ||
+      v.qualification !== 'SOURCE_ONLY_DEVICE_NOT_ATTESTED' || v.checks.length > 100) {
+    throw new Error('Malformed or unqualified Doctor report');
+  }
+  const mapping = Object.freeze({
+    runtime:['runtime.integrity','Runtime integrity'], fuse:['fuse.helper','FUSE helper'],
+    platform:['root.manager','Root-manager integration'], mounts:['mounts.lifecycle','Mounts'],
+    namespace:['namespace.visibility','Android app visibility'], jobs:['jobs.scheduler','Scheduled jobs'],
+    rc:['provider.rc','RC telemetry'], remotes:['provider.remotes','Remote providers'],
+    storage:['storage.private','Private storage'], webui:['webui.transport','WebUI transport'],
+  });
+  const seen=new Set();
+  const checks=v.checks.map(item=>{
+    if (!item || typeof item.id !== 'string' || !Object.hasOwn(mapping,item.id) ||
+        seen.has(item.id) || !['PASS','INFO','WARN','FAIL'].includes(item.status) ||
+        typeof item.reason !== 'string' || typeof item.remedy !== 'string') {
+      throw new Error('Malformed Doctor check');
+    }
+    seen.add(item.id);
+    return {code:mapping[item.id][0],summary:mapping[item.id][1],status:item.status,
+      detail:item.reason,guidance:item.remedy==='none'?'':item.remedy};
+  });
+  if (seen.size !== Object.keys(mapping).length) throw new Error('Incomplete Doctor report');
+  checks.push({code:'qualification.device',summary:'Physical-device qualification',status:'WARN',
+    detail:'Device and ordinary-app access have not been independently attested',
+    guidance:'Complete the Android device and release evidence gates'});
+  const overall=checks.some(c=>c.status==='FAIL')?'FAIL':'WARN';
+  return {...v,checks,overall,device_qualified:false};
+}

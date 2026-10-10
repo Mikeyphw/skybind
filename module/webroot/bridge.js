@@ -1,5 +1,5 @@
 import { presentActivity, presentJobStatus } from './flow.js';
-import { runtimePresentation, platformPresentation, bundleMetadata, supportDownload, passwordStatus, recoveryPresentation } from './parity.js';
+import { runtimePresentation, platformPresentation, bundleMetadata, supportDownload, passwordStatus, recoveryPresentation, doctorPresentation } from './parity.js';
 const SCHEMA_VERSION = 1;
 const PROTOCOL_VERSION = 1;
 const MAX_TEXT = 1024 * 1024;
@@ -276,6 +276,7 @@ async function compatibleSend(envelope) {
  // Preserve the original UI result contract while relying on the typed backend authority.
  if(name==='runtime.status')return responseFor(id,runtimePresentation(await native(name,'query')));
  if(name==='platform.status')return responseFor(id,platformPresentation(await native(name,'query')));
+ if(name==='doctor.report')return responseFor(id,doctorPresentation(await native(name,'query',{})));
  if(name==='doctor.bundle')return responseFor(id,bundleMetadata(await native(name,'run',{})));
  if(name==='doctor.bundle.read') {
   const requested=args.bundle_id||args.id;

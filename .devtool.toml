@@ -76,6 +76,7 @@ repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
 feature-parity-provider = ["job:fp02-cli-provider-parity"]
 feature-parity-platform = ["job:fp03-platform-parity"]
+feature-parity-hotfix = ["job:fp-contract-hotfix"]
 typed-control = ["job:typed-control-source"]
 api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
@@ -549,4 +550,16 @@ metadata = { read_only = true, qualification = "source-parity-only", device_qual
 [wrapper.commands.feature-parity-platform]
 description = "Automatic SB-FP03 source parity, Android policy faults, Doctor, VFS, namespace and operation progress"
 workflow = "feature-parity-platform"
+target = "skybind"
+
+# SB-FPH01: exact CLI and original-WebUI/Doctor contract hotfix.
+[targets.skybind.jobs.fp-contract-hotfix]
+runner = "command"
+command = ["bash", "scripts/devtool/check_fp_contract_hotfix.sh"]
+inputs = ["cmd/skybind/**", "module/webroot/**", "internal/doctor/**", "internal/daemon/**", "scripts/devtool/check_fp_contract_hotfix.sh", "tests/integration/test_fp_hotfix_contract.mjs"]
+metadata = { read_only = true, qualification = "source-contract-only", device_qualification = false, final_seal = false }
+
+[wrapper.commands.feature-parity-hotfix]
+description = "Targeted SB-FPH01 source parity, typed CLI/Doctor and original WebUI mapping"
+workflow = "feature-parity-hotfix"
 target = "skybind"
