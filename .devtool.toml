@@ -148,6 +148,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+g01-definition = ["job:g01-definition"]
 foundation = [
  { id = "contracts", ref = "target:skybind#contracts", depends_on = [] },
  { id = "webui", ref = "target:skybind_webui#reference", depends_on = ["contracts"] },
@@ -227,3 +228,14 @@ description = "Check build-time provider input guards using artificial ELF fixtu
 workflow = "runtime-source"
 target = "skybind_runtime_inputs"
 
+# SB-G01: gate definition self-tests; real gate remains blocked until evidence.
+[targets.skybind_release.jobs.g01-definition]
+runner = "command"
+command = ["python3", "-m", "unittest", "discover", "-s", "../tests/gates", "-p", "test_*.py", "-v"]
+inputs = ["../scripts/dev/gates/**", "../tests/gates/**", "../docs/gates/SB-G01.md"]
+metadata = { read_only = true, qualification = "gate-definition-only", actual_gate_pass = false }
+
+[wrapper.commands.g01-definition]
+description = "Verify SB-G01 fail-closed gate definition, NOT supply-chain certification"
+workflow = "g01-definition"
+target = "skybind_release"
