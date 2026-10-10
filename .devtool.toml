@@ -70,6 +70,7 @@ inputs = [".devtool.toml", "docs/roadmap/**", "scripts/devtool/**", "tests/test_
 metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 
 [targets.skybind.workflows]
+contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
 validate = ["job:bootstrap-contracts"]
 
@@ -89,6 +90,7 @@ inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
 metadata = { read_only = true, qualification = "planning-only" }
 
 [targets.skybind_webui.workflows]
+reference = ["job:reference-fidelity"]
 bootstrap = ["job:bootstrap-ui-plan"]
 validate = ["job:bootstrap-ui-plan"]
 
@@ -144,6 +146,11 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+foundation = [
+ { id = "contracts", ref = "target:skybind#contracts", depends_on = [] },
+ { id = "webui", ref = "target:skybind_webui#reference", depends_on = ["contracts"] },
+ { id = "planning", ref = "job:foundation-evidence", depends_on = ["webui"] },
+]
 bootstrap = [
   { id = "contracts", ref = "target:skybind#bootstrap", depends_on = [] },
   { id = "webui", ref = "target:skybind_webui#bootstrap", depends_on = ["contracts"] },
@@ -166,3 +173,29 @@ output_directory = "dist"
 output_name = "skybind"
 collision = "unique"
 verify = true
+
+# SB-O01+SB-O02: executable source-contract and reference-fidelity checks.
+# Never mistake these tests for completed UI/device/release gates.
+[targets.skybind.jobs.foundation-contracts]
+runner = "command"
+command = ["python3", "-m", "unittest", "discover", "-s", "tests/contracts", "-p", "test_*.py", "-v"]
+inputs = ["docs/contracts/**", "docs/architecture/**", "tests/contracts/**", "tests/fixtures/webui-reference/**"]
+metadata = {read_only = true, qualification = "source-contract-only"}
+
+[targets.skybind_webui.jobs.reference-fidelity]
+runner = "command"
+command = ["python3", "../../scripts/devtool/check_ui_reference.py"]
+inputs = ["../../tests/fixtures/webui-reference/**", "../../tests/contracts/**", "../../scripts/devtool/check_ui_reference.py"]
+metadata = {read_only = true, qualification = "byte-and-dom-baseline-only"}
+
+[targets.skybind_release.jobs.foundation-evidence]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_bootstrap.py", "release"]
+inputs = ["../docs/roadmap/**", "../docs/contracts/**"]
+metadata = {read_only = true, qualification = "planning-and-contract-only"}
+
+[wrapper.commands.foundation]
+description = "Validate frozen product contracts and original WebUI bytes; NOT visual/device qualification"
+workflow = "foundation"
+target = "skybind_release"
+
