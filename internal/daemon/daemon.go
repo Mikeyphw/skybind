@@ -16,6 +16,9 @@ import (
 	"time"
 )
 
+// Linux and Android sockaddr_un.sun_path is 108 bytes including the NUL.
+const maxUnixSocketPath = 107
+
 type Server struct {
 	socket   string
 	lock     string
@@ -28,6 +31,9 @@ func New(socket string, engine *control.Engine) *Server {
 	return &Server{socket: socket, lock: socket + ".lock", eng: engine}
 }
 func (s *Server) Start() error {
+	if len(s.socket) > maxUnixSocketPath {
+		return fmt.Errorf("unix socket path too long: %d bytes (maximum %d)", len(s.socket), maxUnixSocketPath)
+	}
 	if s.eng == nil {
 		return errors.New("missing engine")
 	}
