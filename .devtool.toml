@@ -72,6 +72,7 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 [targets.skybind.workflows]
 native = ["job:foundation-go"]
 typed-control = ["job:typed-control-source"]
+config-source = ["job:config-transaction-source"]
 contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
 validate = ["job:bootstrap-contracts"]
@@ -255,3 +256,9 @@ target = "skybind"
 
 
 
+# SB-O08: transactional configuration source gate; not Android gate or G01 seal.
+[targets.skybind.jobs.config-transaction-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_config.sh"]
+inputs = ["internal/mounts/config/**", "internal/previewproof/**", "scripts/devtool/check_config.sh"]
+metadata = { read_only = true, qualification = "source-only", gate_g01 = "BLOCKED" }
