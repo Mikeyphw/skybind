@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"skybind/internal/protocol"
 	"strings"
 	"testing"
@@ -177,40 +178,48 @@ func TestEmbeddedAndStandaloneParity(t *testing.T) {
 	}
 }
 
-func TestCapabilityShapeMatchesReferenceUI(t *testing.T) {
-	caller := func(_ context.Context, r protocol.Request) (protocol.Response, error) {
-		return protocol.Success(r.RequestID, map[string]any{"schema_version": 1, "protocol": map[string]int{"min": 1, "max": 1}, "operations": []any{}}), nil
+// C05 makes the immutable login shell reachable before token exchange, not
+// privileged API routes or arbitrary files in the module/root-private state.
+func TestPublicShellRestrictedFilesAndPrivateAPI(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"index.html": "Skybind UI entry", "app.js": "export const x=1;",
+		"secret.txt": "do-not-serve", "config.json": "{}",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	s, e := NewStandalone(caller, t.TempDir())
-	if e != nil {
-		t.Fatal(e)
+	if err := os.Symlink("secret.txt", filepath.Join(dir, "model.js")); err != nil {
+		t.Fatal(err)
 	}
-	base := "http://127.0.0.1:30001"
-	boot := httptest.NewRequest("POST", base+"/auth/bootstrap", strings.NewReader(fmt.Sprintf(`{"token":"%s"}`, s.bootstrap)))
-	boot.Host = "127.0.0.1:30001"
-	b := httptest.NewRecorder()
-	s.Handler().ServeHTTP(b, boot)
-	if b.Code != 200 {
-		t.Fatal(b.Code)
+	s, err := NewStandalone(fakeCall, dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	req := httptest.NewRequest("GET", base+"/api/v1/capabilities", nil)
-	req.Host = "127.0.0.1:30001"
-	for _, cookie := range b.Result().Cookies() {
-		req.AddCookie(cookie)
+	h := s.Handler()
+	ask := func(path, host string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:30001"+path, nil)
+		req.Host = host
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
 	}
-	w := httptest.NewRecorder()
-	s.Handler().ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatal(w.Code, w.Body.String())
+	if w := ask("/", "127.0.0.1:30001"); w.Code != 200 || !strings.Contains(w.Body.String(), "Skybind UI entry") {
+		t.Fatalf("entry denied: %v %q", w.Code, w.Body.String())
 	}
-	var v map[string]any
-	if e := json.Unmarshal(w.Body.Bytes(), &v); e != nil {
-		t.Fatal(e)
+	if w := ask("/app.js", "127.0.0.1:30001"); w.Code != 200 {
+		t.Fatalf("script denied: %v", w.Code)
 	}
-	if _, wrapped := v["result"]; wrapped {
-		t.Fatal("capability response incorrectly wrapped")
+	if w := ask("/api/v1/capabilities", "127.0.0.1:30001"); w.Code != 401 {
+		t.Fatalf("private API public: %v", w.Code)
 	}
-	if _, ok := v["operations"]; !ok {
-		t.Fatal("missing original bridge.js operations")
+	for _, p := range []string{"/secret.txt", "/model.js", "/.git/config", "/internal/daemon/wiring.go"} {
+		if w := ask(p, "127.0.0.1:30001"); w.Code != 404 {
+			t.Fatalf("served unsafe %q: %v", p, w.Code)
+		}
+	}
+	if w := ask("/", "evil.example:30001"); w.Code != 403 {
+		t.Fatalf("unsafe host accepted: %v", w.Code)
 	}
 }

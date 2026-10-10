@@ -2,7 +2,7 @@
   "schema_version": 2,
   "kind": "consolidated-devtool-delivery-program",
   "product": "skybind",
-  "campaign": "Skybind Devtool Campaign — Consolidated Delivery",
+  "campaign": "Skybind Devtool Campaign \u2014 Consolidated Delivery",
   "status": "ACTIVE_SOURCE_DEVELOPMENT",
   "normative_feature_spec": "SKYBIND_FEATURE_SPEC.md",
   "normative_roadmap": "SKYBIND_DEVTOOL_ROADMAP.md",
@@ -466,7 +466,7 @@
         "SB-G06"
       ],
       "kind": "implementation",
-      "status": "PLANNED",
+      "status": "SOURCE_IMPLEMENTED_NOT_PROMOTED",
       "archive_name": "skybind-SB-C05-original-webui.devtool-overlay.zip",
       "files_owned": [
         "docs/ux",
@@ -581,7 +581,7 @@
         {
           "obligation_id": "SB-O34",
           "targeted_validation": "Independent Go/Python/Node fixture suites, fuzz/sanitizer subsets, race tests, secret canary scan, integrity and source/API/full-UX closure; reproduce injected failures.",
-          "negative_gate": "Any P00–P17 in-scope feature lacks an evidence owner/test, or any critical safety failure persists blocks.",
+          "negative_gate": "Any P00\u2013P17 in-scope feature lacks an evidence owner/test, or any critical safety failure persists blocks.",
           "promotion_criterion": "Integration and negative safety contracts are complete before device release attempts."
         },
         {
@@ -608,7 +608,7 @@
     {
       "id": "SB-CG1",
       "slug": "independent-milestone-gates",
-      "title": "Independent Milestone Gate Definitions & Execution (G03–G08)",
+      "title": "Independent Milestone Gate Definitions & Execution (G03\u2013G08)",
       "originals": [
         "SB-G03",
         "SB-G04",
@@ -1846,7 +1846,7 @@
         "module/webroot/model.js",
         "tests/webui/home-mounts"
       ],
-      "implementation": "Preserve Home hero/status, Runtime/Mounts/FUSE/Network four-card order, attention box, two quick actions, mount and activity previews and backend-authority/Refresh panel. Preserve Mounts cards/badges and contextual bottom sheet Start/Stop/Restart/Edit/Activity/Logs/Delete, config rollback and exact Source → Destination → Behavior → Review wizard: remote picker/manual entry/probe, destination suggestion, VFS/resource advanced fields, sticky navigation and proof-bound Apply. Keep focus return, error timing and unsaved-change behavior.",
+      "implementation": "Preserve Home hero/status, Runtime/Mounts/FUSE/Network four-card order, attention box, two quick actions, mount and activity previews and backend-authority/Refresh panel. Preserve Mounts cards/badges and contextual bottom sheet Start/Stop/Restart/Edit/Activity/Logs/Delete, config rollback and exact Source \u2192 Destination \u2192 Behavior \u2192 Review wizard: remote picker/manual entry/probe, destination suggestion, VFS/resource advanced fields, sticky navigation and proof-bound Apply. Keep focus return, error timing and unsaved-change behavior.",
       "targeted_validation": "Golden screenshots for normal/loading/blocked/error cases, wizard step traces and keyboard/focus audit, mocked and real Go API fixtures, stale-proof/duplicate target/password absence cases.",
       "negative_gate": "Different wizard step order, different action-sheet semantics, missing fields or deceptive success/errors blocks.",
       "promotion_criterion": "Home and Mounts visually and functionally match original UI with backed typed operations.",
@@ -1929,7 +1929,7 @@
         "tests/webui/a11y",
         "docs/ux"
       ],
-      "implementation": "Run original-vs-recreation visual and interaction parity at 360, 390, 412, 691, 759/760 and 1024px; dark/light, dense/default, reduced motion/enlarged text, portrait/landscape, keyboard open, long paths, offline/session-expired, modal/sheet, empty/loading/failure and stale proof. Verify focus traps/return, escape/device back, live notices, aria-busy, ≥44px targets, keyboard navigation and Android safe-area. Test all retained flows through both standalone and embedded transports; exceptions require exact screenshots, reason and reviewer decision.",
+      "implementation": "Run original-vs-recreation visual and interaction parity at 360, 390, 412, 691, 759/760 and 1024px; dark/light, dense/default, reduced motion/enlarged text, portrait/landscape, keyboard open, long paths, offline/session-expired, modal/sheet, empty/loading/failure and stale proof. Verify focus traps/return, escape/device back, live notices, aria-busy, \u226544px targets, keyboard navigation and Android safe-area. Test all retained flows through both standalone and embedded transports; exceptions require exact screenshots, reason and reviewer decision.",
       "targeted_validation": "Deterministic reference screenshots and diff policy, real browser scripted traces, a11y scanner plus human review; device WebView screenshots when available; explicit no-unexplained-drift audit.",
       "negative_gate": "No golden baseline, visually novel UI, unapproved visual/flow changes, trap regression or claiming embedded parity solely from static tests blocks.",
       "promotion_criterion": "WebUI preservation is an independently gated acceptance contract, not a theme preference.",
@@ -1959,7 +1959,7 @@
       ],
       "implementation": "Build cross-subsystem fixtures: corrupt runtime/manifest, PID reuse, state symlink swap, stale proof, race in config, mount/namespace loss, cache pressure, duplicate scheduler claim, RC credential disclosure, nested crypt, interrupted provider action, log/bundle canaries, slow HTTP clients and crash during restart/uninstall. Bind each test to a unique issue/obligation and failed-vs-fixed evidence. Add targeted plus affected-graph retest and regression freeze.",
       "targeted_validation": "Independent Go/Python/Node fixture suites, fuzz/sanitizer subsets, race tests, secret canary scan, integrity and source/API/full-UX closure; reproduce injected failures.",
-      "negative_gate": "Any P00–P17 in-scope feature lacks an evidence owner/test, or any critical safety failure persists blocks.",
+      "negative_gate": "Any P00\u2013P17 in-scope feature lacks an evidence owner/test, or any critical safety failure persists blocks.",
       "promotion_criterion": "Integration and negative safety contracts are complete before device release attempts.",
       "status": "PLANNED"
     },
@@ -1985,7 +1985,7 @@
         "docs/qualification",
         ".github/workflows"
       ],
-      "implementation": "Qualify each produced provider ZIP on actual declared supported arm64 devices, record Android fingerprint/API/kernel/SELinux/root manager/version/capabilities plus rclone/FUSE hashes. Test install, boot, Action, mount read/write from a NORMAL Android app, namespace churn, work profile if present, cold/warm reboots, multi-mount/jobs, network/doze/charging/storage/auth/fuse faults, daemon death, WebUI transports, cache, uninstall retention and explicit purge. Use Devtool device manager/ADB operations and shell/push/pull/logcat/screenshot as appropriate. If a real device is absent, mark DEVICE BLOCKED—not PASS.",
+      "implementation": "Qualify each produced provider ZIP on actual declared supported arm64 devices, record Android fingerprint/API/kernel/SELinux/root manager/version/capabilities plus rclone/FUSE hashes. Test install, boot, Action, mount read/write from a NORMAL Android app, namespace churn, work profile if present, cold/warm reboots, multi-mount/jobs, network/doze/charging/storage/auth/fuse faults, daemon death, WebUI transports, cache, uninstall retention and explicit purge. Use Devtool device manager/ADB operations and shell/push/pull/logcat/screenshot as appropriate. If a real device is absent, mark DEVICE BLOCKED\u2014not PASS.",
       "targeted_validation": "Device facts capture, per-scenario immutable receipts, attached logs/screenshots, reproducible APK helper instrumentation only when an actual test-app target exists, targeted cross-provider matrix.",
       "negative_gate": "A rooted shell being able to read a mount cannot substitute for ordinary-app access; an emulator/host-only result cannot claim phone/endurance pass; untested managers remain unqualified.",
       "promotion_criterion": "Supported hardware claims are backed by exact devices, both runtime variants and authentic app read/write observations.",

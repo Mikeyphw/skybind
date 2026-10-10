@@ -9,6 +9,7 @@ import (
 	"skybind/internal/diagnostics"
 	"skybind/internal/doctor"
 	"skybind/internal/support"
+	"skybind/internal/uisettings"
 	"skybind/internal/webui"
 
 	"fmt"
@@ -179,7 +180,17 @@ func daemonCommand() int {
 		return 1
 	}
 	_ = logStore.Write("INFO", "daemon", "STARTUP", "Skybind daemon starting")
-	srv := daemon.New(paths.DaemonSocket, daemon.EngineWithObservability(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}, jobStore, providerEngine, rcEngine, logStore, bundleStore, doctor.Canonical()))
+	uiStore, err := uisettings.Open(paths.StateRoot + "/ui")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "private UI settings:", err)
+		return 1
+	}
+	engine := daemon.EngineWithObservability(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}, jobStore, providerEngine, rcEngine, logStore, bundleStore, doctor.Canonical())
+	if err = daemon.RegisterUISettings(engine, uiStore); err != nil {
+		fmt.Fprintln(os.Stderr, "UI settings registry:", err)
+		return 1
+	}
+	srv := daemon.New(paths.DaemonSocket, engine)
 	if err = srv.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon start:", err)
 		return 1

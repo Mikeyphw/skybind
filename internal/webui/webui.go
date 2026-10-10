@@ -248,6 +248,14 @@ func (s *Standalone) Handler() http.Handler {
 			writeJSON(w, map[string]any{"authenticated": true})
 			return
 		}
+		// The immutable UI shell must be available before token authentication.
+		// API operations remain authenticated below. Otherwise standalone clients
+		// cannot display the one-use-token entry form at all.
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+			!strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/auth/bootstrap" {
+			s.serveAsset(w, r)
+			return
+		}
 		if !s.authenticated(r) {
 			http.Error(w, "authentication required", 401)
 			return
@@ -306,34 +314,31 @@ func (s *Standalone) Handler() http.Handler {
 			s.dispatch(w, r, parsed)
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "method not allowed", 405)
-			return
-		}
-		// Assets arrive in SB-C05; never serve a directory outside the fixed root.
-		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" {
-			path = "index.html"
-		}
-		if filepath.Base(path) != path {
-			http.NotFound(w, r)
-			return
-		}
-		for _, c := range path {
-			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '.') {
-				http.NotFound(w, r)
-				return
-			}
-		}
-		f := filepath.Join(s.assets, path)
-		info, e := os.Lstat(f)
-		if e != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			http.NotFound(w, r)
-			return
-		}
-		http.ServeFile(w, r, f)
+		http.NotFound(w, r)
 	})
 }
+
+// serveAsset serves only the fixed, read-only frontend file set. No paths from
+// the browser can reach root-private backend state or module installation hooks.
+func (s *Standalone) serveAsset(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	if path == "" {
+		path = "index.html"
+	}
+	allowed := map[string]bool{"index.html": true, "app.js": true, "bridge.js": true, "model.js": true, "style.css": true, "icon.png": true, "config.json": true, "platform.json": true}
+	if !allowed[path] || filepath.Base(path) != path {
+		http.NotFound(w, r)
+		return
+	}
+	f := filepath.Join(s.assets, path)
+	info, e := os.Lstat(f)
+	if e != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, f)
+}
+
 func readLimited(r io.Reader, n int64) []byte { b, _ := io.ReadAll(io.LimitReader(r, n)); return b }
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

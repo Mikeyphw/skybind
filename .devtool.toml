@@ -361,3 +361,17 @@ runner = "command"
 command = ["bash", "scripts/devtool/check_diagnostics_transports.sh"]
 inputs = ["internal/diagnostics/**", "internal/doctor/**", "internal/support/**", "internal/webui/**", "internal/daemon/**", "cmd/skybind/**", "tests/diagnostics/**", "scripts/devtool/check_diagnostics_transports.sh"]
 metadata = {qualification = "source-only", android_device = false, visual_parity = false, release_seal = false}
+
+# SB-C05 original WebUI source fidelity, native transport integration, negative tests.
+[targets.skybind_webui.jobs.original-webui-source]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_original_webui.sh"]
+inputs = ["../module/webroot/**", "../tests/fixtures/webui-reference/**", "../tests/webui/**", "../internal/webui/**", "../internal/uisettings/**", "../internal/daemon/**", "../scripts/devtool/check_original_webui.sh"]
+metadata = { read_only = true, qualification = "source-only", visual_parity = false, device_qualification = false, gate_g07 = "NOT_ATTESTED" }
+
+[[test]]
+id = "sb-c05-original-webui"
+name = "SB-C05 copied frontend and typed backend source contracts"
+runner = "command"
+timeout_seconds = 600
+command = ["bash", "scripts/devtool/check_original_webui.sh"]

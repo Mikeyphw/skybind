@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "module": "skybind",
+  "webui_state": "foundation",
+  "typed_backend_required": true,
+  "standalone_transport": true,
+  "embedded_transport": "capability-gated",
+  "arbitrary_shell": false,
+  "generic_exec": false,
+  "generic_argv": false,
+  "generic_rc": false
+}
