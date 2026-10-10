@@ -71,6 +71,7 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 
 [targets.skybind.workflows]
 native = ["job:foundation-go"]
+typed-control = ["job:typed-control-source"]
 contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
 validate = ["job:bootstrap-contracts"]
@@ -239,3 +240,18 @@ metadata = { read_only = true, qualification = "gate-definition-only", actual_ga
 description = "Verify SB-G01 fail-closed gate definition, NOT supply-chain certification"
 workflow = "g01-definition"
 target = "skybind_release"
+
+# SB-O06+O07: typed control and operation journal source checks only.
+[targets.skybind.jobs.typed-control-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_control.sh"]
+inputs = ["internal/protocol/**", "internal/control/**", "internal/daemon/**", "internal/previewproof/**", "internal/journal/**", "scripts/devtool/check_control.sh"]
+metadata = { read_only = true, qualification = "source-only", gate_g01 = "BLOCKED" }
+
+[wrapper.commands.typed-control]
+description = "SB-O06+O07 typed control source test (NOT G01 promotion)"
+workflow = "typed-control"
+target = "skybind"
+
+
+

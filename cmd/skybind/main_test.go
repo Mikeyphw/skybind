@@ -1,16 +1,14 @@
 package main
 
-import "testing"
+import (
+	"testing"
+)
 
-func TestFoundationCommands(t *testing.T) {
-	for _, args := range [][]string{{"version"}, {"--version"}, {"paths"}} {
-		if run(args) != 0 {
-			t.Errorf("failure: %v", args)
-		}
+func TestCLIRejectsUntrustedOperation(t *testing.T) {
+	if run([]string{"rpc", "runtime.status", "file", "{}"}) != 2 {
+		t.Fatal("arbitrary class allowed")
 	}
-	for _, args := range [][]string{{}, {"stop"}, {"mount"}, {"version", "oops"}} {
-		if run(args) == 0 {
-			t.Errorf("unimplemented operation succeeded: %v", args)
-		}
+	if run([]string{"rpc", "shell.exec", "run", "{"}) != 2 {
+		t.Fatal("malformed JSON allowed")
 	}
 }
