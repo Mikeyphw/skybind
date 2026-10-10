@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"skybind/internal/control"
+	"skybind/internal/jobs"
 	"skybind/internal/journal"
 	"skybind/internal/mounts/cache"
 	"skybind/internal/mounts/config"
@@ -13,6 +14,8 @@ import (
 	"skybind/internal/mounts/supervisor"
 	"skybind/internal/namespace"
 	"skybind/internal/protocol"
+	"skybind/internal/provider"
+	"skybind/internal/rc"
 	"skybind/internal/rootmgr"
 	"skybind/internal/runtimeauth"
 	"time"
@@ -47,6 +50,12 @@ func EngineWithMounts(j *journal.Journal, s *config.Store, mount *lifecycle.Engi
 // EngineWithPlatform exposes Android functionality only when the privileged
 // daemon owns its canonical namespace and root-manager observers.
 func EngineWithPlatform(j *journal.Journal, s *config.Store, mount *lifecycle.Engine, caches *cache.Manager, sup *supervisor.Supervisor, facts func() policy.Facts, ns *namespace.Manager, roots rootmgr.Detector) *control.Engine {
+	return EngineWithServices(j, s, mount, caches, sup, facts, ns, roots, nil, nil, nil)
+}
+
+// EngineWithServices also owns the job and provider boundaries. It is the
+// single privileged registration point; no generic backend execution exists.
+func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.Engine, caches *cache.Manager, sup *supervisor.Supervisor, facts func() policy.Facts, ns *namespace.Manager, roots rootmgr.Detector, jobStore *jobs.Store, providers *provider.Manager, metrics *rc.Manager) *control.Engine {
 	e := control.New()
 	register := func(name string, class protocol.Class, fn control.Handler) {
 		if err := e.Register(name, class, fn); err != nil {
@@ -93,6 +102,11 @@ func EngineWithPlatform(j *journal.Journal, s *config.Store, mount *lifecycle.En
 			}
 			if p.ID == "" {
 				return nil, errors.New("empty id")
+			}
+			if jobStore != nil {
+				if run, e := jobStore.Cancel(p.ID); e == nil {
+					return run, nil
+				}
 			}
 			return j.Cancel(p.ID)
 		})
@@ -400,5 +414,129 @@ func EngineWithPlatform(j *journal.Journal, s *config.Store, mount *lifecycle.En
 		})
 	}
 
+	if jobStore != nil {
+		register("jobs.snapshot", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			if e := emptyArgs(a); e != nil {
+				return nil, e
+			}
+			return jobStore.Snapshot()
+		})
+		register("jobs.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			if e := emptyArgs(a); e != nil {
+				return nil, e
+			}
+			return jobStore.Status()
+		})
+		register("jobs.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Candidate json.RawMessage `json:"candidate"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return jobStore.Preview(v.Candidate)
+		})
+		register("jobs.apply", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Candidate json.RawMessage `json:"candidate"`
+				Proof     string          `json:"proof"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return jobStore.Apply(v.Candidate, v.Proof)
+		})
+		register("job.run.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Name string `json:"name"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return jobStore.RunPreview(v.Name)
+		})
+		register("job.run", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Name  string `json:"name"`
+				Proof string `json:"proof"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return jobStore.RunManual(v.Name, v.Proof)
+		})
+	}
+	if providers != nil {
+		register("provider.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			if e := emptyArgs(a); e != nil {
+				return nil, e
+			}
+			return providers.Status()
+		})
+		register("provider.remotes", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			if e := emptyArgs(a); e != nil {
+				return nil, e
+			}
+			return providers.Remotes()
+		})
+		register("provider.browse", protocol.Query, func(ctx context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Remote string `json:"remote"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return providers.Browse(ctx, v.Remote)
+		})
+		register("provider.crypt.password.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			if e := emptyArgs(a); e != nil {
+				return nil, e
+			}
+			return providers.PasswordStatus()
+		})
+		register("provider.crypt.password.set", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Password string `json:"password"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return providers.PasswordSet(ctx, v.Password)
+		})
+		register("provider.crypt.recovery.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			if e := emptyArgs(a); e != nil {
+				return nil, e
+			}
+			return providers.RecoveryStatus(), nil
+		})
+		register("provider.crypt.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
+			var v provider.CryptSpec
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return providers.CryptPreview(v)
+		})
+		register("provider.crypt.create", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Spec  provider.CryptSpec `json:"spec"`
+				Proof string             `json:"proof"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return providers.CryptCreate(v.Spec, v.Proof)
+		})
+	}
+	if metrics != nil {
+		register("rc.metrics", protocol.Query, func(ctx context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Name string `json:"name"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return metrics.Metrics(ctx, v.Name)
+		})
+	}
 	return e
 }

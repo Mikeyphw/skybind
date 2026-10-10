@@ -160,14 +160,16 @@ func (linuxObserver) Mount(point string) (MountObservation, bool, error) {
 }
 
 type Engine struct {
-	mu     sync.Mutex
-	store  *config.Store
-	dir    string
-	obs    Observer
-	run    Spawner
-	env    RunEnv
-	state  map[string]bool
-	proofs *previewproof.Store
+	mu        sync.Mutex
+	store     *config.Store
+	dir       string
+	obs       Observer
+	run       Spawner
+	env       RunEnv
+	state     map[string]bool
+	proofs    *previewproof.Store
+	rcPrepare func(string) ([]string, error)
+	rcDrop    func(string)
 }
 
 // Canonical returns a production engine. Roots and executables cannot be
@@ -177,6 +179,15 @@ func Canonical(s *config.Store) *Engine {
 }
 func newEngine(s *config.Store, dir string, o Observer, r Spawner, env RunEnv) *Engine {
 	return &Engine{store: s, dir: dir, obs: o, run: r, env: env, state: map[string]bool{}, proofs: previewproof.New()}
+}
+
+// ConfigureRC attaches a per-mount authenticated loopback endpoint provider.
+// Only the root-owned daemon may configure this hook; no request may supply flags.
+func (e *Engine) ConfigureRC(prepare func(string) ([]string, error), drop func(string)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.rcPrepare = prepare
+	e.rcDrop = drop
 }
 func (e *Engine) recordFile(name string) string { return filepath.Join(e.dir, "process-"+name+".json") }
 func (e *Engine) desiredFile() string           { return filepath.Join(e.dir, "desired-v1.json") }
@@ -466,14 +477,27 @@ func (e *Engine) Start(name string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
+	if e.rcPrepare != nil {
+		options, rerr := e.rcPrepare(name)
+		if rerr != nil {
+			return State{}, rerr
+		}
+		args = append(args, options...)
+	}
 	pid, err := e.run.Start(paths.Engine, args)
 	if err != nil {
+		if e.rcDrop != nil {
+			e.rcDrop(name)
+		}
 		return State{}, err
 	}
 	tick, exe, err := e.obs.Identity(pid)
 	if err != nil || exe != paths.Engine || tick == 0 {
 		if pid > 0 {
 			_ = e.run.Stop(pid)
+		}
+		if e.rcDrop != nil {
+			e.rcDrop(name)
 		}
 		return State{}, errors.New("could not prove child process ownership")
 	}
@@ -492,12 +516,18 @@ func (e *Engine) Start(name string) (State, error) {
 	}
 	if !verified {
 		_ = e.run.Stop(pid)
+		if e.rcDrop != nil {
+			e.rcDrop(name)
+		}
 		return State{}, errors.New("FUSE readiness/mount identity not observed")
 	}
 	rec := Ownership{Name: m.Name, PID: pid, StartTicks: tick, Executable: exe, Mountpoint: m.Mountpoint, MountID: observed.MountID, CreatedUnix: e.env.Now().Unix()}
 	buf, _ := json.Marshal(rec)
 	if err = atomicfile.Write(e.dir, "process-"+name+".json", buf); err != nil {
 		_ = e.run.Stop(pid)
+		if e.rcDrop != nil {
+			e.rcDrop(name)
+		}
 		return State{}, err
 	}
 	e.state[name] = true
@@ -549,6 +579,9 @@ func (e *Engine) Stop(name string) (State, error) {
 			return State{}, err
 		}
 		_ = os.Remove(e.recordFile(name))
+	}
+	if e.rcDrop != nil {
+		e.rcDrop(name)
 	}
 	return e.inspect(m)
 }

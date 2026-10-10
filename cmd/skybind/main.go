@@ -12,6 +12,7 @@ import (
 	"skybind/internal/buildinfo"
 	"skybind/internal/control"
 	"skybind/internal/daemon"
+	"skybind/internal/jobs"
 	"skybind/internal/journal"
 	"skybind/internal/mounts/cache"
 	"skybind/internal/mounts/config"
@@ -22,6 +23,8 @@ import (
 	"skybind/internal/paths"
 	"skybind/internal/platformlifecycle"
 	"skybind/internal/protocol"
+	"skybind/internal/provider"
+	"skybind/internal/rc"
 	"skybind/internal/rootmgr"
 	"skybind/internal/runtimeauth"
 	"syscall"
@@ -150,7 +153,15 @@ func daemonCommand() int {
 	}
 	supervisorEngine.ConfigureCache(cacheEngine, cfg)
 	namespaceEngine := namespace.CanonicalManager(mountEngine)
-	srv := daemon.New(paths.DaemonSocket, daemon.EngineWithPlatform(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}))
+	jobStore, err := jobs.Canonical()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "job store:", err)
+		return 1
+	}
+	providerEngine := provider.Canonical()
+	rcEngine := rc.Canonical(func(name string) bool { _, _, err := mountEngine.VerifiedMount(name); return err == nil })
+	mountEngine.ConfigureRC(rcEngine.Prepare, rcEngine.Drop)
+	srv := daemon.New(paths.DaemonSocket, daemon.EngineWithServices(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}, jobStore, providerEngine, rcEngine))
 	if err = srv.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon start:", err)
 		return 1
@@ -169,6 +180,7 @@ func daemonCommand() int {
 				return
 			case <-timer.C:
 				_, _ = supervisorEngine.Reconcile(ctx)
+				_, _ = jobStore.Tick()
 			}
 		}
 	}()

@@ -76,6 +76,7 @@ api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
 mount-source = ["job:mount-source-validation"]
 android-platform = ["job:android-platform-source"]
+jobs-providers = ["job:jobs-providers-source"]
 contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
 validate = ["job:bootstrap-contracts"]
@@ -332,3 +333,23 @@ name = "SB-C02 bounded namespace, root manager hooks and safe uninstall"
 runner = "command"
 timeout_seconds = 300
 command = ["bash", "scripts/devtool/check_android_platform.sh"]
+
+# SB-C03 — jobs, credential-isolated provider operations and per-mount RC.
+# Devtool automatically executes this validator while applying the artifact.
+[targets.skybind.jobs.jobs-providers-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_jobs_providers.sh"]
+inputs = ["internal/jobs/**", "internal/provider/**", "internal/rc/**", "internal/daemon/**", "internal/mounts/lifecycle/**", "cmd/skybind/**", "tests/jobs/**", "docs/contracts/SB-C03_JOBS_PROVIDERS.md", "scripts/devtool/check_jobs_providers.sh", "docs/roadmap/**"]
+metadata = {read_only = true, qualification = "source-only", gates = "BLOCKED", device_qualification = false}
+
+[wrapper.commands.jobs-providers]
+description = "SB-C03 typed jobs, bounded providers and RC source/security tests; no device or gate seal"
+workflow = "jobs-providers"
+target = "skybind"
+
+[[test]]
+id = "sb-c03-jobs-providers"
+name = "SB-C03 scheduled jobs, remote crypt and authenticated RC negative gates"
+runner = "command"
+timeout_seconds = 360
+command = ["bash", "scripts/devtool/check_jobs_providers.sh"]

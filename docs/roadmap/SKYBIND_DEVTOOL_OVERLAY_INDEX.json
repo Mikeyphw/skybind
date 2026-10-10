@@ -277,7 +277,7 @@
         "SB-G03"
       ],
       "kind": "implementation",
-      "status": "PLANNED",
+      "status": "SOURCE_IMPLEMENTED_NOT_PROMOTED",
       "archive_name": "skybind-SB-C03-jobs-providers.devtool-overlay.zip",
       "files_owned": [
         "internal/jobs/executor",
@@ -335,7 +335,10 @@
         "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
         "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
       },
-      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence"
+      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence",
+      "source_evidence": "scripts/devtool/check_jobs_providers.sh",
+      "device_qualification": "NOT_ATTESTED",
+      "milestone_gate": "BLOCKED"
     },
     {
       "id": "SB-C04",

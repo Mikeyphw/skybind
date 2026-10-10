@@ -97,7 +97,7 @@ The previous campaign separated 36 implementation obligations, 8 milestone gates
 ### SB-C03 — Jobs, Authenticated RC, Remote Browsing & Crypt
 **Archive:** `skybind-SB-C03-jobs-providers.devtool-overlay.zip`
 
-**Dependencies:** `SB-C01`. **Promotion gates:** `SB-G03`. **Targets:** `skybind`. **Risk:** high. **State:** `PLANNED`.
+**Dependencies:** `SB-C01`. **Promotion gates:** `SB-G03`. **Targets:** `skybind`. **Risk:** high. **State:** `SOURCE_IMPLEMENTED_NOT_PROMOTED`.
 
 **Retained original obligations:** `SB-O20`, `SB-O21`, `SB-O22`, `SB-O23`, `SB-O24`.
 
