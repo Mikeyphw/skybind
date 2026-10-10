@@ -41,7 +41,13 @@ def check_all():
   assert len(e['originals'])==len(set(e['originals']))
  assert all(x in ['BLOCKED'] for x in data['starting_position']['gate_qualification'].values())
  assert data['artifact_sequence'][0]['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED'
- assert all(x.get('status')=='PLANNED' for x in packages[1:])
+ # Source implementation status progresses as a strict prefix. Later overlays
+ # must not be mislabeled delivered, and source passes never imply gates.
+ delivered=[x['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED' for x in packages]
+ assert delivered[:2]==[True,True]
+ assert not any((not delivered[i]) and delivered[i+1] for i in range(len(delivered)-1))
+ assert all(x['status'] in ('SOURCE_IMPLEMENTED_NOT_PROMOTED','PLANNED') for x in packages)
+
  assert 'dynamic runtime' in ' '.join(data['explicit_exclusions']).lower()
  assert not any('seal' in k for t in cfg['targets'].values() for k in t['workflows'])
  return cfg,data

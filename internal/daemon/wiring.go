@@ -11,7 +11,9 @@ import (
 	"skybind/internal/mounts/lifecycle"
 	"skybind/internal/mounts/policy"
 	"skybind/internal/mounts/supervisor"
+	"skybind/internal/namespace"
 	"skybind/internal/protocol"
+	"skybind/internal/rootmgr"
 	"skybind/internal/runtimeauth"
 	"time"
 )
@@ -39,6 +41,12 @@ func EngineWithConfig(j *journal.Journal, s *config.Store) *control.Engine {
 
 // EngineWithMounts registers only actually implemented native features.
 func EngineWithMounts(j *journal.Journal, s *config.Store, mount *lifecycle.Engine, caches *cache.Manager, sup *supervisor.Supervisor, facts func() policy.Facts) *control.Engine {
+	return EngineWithPlatform(j, s, mount, caches, sup, facts, nil, nil)
+}
+
+// EngineWithPlatform exposes Android functionality only when the privileged
+// daemon owns its canonical namespace and root-manager observers.
+func EngineWithPlatform(j *journal.Journal, s *config.Store, mount *lifecycle.Engine, caches *cache.Manager, sup *supervisor.Supervisor, facts func() policy.Facts, ns *namespace.Manager, roots rootmgr.Detector) *control.Engine {
 	e := control.New()
 	register := func(name string, class protocol.Class, fn control.Handler) {
 		if err := e.Register(name, class, fn); err != nil {
@@ -308,6 +316,88 @@ func EngineWithMounts(j *journal.Journal, s *config.Store, mount *lifecycle.Engi
 				return caches.Apply(n, action, proof, target)
 			})
 		}
+	}
+
+	if ns != nil {
+		decodeMount := func(a json.RawMessage) (string, error) {
+			var v struct {
+				Name string `json:"name"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return "", e
+			}
+			if v.Name == "" {
+				return "", errors.New("missing mount name")
+			}
+			return v.Name, nil
+		}
+		decodeGroup := func(a json.RawMessage) (string, []string, string, error) {
+			var v struct {
+				Name       string   `json:"name"`
+				Namespaces []string `json:"namespaces"`
+				Proof      string   `json:"proof"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return "", nil, "", e
+			}
+			if v.Name == "" {
+				return "", nil, "", errors.New("missing mount name")
+			}
+			return v.Name, v.Namespaces, v.Proof, nil
+		}
+		register("namespace.inspect", protocol.Query, func(ctx context.Context, a json.RawMessage) (any, error) {
+			n, e := decodeMount(a)
+			if e != nil {
+				return nil, e
+			}
+			return ns.Inspect(ctx, n)
+		})
+		register("namespace.preview", protocol.Preview, func(ctx context.Context, a json.RawMessage) (any, error) {
+			n, g, _, e := decodeGroup(a)
+			if e != nil {
+				return nil, e
+			}
+			return ns.Preview(ctx, n, g)
+		})
+		register("namespace.apply", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
+			n, g, p, e := decodeGroup(a)
+			if e != nil {
+				return nil, e
+			}
+			return ns.Apply(ctx, n, g, p)
+		})
+		register("namespace.rollback.preview", protocol.Preview, func(ctx context.Context, a json.RawMessage) (any, error) {
+			n, e := decodeMount(a)
+			if e != nil {
+				return nil, e
+			}
+			return ns.RollbackPreview(ctx, n)
+		})
+		register("namespace.rollback", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Name  string `json:"name"`
+				Proof string `json:"proof"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return ns.Rollback(ctx, v.Name, v.Proof)
+		})
+		register("namespace.reconcile", protocol.Reconcile, func(ctx context.Context, a json.RawMessage) (any, error) {
+			n, e := decodeMount(a)
+			if e != nil {
+				return nil, e
+			}
+			return ns.Reconcile(ctx, n)
+		})
+	}
+	if roots != nil {
+		register("platform.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			if e := emptyArgs(a); e != nil {
+				return nil, e
+			}
+			return roots.Status()
+		})
 	}
 
 	return e

@@ -18,8 +18,11 @@ import (
 	"skybind/internal/mounts/lifecycle"
 	"skybind/internal/mounts/policy"
 	"skybind/internal/mounts/supervisor"
+	"skybind/internal/namespace"
 	"skybind/internal/paths"
+	"skybind/internal/platformlifecycle"
 	"skybind/internal/protocol"
+	"skybind/internal/rootmgr"
 	"skybind/internal/runtimeauth"
 	"syscall"
 	"time"
@@ -46,12 +49,47 @@ func run(args []string) int {
 		p := paths.Default()
 		fmt.Printf("module=%s\nstate=%s\nengine=%s\nfuse=%s\nsocket=%s\n", p.Module, p.State, p.Engine, p.Fuse, p.Socket)
 		return 0
+	case "_ns-worker":
+		return namespace.RunWorker(args[1:])
 	case "daemon":
 		if len(args) != 1 {
 			usage()
 			return 2
 		}
 		return daemonCommand()
+	case "purge-preview":
+		token, err := platformlifecycle.PreviewPurge()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println(token)
+		return 0
+	case "purge-state":
+		if len(args) != 3 {
+			return 2
+		}
+		if os.Geteuid() != 0 {
+			return 1
+		}
+		if err := paths.EnsurePrivateState(); err != nil {
+			return 1
+		}
+		cfg, err := config.Open(paths.StateRoot + "/config")
+		if err != nil {
+			return 1
+		}
+		mnt := lifecycle.Canonical(cfg)
+		ns := namespace.CanonicalManager(mnt)
+		if err = platformlifecycle.Purge(mnt, ns, args[1], args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	case "uninstall-stop":
+		return uninstallStop()
+	case "platform-status":
+		return rpcCommand([]string{"platform.status", "query", "{}"})
 	case "capabilities":
 		if len(args) != 1 {
 			return 2
@@ -111,7 +149,8 @@ func daemonCommand() int {
 		return 1
 	}
 	supervisorEngine.ConfigureCache(cacheEngine, cfg)
-	srv := daemon.New(paths.DaemonSocket, daemon.EngineWithMounts(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }))
+	namespaceEngine := namespace.CanonicalManager(mountEngine)
+	srv := daemon.New(paths.DaemonSocket, daemon.EngineWithPlatform(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}))
 	if err = srv.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon start:", err)
 		return 1
@@ -173,5 +212,27 @@ func rpcCommand(args []string) int {
 	if !result.OK {
 		return 1
 	}
+	return 0
+}
+
+func uninstallStop() int {
+	if os.Geteuid() != 0 {
+		return 1
+	}
+	if err := paths.EnsurePrivateState(); err != nil {
+		return 1
+	}
+	cfg, err := config.Open(paths.StateRoot + "/config")
+	if err != nil {
+		return 1
+	}
+	mounts := lifecycle.Canonical(cfg)
+	ns := namespace.CanonicalManager(mounts)
+	stopped, err := platformlifecycle.StopOwned(mounts, ns)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "guarded uninstall stop:", err)
+		return 1
+	}
+	fmt.Printf("Skybind-owned mounts stopped: %d. User state preserved.\n", len(stopped))
 	return 0
 }

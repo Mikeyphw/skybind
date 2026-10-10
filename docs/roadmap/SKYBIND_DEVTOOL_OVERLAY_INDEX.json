@@ -177,7 +177,7 @@
         "SB-G03"
       ],
       "kind": "implementation",
-      "status": "PLANNED",
+      "status": "SOURCE_IMPLEMENTED_NOT_PROMOTED",
       "archive_name": "skybind-SB-C02-android-platform.devtool-overlay.zip",
       "files_owned": [
         "internal/namespace",
@@ -238,7 +238,8 @@
         "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
         "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
       },
-      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence"
+      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence",
+      "evidence": "SB-C02 source and fixture validation only; G01/G02 blocked, G03/G04 unqualified; no Android normal-app write/read proof"
     },
     {
       "id": "SB-C03",

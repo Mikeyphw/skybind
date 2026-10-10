@@ -301,6 +301,31 @@ func (e *Engine) Status(name string) (State, error) {
 	}
 	return e.inspect(m)
 }
+
+// VerifiedMount returns a source mount only after full process, FUSE and
+// mountinfo identity checks. It is the sole authority for namespace binds.
+func (e *Engine) VerifiedMount(name string) (Ownership, MountObservation, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	m, err := e.getMount(name)
+	if err != nil {
+		return Ownership{}, MountObservation{}, err
+	}
+	state, err := e.inspect(m)
+	if err != nil || state.Observed != "RUNNING" {
+		return Ownership{}, MountObservation{}, errors.New("source mount not verified running")
+	}
+	rec, owned, err := e.owned(m)
+	if err != nil || !owned {
+		return Ownership{}, MountObservation{}, errors.New("source process ownership missing")
+	}
+	observed, exists, err := e.obs.Mount(m.Mountpoint)
+	if err != nil || !exists || rec.MountID != observed.MountID || !strings.HasPrefix(observed.FsType, "fuse") {
+		return Ownership{}, MountObservation{}, errors.New("source FUSE signature drift")
+	}
+	return rec, observed, nil
+}
+
 func (e *Engine) Preview(name string) (map[string]any, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

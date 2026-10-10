@@ -75,6 +75,7 @@ typed-control = ["job:typed-control-source"]
 api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
 mount-source = ["job:mount-source-validation"]
+android-platform = ["job:android-platform-source"]
 contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
 validate = ["job:bootstrap-contracts"]
@@ -310,3 +311,24 @@ name = "SB-C01 owned FUSE mount engine and cache security"
 runner = "command"
 timeout_seconds = 300
 command = ["bash", "scripts/devtool/check_mount_engine.sh"]
+
+# SB-C02: all namespace/mount, manager and uninstall validation is run by
+# Devtool itself as part of atomic apply. This is SOURCE ONLY.
+[targets.skybind.jobs.android-platform-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_android_platform.sh"]
+inputs = ["internal/namespace/**", "internal/rootmgr/**", "internal/platformlifecycle/**", "module/**", "cmd/skybind/**", "internal/daemon/**", "tests/platform/**", "docs/contracts/SB-C02_ANDROID_PLATFORM.md", "scripts/devtool/check_android_platform.sh"]
+metadata = {read_only = true, qualification = "android-source-fixture-only", device_qualification = false, gate_g04 = "BLOCKED"}
+
+[wrapper.commands.android-platform]
+description = "SB-C02 namespace and root-manager source tests; real device NOT certified"
+workflow = "android-platform"
+target = "skybind"
+
+
+[[test]]
+id = "sb-c02-android-platform"
+name = "SB-C02 bounded namespace, root manager hooks and safe uninstall"
+runner = "command"
+timeout_seconds = 300
+command = ["bash", "scripts/devtool/check_android_platform.sh"]

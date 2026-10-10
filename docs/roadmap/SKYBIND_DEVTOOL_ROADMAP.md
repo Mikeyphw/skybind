@@ -72,6 +72,8 @@ The previous campaign separated 36 implementation obligations, 8 milestone gates
 ### SB-C02 — Android Namespace Visibility & Root-Manager Lifecycle
 **Archive:** `skybind-SB-C02-android-platform.devtool-overlay.zip`
 
+**Source status (2026-10-10):** SOURCE_IMPLEMENTED_NOT_PROMOTED. Namespace/device operations require real Android evidence; see `docs/contracts/SB-C02_ANDROID_PLATFORM.md`.
+
 **Dependencies:** `SB-C01`. **Promotion gates:** `SB-G03`. **Targets:** `skybind`, `skybind_android_device`. **Risk:** critical. **State:** `PLANNED`.
 
 **Retained original obligations:** `SB-O15`, `SB-O16`, `SB-O17`, `SB-O18`, `SB-O19`.
