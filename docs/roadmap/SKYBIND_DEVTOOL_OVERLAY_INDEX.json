@@ -1,259 +1,1303 @@
 {
-  "schema_version": 1,
-  "kind": "planned-devtool-overlay-program",
+  "schema_version": 2,
+  "kind": "consolidated-devtool-delivery-program",
   "product": "skybind",
-  "status": "PLANNED",
-  "implementation_count": 36,
-  "gate_count": 8,
-  "seal_count": 1,
-  "overlay_count": 45,
+  "campaign": "Skybind Devtool Campaign — Consolidated Delivery",
+  "status": "ACTIVE_SOURCE_DEVELOPMENT",
   "normative_feature_spec": "SKYBIND_FEATURE_SPEC.md",
   "normative_roadmap": "SKYBIND_DEVTOOL_ROADMAP.md",
-  "explicit_exclusions": [
-    "installed dynamic runtime selection/download/update",
-    "historical migrations/state migration",
-    "obsolete migration UI and legacy campaign"
-  ],
-  "webui_policy": "direct source copy; visual/interaction parity mandatory; surgical exclusions only",
-  "implementation_overlays": [
+  "original_roadmap_reference": "SKYBIND_ORIGINAL_45_ITEM_ROADMAP.md",
+  "starting_position": {
+    "already_implemented_obligations": [
+      "SB-O01",
+      "SB-O02",
+      "SB-O03",
+      "SB-O04",
+      "SB-O05",
+      "SB-O06",
+      "SB-O07",
+      "SB-O08",
+      "SB-O09"
+    ],
+    "installed_gate_definitions": [
+      "SB-G01",
+      "SB-G02"
+    ],
+    "gate_qualification": {
+      "SB-G01": "BLOCKED",
+      "SB-G02": "BLOCKED"
+    },
+    "previous_items": 45,
+    "done_or_defined_items": 11,
+    "remaining_original_obligations": 34
+  },
+  "delivery_count": 8,
+  "implementation_delivery_count": 6,
+  "remaining_gate_package_count": 1,
+  "final_seal_delivery_count": 1,
+  "retained_original_implementation_obligations": 27,
+  "retained_remaining_milestone_gate_obligations": 6,
+  "retained_final_seal_obligations": 1,
+  "artifact_sequence": [
     {
-      "id": "SB-O01",
-      "title": "Product contract, threat model and UI reference freeze",
-      "wave": "A",
-      "original_phases": [
-        "P00",
-        "P16"
+      "id": "SB-C01",
+      "slug": "mount-engine",
+      "title": "Owned FUSE Mount Engine, Supervisor, Resource Policies & Cache",
+      "originals": [
+        "SB-O10",
+        "SB-O11",
+        "SB-O12",
+        "SB-O13",
+        "SB-O14"
       ],
-      "dependencies": [],
+      "deps": [
+        "SB-O09"
+      ],
+      "gate": "SB-G03",
+      "workstreams": [
+        "Ownership-checked FUSE launch/stop/restart and desired/observed state",
+        "Readiness graph, health classification, recovery and persistent retry budgets",
+        "Network/charging/battery/VFS policies, cache accounting, safe eviction and guarded cache actions"
+      ],
+      "risk": "high",
+      "negative": [
+        "PID reuse or foreign mount must never be terminated/unmounted",
+        "Explicit STOPPED survives reboot; remote outages do not create restart storms",
+        "Unknown metering never counts as unmetered",
+        "Cache traversal, active-file deletion and symlink attacks must fail closed"
+      ],
+      "targets": [
+        "skybind",
+        "skybind_runtime_inputs"
+      ],
+      "promotion_requires": [
+        "SB-G02"
+      ],
+      "kind": "implementation",
+      "status": "SOURCE_IMPLEMENTED_NOT_PROMOTED",
+      "archive_name": "skybind-SB-C01-mount-engine.devtool-overlay.zip",
+      "files_owned": [
+        ".devtool.toml",
+        "docs/roadmap",
+        "internal/cache",
+        "internal/daemon",
+        "internal/mounts",
+        "internal/mounts/config",
+        "internal/mounts/health",
+        "internal/mounts/lifecycle",
+        "internal/policy",
+        "internal/previewproof",
+        "internal/readiness",
+        "internal/runtimeauth",
+        "internal/supervisor",
+        "internal/vfs",
+        "scripts/devtool/bootstrap_contract.py",
+        "tests/cache",
+        "tests/contracts",
+        "tests/devtool",
+        "tests/mounts",
+        "tests/policy",
+        "tests/readiness",
+        "tests/recovery"
+      ],
+      "tests_required": [
+        {
+          "obligation_id": "SB-O10",
+          "targeted_validation": "go test ./internal/mounts ./internal/runtimeauth; process-launch fixture; PID reuse, forged mountinfo, concurrent stop/reconcile, orphan children, mountpoint occupied and shutdown tests.",
+          "negative_gate": "A stray process killed, foreign mount unmounted, explicit stop forgotten, duplicate start or unbounded error tail blocks.",
+          "promotion_criterion": "Mount operations work independently without relying on PID/path existence alone."
+        },
+        {
+          "obligation_id": "SB-O11",
+          "targeted_validation": "go tests and table-driven readiness-state transitions; delayed storage, unknown-metered network, absent /dev/fuse, auth/fuse distinction, partial boot fixtures.",
+          "negative_gate": "Global sleep masquerading as readiness, remote-offline mistaken for absent mount, fake running based on PID or unrecoverable blocker classification fails.",
+          "promotion_criterion": "Observed health is truthful, reason-coded, and independently consumable by the supervisor and UI."
+        },
+        {
+          "obligation_id": "SB-O12",
+          "targeted_validation": "Fault-injection readiness/restart/crash tests, retry-budget timings, concurrent stop-vs-watch, no-duplicate-worker tests; selected Go race coverage where suitable.",
+          "negative_gate": "Unbounded restart storm, broken explicit stop, unrelated-mount restart or unowned stale unmount blocks.",
+          "promotion_criterion": "Recovery is targeted, bounded, inspectable and safe after daemon restart."
+        },
+        {
+          "obligation_id": "SB-O13",
+          "targeted_validation": "go test ./internal/policy ./internal/vfs; policy transition truth tables, profile golden cases, unknown battery/network, non-restart policy-only edit and clamp/boundary cases.",
+          "negative_gate": "Unknown metered treated as unmetered, profiles changing in secret, invalid durations/sizes or policy change restarting healthy mount blocks.",
+          "promotion_criterion": "All resource policies have deterministic decisions and existing WebUI inputs map exactly to backend values."
+        },
+        {
+          "obligation_id": "SB-O14",
+          "targeted_validation": "go test ./internal/cache; symlink swap/path traversal/root deletion, active mount refusal, cancel-safe traversal, concurrent cleanup, disk-pressure and proof replay fixtures.",
+          "negative_gate": "Deleting a stranger file, clearing active cache, stepping through symlink, reporting nonexistent storage or partial unjournaled mutation blocks.",
+          "promotion_criterion": "Cache maintenance is independently owned, bounded and safe for Android private storage."
+        }
+      ],
+      "automatic_validation": {
+        "preflight": "Devtool schema-v2 source hash, dependency and affected-scope guard; no source writes",
+        "targeted": "Every subordinate original obligation check plus negative tests; host-capability-aware",
+        "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
+        "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
+      },
+      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence",
+      "evidence": "SB-C01 Devtool validation; Android FUSE/device visibility unverified; G01/G02 BLOCKED"
+    },
+    {
+      "id": "SB-C02",
+      "slug": "android-platform",
+      "title": "Android Namespace Visibility & Root-Manager Lifecycle",
+      "originals": [
+        "SB-O15",
+        "SB-O16",
+        "SB-O17",
+        "SB-O18",
+        "SB-O19"
+      ],
+      "deps": [
+        "SB-C01"
+      ],
+      "gate": "SB-G04",
+      "workstreams": [
+        "Read-only Android multi-user mount-namespace topology, exact target versus alias classification",
+        "Opt-in namespace bind planner with topology proofs, protected-process denies and rollback",
+        "Owned bind journal, recovery, controlled reconciliation",
+        "Magisk/KernelSU/KernelSU Next/APatch module hooks, install, boot, Action, uninstall/purge"
+      ],
+      "risk": "critical",
+      "negative": [
+        "Never mutate protected shared namespaces or treat an alias as exact target",
+        "Namespace churn/identity mismatch denies mutation",
+        "Rollback only proven owned binds and never unmount unrelated processes",
+        "Uninstall preserves persistent state unless explicit separately proven purge"
+      ],
+      "targets": [
+        "skybind",
+        "skybind_android_device"
+      ],
+      "promotion_requires": [
+        "SB-G03"
+      ],
+      "kind": "implementation",
+      "status": "PLANNED",
+      "archive_name": "skybind-SB-C02-android-platform.devtool-overlay.zip",
+      "files_owned": [
+        "internal/namespace",
+        "internal/namespace/inspect",
+        "internal/namespace/mutation",
+        "internal/namespace/ownership",
+        "internal/namespace/reconcile",
+        "internal/namespace/topology",
+        "internal/paths",
+        "internal/platformlifecycle",
+        "internal/platformstate",
+        "internal/previewproof",
+        "internal/rootmgr",
+        "module/action.sh",
+        "module/customize.sh",
+        "module/module.prop",
+        "module/post-fs-data.sh",
+        "module/service.sh",
+        "module/uninstall.sh",
+        "tests/namespace",
+        "tests/platform"
+      ],
+      "tests_required": [
+        {
+          "obligation_id": "SB-O15",
+          "targeted_validation": "Proc fixture matrices for work profiles/users, alias-only, same namespace multiple PIDs, incomplete proc, namespace churn, misidentified protected member; host source contract tests.",
+          "negative_gate": "Alias treated as exact-path success, partial scan considered complete, system namespace treated as ordinary app, or default user 0 assumption blocks.",
+          "promotion_criterion": "Skybind can truthfully inspect Android app visibility without touching other namespaces."
+        },
+        {
+          "obligation_id": "SB-O16",
+          "targeted_validation": "No-root planner fixtures, setns syscall mock with controlled failure at each step, stale proof/race/protected process table, containment and transactional rollback tests.",
+          "negative_gate": "Binding into zygote/USAP/MediaProvider/ExternalStorage namespace, masking an existing mount, silent cross-user bind or partial unowned cleanup blocks.",
+          "promotion_criterion": "Only provably safe explicit visibility actions are enabled; unsafe or unknown topologies return informative blocked outcomes."
+        },
+        {
+          "obligation_id": "SB-O17",
+          "targeted_validation": "Interrupted bind journal recovery, PID/namespace reuse, stale signature, foreign remount, process-churn and read-only expected-state fixtures; real-device qualification separately guarded.",
+          "negative_gate": "Orphaned/foreign bind removal, double bind, stale mount identity, restart widening protection scope or false device certification blocks.",
+          "promotion_criterion": "Namespace visibility state is durable, evidence-based and has precise cleanup semantics."
+        },
+        {
+          "obligation_id": "SB-O18",
+          "targeted_validation": "sh -n/shellcheck where available, platform hook fixtures for each manager, corrupt-integrity refusal, idempotent boot, missing component, late storage and CLI/Action startup test.",
+          "negative_gate": "Unsigned/corrupt payload accepted, service runs unsupported runtime, duplicate daemon or root manager name used as capability proof blocks.",
+          "promotion_criterion": "Root modules install/start safely and remain observable across restart without duplicate lifecycle logic in shell."
+        },
+        {
+          "obligation_id": "SB-O19",
+          "targeted_validation": "Owner/source corruption, foreign target, invalid marker, symlinked state and cache, interrupted uninstall and preserved-state fixtures; guarded real-device uninstall smoke.",
+          "negative_gate": "Default data deletion, unowned unmount/kill, implicit purge or partial device-level wipe blocks.",
+          "promotion_criterion": "Removal is safe, reversible by reinstall for retained configuration, and purge only happens with valid express authority."
+        }
+      ],
+      "automatic_validation": {
+        "preflight": "Devtool schema-v2 source hash, dependency and affected-scope guard; no source writes",
+        "targeted": "Every subordinate original obligation check plus negative tests; host-capability-aware",
+        "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
+        "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
+      },
+      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence"
+    },
+    {
+      "id": "SB-C03",
+      "slug": "jobs-providers",
+      "title": "Jobs, Authenticated RC, Remote Browsing & Crypt",
+      "originals": [
+        "SB-O20",
+        "SB-O21",
+        "SB-O22",
+        "SB-O23",
+        "SB-O24"
+      ],
+      "deps": [
+        "SB-C01"
+      ],
+      "gate": "SB-G05",
+      "workstreams": [
+        "Revisioned jobs, persisted due-run claim and at-most-once execution",
+        "Copy/sync/check executor, progress/cancel/policies, destructive sync proof",
+        "Per-mount authenticated loopback-only RC metrics isolation",
+        "Root-private rclone remote discovery and bounded browsing",
+        "User-defined password, obscured storage, crypt wrapper creation and safe rollback"
+      ],
+      "risk": "high",
+      "negative": [
+        "No duplicate due run on daemon restart and no unconfirmed sync delete",
+        "No generic RC proxy, leaked credentials or externally reachable RC",
+        "No arbitrary remote traversal or secret export",
+        "Reject self-crypt, nested crypt, malformed credentials and half-published config"
+      ],
+      "targets": [
+        "skybind"
+      ],
+      "promotion_requires": [
+        "SB-G03"
+      ],
+      "kind": "implementation",
+      "status": "PLANNED",
+      "archive_name": "skybind-SB-C03-jobs-providers.devtool-overlay.zip",
+      "files_owned": [
+        "internal/jobs/executor",
+        "internal/jobs/registry",
+        "internal/jobs/scheduler",
+        "internal/journal",
+        "internal/mounts/lifecycle",
+        "internal/previewproof",
+        "internal/provider/browse",
+        "internal/provider/crypt",
+        "internal/provider/password",
+        "internal/provider/remote",
+        "internal/rc",
+        "internal/runtimeauth",
+        "tests/crypt",
+        "tests/jobs",
+        "tests/provider",
+        "tests/rc"
+      ],
+      "tests_required": [
+        {
+          "obligation_id": "SB-O20",
+          "targeted_validation": "Job schema, stale revision/digest, destructive sync previews, daemon restart at due time, duplicate claim races, disabled/policy-blocked job tests.",
+          "negative_gate": "Executing sync without consent, duplicate scheduled claim, failure to journal skipped/blocked jobs, or option-like remote endpoints blocks.",
+          "promotion_criterion": "Safe scheduled-job intent and state are publishable independently of actual execution."
+        },
+        {
+          "obligation_id": "SB-O21",
+          "targeted_validation": "Fake-rclone integration, injected mid-transfer cancellation, failure stdout, concurrent jobs, process ownership, sync/destination negative and policy-transition fixtures.",
+          "negative_gate": "Cancelling unrelated process, accidentally executing a different executable, unbounded telemetry, unconfirmed destructive sync or silent job success blocks.",
+          "promotion_criterion": "Copy/sync/check are controllable, safe and accurately reflected in Activity and Jobs UI."
+        },
+        {
+          "obligation_id": "SB-O22",
+          "targeted_validation": "Cross-instance isolation, auth failure, port collision, missing RC support, stale credential and secret-canary fixtures.",
+          "negative_gate": "Non-loopback RC, credential in logs/UI/bundle, accepting generic method, or cross-mount metrics confusion blocks.",
+          "promotion_criterion": "Each managed mount has isolated metrics with safe read-only typed projections."
+        },
+        {
+          "obligation_id": "SB-O23",
+          "targeted_validation": "Remote config secret canaries, traversal/on-the-fly syntax, invalid paths, huge directories, timeouts, plain/crypt classification and endpoint handoff tests.",
+          "negative_gate": "Exposing private rclone.conf, shelling out with arbitrary option strings or claiming browse succeeded with incomplete results blocks.",
+          "promotion_criterion": "Original remote browser can run against secure, scoped, bounded backend operations."
+        },
+        {
+          "obligation_id": "SB-O24",
+          "targeted_validation": "Password stdin/secret-canary scans across all outputs, wrong generation, nested crypt, option whitelist, interrupted creation, cleanup ownership and UI request-shape tests.",
+          "negative_gate": "Cleartext in API/log/report, crypt without password, a new self-reference, promised data encryption implementation or unjustified rekey blocks.",
+          "promotion_criterion": "Encryption management is correctly delegated to rclone and fits existing crypt modal without UI redesign."
+        }
+      ],
+      "automatic_validation": {
+        "preflight": "Devtool schema-v2 source hash, dependency and affected-scope guard; no source writes",
+        "targeted": "Every subordinate original obligation check plus negative tests; host-capability-aware",
+        "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
+        "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
+      },
+      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence"
+    },
+    {
+      "id": "SB-C04",
+      "slug": "diagnostics-transports",
+      "title": "Doctor, Support Bundles & Both Secure WebUI Transports",
+      "originals": [
+        "SB-O25",
+        "SB-O26",
+        "SB-O27",
+        "SB-O28"
+      ],
+      "deps": [
+        "SB-C02",
+        "SB-C03"
+      ],
+      "gate": "SB-G06",
+      "workstreams": [
+        "Structured sanitized log/Doctor with truthful PASS/WARN/FAIL",
+        "Private redacted bounded support ZIP with secret-canary checks",
+        "Authenticated localhost WebUI bootstrap/session/cookie/CSRF/Origin/Host defenses",
+        "Embedded root-manager fixed bridge with identical typed operation semantics"
+      ],
+      "risk": "high",
+      "negative": [
+        "No credentials in logs/support artifacts",
+        "No generic command/RC passthrough",
+        "Reject token replay, XSS/CSRF, Host/Origin confusion and wrong transports",
+        "Standalone vs embedded operation result/error parity required"
+      ],
       "targets": [
         "skybind",
         "skybind_webui"
       ],
-      "scopes": [
-        "docs/architecture",
-        "docs/contracts",
-        "tests/contracts",
-        "tests/fixtures/webui-reference"
+      "promotion_requires": [
+        "SB-G04",
+        "SB-G05"
       ],
-      "implementation": "Freeze Skybind-wide identifiers and forbid legacy branding in new artifacts. Freeze build-time NewFuture/bclone selection, root-private state, single bundled executable and FUSE-helper layout; enumerate every feature/operation/state/API error; record threat boundaries, Android capability truth, independent source-vs-device assurance and explicit exclusions. Snapshot original module/webroot assets unmodified with SHA-256, DOM inventory, golden screen/state/interaction cases and visual-baseline manifest. List every retained and excluded UI control, and never import historical dynamic-runtime or migration behavior.",
-      "targeted_validation": "Schema inventory, baseline hash verifier, static forbidden-feature grep, 57-operation coverage check, freeze verification, threat-case traceability.",
-      "negative_gate": "Unexpected old-brand identifier outside quarantined original-source fixtures blocks. An omitted retained UI control, a UI hash mismatch, an orphaned operation, or an excluded historical feature fails the contract. Baseline snapshots must be genuinely captured or marked missing, never invented.",
-      "promotion_criterion": "A current-product specification, frozen UI reference and immutable operation/feature checklist exist; all later overlays can resolve against exact baselines.",
-      "status": "PLANNED"
+      "kind": "implementation",
+      "status": "PLANNED",
+      "archive_name": "skybind-SB-C04-diagnostics-transports.devtool-overlay.zip",
+      "files_owned": [
+        "cmd/skybind",
+        "internal/control",
+        "internal/diagnostics",
+        "internal/doctor",
+        "internal/doctor/support",
+        "internal/integrity",
+        "internal/webui/bridge",
+        "internal/webui/http",
+        "module/action.sh",
+        "module/webroot/bridge.js",
+        "tests/doctor",
+        "tests/support",
+        "tests/webui-bridge",
+        "tests/webui-transport"
+      ],
+      "tests_required": [
+        {
+          "obligation_id": "SB-O25",
+          "targeted_validation": "Log truncation/invalid UTF-8, secret canaries, severity/category/query, tampered provenance, doctor partial availability, deterministic remediation mapping tests.",
+          "negative_gate": "A secret in logs, an unsupported function marked PASS, unbounded log query or false green due to unavailable device blocks.",
+          "promotion_criterion": "Backend has a trustworthy sanitized diagnostic surface suitable for existing Doctor and Logs screens."
+        },
+        {
+          "obligation_id": "SB-O26",
+          "targeted_validation": "Secret canary scanning of every ZIP entry, forged bundle ID/traversal, symlink root, oversized logs, partial ZIP and manifest mismatch fixtures.",
+          "negative_gate": "Accidental private config inclusion, arbitrary file download, secret leak or success on incomplete bundle blocks.",
+          "promotion_criterion": "Support export is safe, attributable and reproducible where data inputs are fixed."
+        },
+        {
+          "obligation_id": "SB-O27",
+          "targeted_validation": "HTTP token replay/expiry, cross-origin, CSRF/Host, XSS output, oversized body, idle-session expiry, fake route and UI backend-equivalence tests.",
+          "negative_gate": "Binding 0.0.0.0, query-accessible arbitrary command, permissive CORS, browser RC passthrough or token leakage blocks.",
+          "promotion_criterion": "Standalone UI can securely exercise existing workflows without acquiring backend privileges of its own."
+        },
+        {
+          "obligation_id": "SB-O28",
+          "targeted_validation": "CLI/HTTP/embedded contract triples, malformed base64, missing API, old protocol, transport failure, root-manager capability and notification/focus regression tests.",
+          "negative_gate": "A browser can execute privileged shell, missing bridge is treated as success, or transport changes backend behavior blocks.",
+          "promotion_criterion": "Embedded and standalone views share one feature surface with identical security and UX semantics."
+        }
+      ],
+      "automatic_validation": {
+        "preflight": "Devtool schema-v2 source hash, dependency and affected-scope guard; no source writes",
+        "targeted": "Every subordinate original obligation check plus negative tests; host-capability-aware",
+        "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
+        "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
+      },
+      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence"
     },
     {
-      "id": "SB-O02",
-      "title": "First-class Devtool targets, graph, workflows and fixtures",
-      "wave": "A",
-      "original_phases": [
-        "P01",
-        "P17"
+      "id": "SB-C05",
+      "slug": "original-webui",
+      "title": "Original WebUI Direct Port & Full Visual/Interaction Parity",
+      "originals": [
+        "SB-O29",
+        "SB-O30",
+        "SB-O31",
+        "SB-O32",
+        "SB-O33"
       ],
-      "dependencies": [
-        "SB-O01"
+      "deps": [
+        "SB-C04"
+      ],
+      "gate": "SB-G07",
+      "workstreams": [
+        "Direct copy of eight immutable-reference HTML/CSS/JS/image/config assets",
+        "Home/Mounts card-actions and four-stage creation wizard",
+        "Jobs, Activity, Runtime, Remotes, Doctor, Logs, Settings",
+        "Phone safe areas, responsive breakpoints, dark/light, dense, keyboard/touch/back, accessibility",
+        "Dual transport end-to-end UI and actual original-source screenshot/interaction diff"
+      ],
+      "risk": "high",
+      "negative": [
+        "No unapproved redesign, reflow, feature removal or renamed action",
+        "An excluded control may be removed only with narrowly audited reason",
+        "No lying offline/progress/restart indicators",
+        "Broken mobile focus, gestures, dialogs, proofs or transport parity blocks"
+      ],
+      "targets": [
+        "skybind_webui",
+        "skybind"
+      ],
+      "promotion_requires": [
+        "SB-G06"
+      ],
+      "kind": "implementation",
+      "status": "PLANNED",
+      "archive_name": "skybind-SB-C05-original-webui.devtool-overlay.zip",
+      "files_owned": [
+        "docs/ux",
+        "module/webroot/app.js",
+        "module/webroot/bridge.js",
+        "module/webroot/icon.png",
+        "module/webroot/index.html",
+        "module/webroot/model.js",
+        "module/webroot/style.css",
+        "tests/webui/a11y",
+        "tests/webui/fixtures",
+        "tests/webui/home-mounts",
+        "tests/webui/interaction",
+        "tests/webui/jobs-activity",
+        "tests/webui/secondary",
+        "tests/webui/visual"
+      ],
+      "tests_required": [
+        {
+          "obligation_id": "SB-O29",
+          "targeted_validation": "Reference SHA-256 and DOM ID/token audit, static JS checks, 360/390/412/691/759/760/1024px screenshot fixtures, both palette modes, original-vs-copy semantic diff.",
+          "negative_gate": "Changing nav hierarchy, swapping framework/design tokens, new icon set, orphaned excluded handler, unexplained visual drift or missing golden fixture blocks.",
+          "promotion_criterion": "User-recognizable UI shell is copied rather than reinterpreted and is ready for progressive backend hookup."
+        },
+        {
+          "obligation_id": "SB-O30",
+          "targeted_validation": "Golden screenshots for normal/loading/blocked/error cases, wizard step traces and keyboard/focus audit, mocked and real Go API fixtures, stale-proof/duplicate target/password absence cases.",
+          "negative_gate": "Different wizard step order, different action-sheet semantics, missing fields or deceptive success/errors blocks.",
+          "promotion_criterion": "Home and Mounts visually and functionally match original UI with backed typed operations."
+        },
+        {
+          "obligation_id": "SB-O31",
+          "targeted_validation": "Jobs create/edit/run/cancel/unsafe sync fixture traces, Activity event/cancellation rendering, live refresh and empty/error screenshot matrices, keyboard/screenreader checks.",
+          "negative_gate": "Reformatting jobs as generic table, losing journal details, false cancelability, stale task display or unconfirmed sync button action blocks.",
+          "promotion_criterion": "Existing Jobs and Activity remain familiar and faithfully represent durable backend state."
+        },
+        {
+          "obligation_id": "SB-O32",
+          "targeted_validation": "Per-screen reference screenshots dark/light and narrow/wide, browse/crypt modal traces, log filtering, support download, settings revision conflict and nonsecret transport tests.",
+          "negative_gate": "Changing hierarchical navigation, deleting in-scope controls, misleading runtime capabilities, hidden credential fields or unapproved style drift blocks.",
+          "promotion_criterion": "Every More subview, modal, settings control and backend feedback path is preserved."
+        },
+        {
+          "obligation_id": "SB-O33",
+          "targeted_validation": "Deterministic reference screenshots and diff policy, real browser scripted traces, a11y scanner plus human review; device WebView screenshots when available; explicit no-unexplained-drift audit.",
+          "negative_gate": "No golden baseline, visually novel UI, unapproved visual/flow changes, trap regression or claiming embedded parity solely from static tests blocks.",
+          "promotion_criterion": "WebUI preservation is an independently gated acceptance contract, not a theme preference."
+        }
+      ],
+      "automatic_validation": {
+        "preflight": "Devtool schema-v2 source hash, dependency and affected-scope guard; no source writes",
+        "targeted": "Every subordinate original obligation check plus negative tests; host-capability-aware",
+        "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
+        "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
+      },
+      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence"
+    },
+    {
+      "id": "SB-C06",
+      "slug": "integration-release",
+      "title": "Whole-Product Integration, Device Matrix & Reproducible Release",
+      "originals": [
+        "SB-O34",
+        "SB-O35",
+        "SB-O36"
+      ],
+      "deps": [
+        "SB-C02",
+        "SB-C03",
+        "SB-C04",
+        "SB-C05"
+      ],
+      "gate": "SB-G08",
+      "workstreams": [
+        "Whole-product fault injection, error recovery and source security test matrix",
+        "Physical Android arm64 root-manager, app-visibility and endurance qualification workflows",
+        "Reproducible NewFuture and bclone release packaging, SBOM, hashes, provenance",
+        "Complete source/device evidence closure and independent gate qualification support"
+      ],
+      "risk": "critical",
+      "negative": [
+        "No device claim from unit tests, root shell, emulation or install-only evidence",
+        "No release when source/destination content, app visibility or manifest identity is unverified",
+        "No missing negative/security cases, open critical obligations, leaked secrets or forged receipts",
+        "No seal if upstream pins are absent or any mandatory device condition unverified"
       ],
       "targets": [
         "skybind",
-        "skybind_webui",
-        "skybind_runtime_inputs",
         "skybind_android_device",
         "skybind_release"
       ],
-      "scopes": [
-        ".devtool.toml",
-        "scripts/devtool",
-        "tests/devtool",
-        "docs/development"
+      "promotion_requires": [
+        "SB-G07"
       ],
-      "implementation": "Declare canonical targets, target-local read-only test jobs, cross-target build jobs, named workflows, release groups, path inputs/outputs, safe parallel scheduler limits, wrapper commands, target/runner/execution-environment identities, targeted validation recipes and Android-provider detection. Distinguish source-only, build, host integration, real-device and release gates. Register baseline/parity fixtures and a project-specific seal check. Keep Devtool as orchestrator: no duplicate test scheduler, overlay engine or invented validation state machine.",
-      "targeted_validation": "devtool config/targets/groups/jobs/workflows/plan/preflight/doctor checks; invalid target reference, write-scope escape, conflicting output, absent interpreter and toolchain-negative fixtures.",
-      "negative_gate": "Missing named workflow, unknown dependency, unsafe parallel output overlap, phantom Android device, or zero executed validation checks blocks.",
-      "promotion_criterion": "The rebuilt repo is natively understood by Devtool and has machine-readable dependency/affected graphs and reproducible targeted test selection.",
-      "status": "PLANNED"
+      "kind": "implementation",
+      "status": "PLANNED",
+      "archive_name": "skybind-SB-C06-integration-release.devtool-overlay.zip",
+      "files_owned": [
+        ".github/workflows",
+        "docs/qualification",
+        "docs/release",
+        "scripts/dev/device",
+        "scripts/dev/release",
+        "scripts/dev/release-audit",
+        "tests/device",
+        "tests/fault",
+        "tests/integration",
+        "tests/seal",
+        "tests/security"
+      ],
+      "tests_required": [
+        {
+          "obligation_id": "SB-O34",
+          "targeted_validation": "Independent Go/Python/Node fixture suites, fuzz/sanitizer subsets, race tests, secret canary scan, integrity and source/API/full-UX closure; reproduce injected failures.",
+          "negative_gate": "Any P00–P17 in-scope feature lacks an evidence owner/test, or any critical safety failure persists blocks.",
+          "promotion_criterion": "Integration and negative safety contracts are complete before device release attempts."
+        },
+        {
+          "obligation_id": "SB-O35",
+          "targeted_validation": "Device facts capture, per-scenario immutable receipts, attached logs/screenshots, reproducible APK helper instrumentation only when an actual test-app target exists, targeted cross-provider matrix.",
+          "negative_gate": "A rooted shell being able to read a mount cannot substitute for ordinary-app access; an emulator/host-only result cannot claim phone/endurance pass; untested managers remain unqualified.",
+          "promotion_criterion": "Supported hardware claims are backed by exact devices, both runtime variants and authentic app read/write observations."
+        },
+        {
+          "obligation_id": "SB-O36",
+          "targeted_validation": "Release manifests, checksum compare, clean rebuild, artifact registry verify, source-state/hash and device receipt provenance; tampered/expired/absent evidence rejection.",
+          "negative_gate": "Any critical blocker, stale device proof, unverifiable artifact, fake seal claim, unresolved UI parity exception or unsupported manager marked supported blocks.",
+          "promotion_criterion": "Release and final seal are deterministic and evidence-bound, with no false promotion from source-only gates."
+        }
+      ],
+      "automatic_validation": {
+        "preflight": "Devtool schema-v2 source hash, dependency and affected-scope guard; no source writes",
+        "targeted": "Every subordinate original obligation check plus negative tests; host-capability-aware",
+        "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
+        "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
+      },
+      "qualification": "SOURCE_ONLY; dependent gates/device remain independently blocked until authentic evidence"
     },
     {
-      "id": "SB-O03",
-      "title": "Go skeleton and root-private filesystem invariants",
-      "wave": "A",
-      "original_phases": [
-        "P01"
+      "id": "SB-CG1",
+      "slug": "independent-milestone-gates",
+      "title": "Independent Milestone Gate Definitions & Execution (G03–G08)",
+      "originals": [
+        "SB-G03",
+        "SB-G04",
+        "SB-G05",
+        "SB-G06",
+        "SB-G07",
+        "SB-G08"
       ],
-      "dependencies": [
-        "SB-O02"
+      "deps": [
+        "SB-C06"
       ],
       "targets": [
-        "skybind"
+        "skybind_release"
       ],
-      "scopes": [
-        "go.mod",
-        "cmd/skybind",
-        "internal/paths",
-        "internal/buildinfo",
-        "internal/atomicfile",
-        "tests/fixtures"
+      "risk": "critical",
+      "gate": null,
+      "workstreams": [
+        "Fresh-process independent per-gate validation against frozen exact commit/source hashes",
+        "Individual promise ledgers, exported obligations, scenario matrices and blocker classification",
+        "Fail-closed G03/G04/G05/G06/G07/G08 promotion in dependency order",
+        "Carry forward blocked G01/G02 as BLOCKED without fabricating release readiness"
       ],
-      "implementation": "Create Go commands and package boundaries, canonical /data/adb/modules/skybind and /data/adb/skybind paths, separate immutable module bytes from retained state, owner-only 0700 dirs/0600 secrets, nofollow checks, lock/atomic write/fsync helpers and injectable filesystem adapter for non-root test fixtures only. Define run/socket, configuration, desired state, health, jobs, namespace, cache, logs, RC, UI settings and support paths. Compile Android arm64 and Linux fixture targets.",
-      "targeted_validation": "go test ./internal/paths ./internal/atomicfile ./cmd/skybind; Go cross-compile; host fixtures for permissions, symlink traversal, partial writes and owner mismatch.",
-      "negative_gate": "A symlinked state root, group-readable secret, invalid absolute path, platform override on a privileged build, or partial publication must be rejected.",
-      "promotion_criterion": "Private state and executable skeleton are deterministic, testable without root, and fail closed on unsafe layouts.",
-      "status": "PLANNED"
+      "negative": [
+        "Gate scripts cannot modify inspected product source",
+        "Stale/incomplete/skipped/device-unverified evidence never passes",
+        "No family-level blanket PASS based on prior reports",
+        "No automatic final seal issuance"
+      ],
+      "promotion_requires": [],
+      "kind": "gate_package",
+      "status": "PLANNED",
+      "archive_name": "skybind-SB-CG1-independent-milestone-gates.devtool-overlay.zip",
+      "files_owned": [],
+      "tests_required": [],
+      "automatic_validation": {
+        "preflight": "Devtool schema-v2 source hash, dependency and affected-scope guard; no source writes",
+        "targeted": "Every subordinate original obligation check plus negative tests; host-capability-aware",
+        "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
+        "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
+      },
+      "qualification": "GATE_DEFINITION_AND_EVALUATION_ONLY; never equate installed gate with passed gate"
     },
     {
-      "id": "SB-O04",
-      "title": "Pinned NewFuture executable and canonical FUSE helper",
-      "wave": "A",
-      "original_phases": [
-        "P02"
+      "id": "SB-CFS1",
+      "slug": "final-seal",
+      "title": "Final Skybind Whole-Product Qualification Seal",
+      "originals": [
+        "SB-FS1"
       ],
-      "dependencies": [
-        "SB-O03"
+      "deps": [
+        "SB-CG1"
       ],
       "targets": [
-        "skybind_runtime_inputs",
-        "skybind"
+        "skybind_release",
+        "skybind_android_device"
       ],
-      "scopes": [
-        "scripts/dev/runtime/newfuture",
-        "internal/runtimeauth",
-        "internal/integrity",
-        "module/system",
-        "docs/build"
+      "risk": "critical",
+      "gate": "SB-FS1",
+      "workstreams": [
+        "Verify source, provider/build reproducibility, WebUI parity and ALL eight gate attestations",
+        "Check physical Android ordinary-app file access and qualified manager/device matrix",
+        "Check SHA256 provenance, evidence lineage, critical obligation closure and fresh-process fixed-point audit",
+        "Issue cryptographically anchored/hashed final qualification report only for proven scope"
       ],
-      "implementation": "Acquire the exact official NewFuture arm64 package with pinned digest; safely extract one system/bin/rclone and the official system/vendor/bin/fusermount3 plus required libfuse siblings. Implement source/ELF/mode/hash/provenance verifier and strictly canonical runtime resolver. Never search PATH or use untrusted runtime overrides. Package deterministically without executing the target binary on the host.",
-      "targeted_validation": "Provider acquisition fixtures, archive path/symlink bombs, ELF ABI and hash tests; one-runtime binary inventory; reproducible ZIP comparison; go test ./internal/runtimeauth ./internal/integrity.",
-      "negative_gate": "Two executables, untrusted helper origin, helper from bclone, modified bytes, PATH hijack, corrupt manifest or nondeterministic archive blocks.",
-      "promotion_criterion": "A locally reproducible NewFuture arm64 artifact with independently attested helper provenance and an operational read-only status contract.",
-      "status": "PLANNED"
+      "negative": [
+        "Missing signed/pinned provider, device or security evidence blocks seal",
+        "Never convert an accepted definition into a passed gate",
+        "No seal for provisional or unknown app-visibility outcomes"
+      ],
+      "promotion_requires": [],
+      "kind": "final_seal",
+      "status": "PLANNED",
+      "archive_name": "skybind-SB-CFS1-final-seal.devtool-overlay.zip",
+      "files_owned": [],
+      "tests_required": [],
+      "automatic_validation": {
+        "preflight": "Devtool schema-v2 source hash, dependency and affected-scope guard; no source writes",
+        "targeted": "Every subordinate original obligation check plus negative tests; host-capability-aware",
+        "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
+        "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
+      },
+      "qualification": "GATE_DEFINITION_AND_EVALUATION_ONLY; never equate installed gate with passed gate"
+    }
+  ],
+  "coverage_map": {
+    "SB-O10": "SB-C01",
+    "SB-O11": "SB-C01",
+    "SB-O12": "SB-C01",
+    "SB-O13": "SB-C01",
+    "SB-O14": "SB-C01",
+    "SB-O15": "SB-C02",
+    "SB-O16": "SB-C02",
+    "SB-O17": "SB-C02",
+    "SB-O18": "SB-C02",
+    "SB-O19": "SB-C02",
+    "SB-O20": "SB-C03",
+    "SB-O21": "SB-C03",
+    "SB-O22": "SB-C03",
+    "SB-O23": "SB-C03",
+    "SB-O24": "SB-C03",
+    "SB-O25": "SB-C04",
+    "SB-O26": "SB-C04",
+    "SB-O27": "SB-C04",
+    "SB-O28": "SB-C04",
+    "SB-O29": "SB-C05",
+    "SB-O30": "SB-C05",
+    "SB-O31": "SB-C05",
+    "SB-O32": "SB-C05",
+    "SB-O33": "SB-C05",
+    "SB-O34": "SB-C06",
+    "SB-O35": "SB-C06",
+    "SB-O36": "SB-C06",
+    "SB-G03": "SB-CG1",
+    "SB-G04": "SB-CG1",
+    "SB-G05": "SB-CG1",
+    "SB-G06": "SB-CG1",
+    "SB-G07": "SB-CG1",
+    "SB-G08": "SB-CG1",
+    "SB-FS1": "SB-CFS1"
+  },
+  "all_57_typed_operations": [
+    {
+      "name": "runtime.status",
+      "operation_class": "query",
+      "description": "Inspect canonical bundled runtime/config authority",
+      "implementing_overlay": "SB-O04",
+      "webui_consumers": "Runtime, Home",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O04",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
     },
     {
-      "id": "SB-O05",
-      "title": "Pinned bclone compile and two-provider package parity",
-      "wave": "A",
-      "original_phases": [
-        "P02"
-      ],
-      "dependencies": [
-        "SB-O04"
-      ],
-      "targets": [
-        "skybind_runtime_inputs",
-        "skybind"
-      ],
-      "scopes": [
-        "scripts/dev/runtime/bclone",
-        "scripts/dev/build_skybind.py",
-        "scripts/dev/package",
-        "tests/package"
-      ],
-      "implementation": "Build bclone from an immutable commit with pinned Android NDK and explicit arm64/ABI flags. Select exactly one rclone-family executable at ZIP build time; obtain the unchanged helper/library family from NewFuture. Produce canonical runtime.provenance.json, package/SBOM inventory, deterministic timestamp/order/modes, checksum files and release diagnostics. Verify build reproducibility and effective executable identity for both provider variants.",
-      "targeted_validation": "NDK/toolchain/provenance checks, two clean-build byte comparisons per provider, one-rclone invariant, artifact verification, helper equality fixture and corruption/negative tests.",
-      "negative_gate": "Provider mismatch, unsupported GOARCH/ELF, missing library, second runtime, unpinned commit, manifest drift or unverifiable supply chain fails.",
-      "promotion_criterion": "Both build-time variants are reproducible and can be differentiated by immutable provenance while sharing the canonical NewFuture helper.",
-      "status": "PLANNED"
+      "name": "provider.status",
+      "operation_class": "query",
+      "description": "Inspect provider/rclone/FUSE/config readiness",
+      "implementing_overlay": "SB-O23",
+      "webui_consumers": "Remotes, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O23",
+      "delivery_artifact": "SB-C03"
     },
     {
-      "id": "SB-O06",
-      "title": "Versioned typed protocol, Unix socket and daemon authority",
-      "wave": "B",
-      "original_phases": [
-        "P03"
-      ],
-      "dependencies": [
-        "SB-G01"
-      ],
-      "targets": [
-        "skybind"
-      ],
-      "scopes": [
-        "internal/protocol",
-        "internal/control",
-        "internal/daemon",
-        "cmd/skybind",
-        "tests/protocol"
-      ],
-      "implementation": "Implement one root-owned skybindd Unix socket with exclusive daemon lock, request_id and schema_version, client protocol min/max negotiation, classes query/preview/run/cancel/reconcile, strict allow-listed operation descriptors, bounded JSON requests/responses/events and stable categories/stages/retryability. skybind supports version, capabilities, rpc, daemon and machine-friendly event streams. Restrict local fallback to identical authorization semantics.",
-      "targeted_validation": "go test ./internal/protocol ./internal/control ./internal/daemon; fuzz invalid envelopes and unknown fields; Linux socket permission/locking tests; CLI golden JSON/NDJSON.",
-      "negative_gate": "Unknown operation, generic shell/RC/file primitive, oversized envelope, multiple daemon owners, unsupported version or unbounded stream fails.",
-      "promotion_criterion": "CLI and daemon use a single typed engine with deterministic errors, no arbitrary command execution and no transport-specific authority drift.",
-      "status": "PLANNED"
+      "name": "provider.remotes",
+      "operation_class": "query",
+      "description": "List configured rclone remotes with credential-free encryption metadata",
+      "implementing_overlay": "SB-O23",
+      "webui_consumers": "Remotes, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O23",
+      "delivery_artifact": "SB-C03"
     },
     {
-      "id": "SB-O07",
-      "title": "Durable operations, cancellations and one-use proofs",
-      "wave": "B",
-      "original_phases": [
-        "P03",
-        "P04"
-      ],
-      "dependencies": [
-        "SB-O06"
-      ],
-      "targets": [
-        "skybind"
-      ],
-      "scopes": [
-        "internal/journal",
-        "internal/previewproof",
-        "internal/control",
-        "tests/transactions"
-      ],
-      "implementation": "Journal each operation before effects; persist structured progress, process identity, owner, timestamps, terminal outcome and interrupted-on-crash status. Implement cancellation only at approved boundaries. Issue typed digest/revision/action/subject-bound expiring single-use confirmation proofs, consumed atomically under resource locks; keep non-cancellable commit spans intact and expose list/status/cancel.",
-      "targeted_validation": "Journal crash/restart replay fixtures, simultaneous cancellation, proof double-spend/expiry/revision swap tests, event-stream bounds and secret-canary scans.",
-      "negative_gate": "Lost work history, acceptance of a replayed/stale proof, cancellation during atomic commit, forged request owner or leaked secret blocks.",
-      "promotion_criterion": "Mutation tracking and proof semantics support every later transactional domain and the existing Activity UI.",
-      "status": "PLANNED"
+      "name": "provider.browse",
+      "operation_class": "query",
+      "description": "Browse a configured remote path without exposing credentials",
+      "implementing_overlay": "SB-O23",
+      "webui_consumers": "Remotes, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O23",
+      "delivery_artifact": "SB-C03"
     },
     {
-      "id": "SB-O08",
-      "title": "Transactional mount registry, diff and rollback",
-      "wave": "B",
-      "original_phases": [
-        "P04"
-      ],
-      "dependencies": [
-        "SB-O07"
-      ],
-      "targets": [
-        "skybind"
-      ],
-      "scopes": [
-        "internal/mounts/config",
-        "internal/previewproof",
-        "internal/paths",
-        "tests/config"
-      ],
-      "implementation": "Implement config registry-v2.json and previous-v2.json with canonical digest, revision, strict fields, normalized remote/destination, nested-target/private-path guards, network/power/VFS/cache settings, trusted server-only args_file and public has_args_file. Provide snapshot/validate/preview/apply/previous/rollback.preview/rollback; plan precise mount/policy/cache/namespace consequences. Atomically fsync/publish and rollback as a NEW revision with no unnecessary restart for policy-only edits.",
-      "targeted_validation": "go test ./internal/mounts ./internal/previewproof; config golden matrices; interrupted atomic-write and previous-good tests; stale/digest/race/secret cases.",
-      "negative_gate": "Duplicate/overlapping targets, arbitrary flags/browser args_file, wrong revision, drifted candidate or partial state blocks; unrelated mounts remain unchanged.",
-      "promotion_criterion": "Existing WebUI configuration wizard can use a stable preview/apply/rollback protocol without altering its flow.",
-      "status": "PLANNED"
+      "name": "provider.crypt.password.status",
+      "operation_class": "query",
+      "description": "Report whether the user-defined Skybind rclone encryption password is configured",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O24",
+      "delivery_artifact": "SB-C03"
     },
     {
-      "id": "SB-O09",
-      "title": "Complete CLI parity and API inventory lock",
-      "wave": "B",
-      "original_phases": [
-        "P03",
-        "P04"
-      ],
-      "dependencies": [
-        "SB-O08"
-      ],
-      "targets": [
-        "skybind"
-      ],
-      "scopes": [
-        "cmd/skybind",
-        "internal/control",
-        "docs/contracts/operations",
-        "tests/cli"
-      ],
-      "implementation": "Expose the complete typed operation catalog with classes, argument schemas, response fixtures, stable errors, client capability discovery and CLI shorthand matching backend effects. Generate/test a machine-readable API inventory mapped to all original in-scope UI handlers, including future operations as declared yet unsupported capabilities until their overlays land. No fake-success stub may be exposed as operational.",
-      "targeted_validation": "Typed schema/test inventory, request envelope golden vectors, CLI/daemon equivalence fixtures, requiredOperations crosswalk, capability/version negative tests.",
-      "negative_gate": "An advertised nonimplemented operation, mismatched CLI vs daemon response, unspecified cancellation capability or silently accepted extra field blocks.",
-      "promotion_criterion": "Every current-scope operation is enumerated and versioned; implemented subset is truthful and safely extendable by subsequent overlays.",
-      "status": "PLANNED"
+      "name": "provider.crypt.password.set",
+      "operation_class": "run",
+      "description": "Store the user-defined Skybind rclone encryption password without returning it",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O24",
+      "delivery_artifact": "SB-C03"
     },
+    {
+      "name": "provider.crypt.preview",
+      "operation_class": "preview",
+      "description": "Preview creation of an rclone crypt remote using the configured Skybind encryption password",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O24",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "provider.crypt.create",
+      "operation_class": "run",
+      "description": "Create and verify an rclone crypt remote using the configured Skybind encryption password",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O24",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "provider.crypt.recovery.status",
+      "operation_class": "query",
+      "description": "Report non-secret rclone crypt recovery and password-generation provenance",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O24",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "config.snapshot",
+      "operation_class": "query",
+      "description": "Read the credential-free configuration registry",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O08",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "config.validate",
+      "operation_class": "query",
+      "description": "Validate a full candidate registry without issuing a mutation proof",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O08",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "config.preview",
+      "operation_class": "preview",
+      "description": "Validate a full candidate registry and preview its diff",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O08",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "config.apply",
+      "operation_class": "run",
+      "description": "Atomically publish a revision-bound candidate registry",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O08",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "config.previous",
+      "operation_class": "query",
+      "description": "Read previous-known-good configuration metadata",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O08",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "config.rollback.preview",
+      "operation_class": "preview",
+      "description": "Preview rollback to previous-known-good configuration",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O08",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "config.rollback",
+      "operation_class": "run",
+      "description": "Rollback to previous-known-good configuration",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O08",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "mount.list",
+      "operation_class": "query",
+      "description": "List configured mount names",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O10",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "mount.status",
+      "operation_class": "query",
+      "description": "Read one or all managed mount states",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O10",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "mount.health",
+      "operation_class": "query",
+      "description": "Read supervisor health/readiness state",
+      "implementing_overlay": "SB-O11",
+      "webui_consumers": "Mounts, Home, Runtime",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O11",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "mount.start.preview",
+      "operation_class": "preview",
+      "description": "Validate and preview a mount start",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O10",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "mount.start",
+      "operation_class": "run",
+      "description": "Start one configured mount",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O10",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "mount.stop",
+      "operation_class": "run",
+      "description": "Stop one managed mount",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O10",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "mount.restart",
+      "operation_class": "run",
+      "description": "Restart one managed mount",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O10",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "mount.reconcile",
+      "operation_class": "reconcile",
+      "description": "Reconcile desired mounts with readiness/recovery state",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O10",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "policy.status",
+      "operation_class": "query",
+      "description": "Read resource-policy decisions without changing lifecycle state",
+      "implementing_overlay": "SB-O13",
+      "webui_consumers": "Runtime, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O13",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "vfs.profiles",
+      "operation_class": "query",
+      "description": "List named VFS profiles and advisory resource recommendation",
+      "implementing_overlay": "SB-O13",
+      "webui_consumers": "Runtime, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O13",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "cache.status",
+      "operation_class": "query",
+      "description": "Read owned VFS cache pressure and limits",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O14",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "cache.prune.preview",
+      "operation_class": "preview",
+      "description": "Preview bounded owned-cache pruning",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O14",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "cache.prune",
+      "operation_class": "run",
+      "description": "Prune owned cache to configured low-water limits",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O14",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "cache.clear.preview",
+      "operation_class": "preview",
+      "description": "Preview owned-cache file clearing",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O14",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "cache.clear",
+      "operation_class": "run",
+      "description": "Clear regular files from a stopped mount's owned cache",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O14",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "cache.forget.preview",
+      "operation_class": "preview",
+      "description": "Preview complete owned-cache reset",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O14",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "cache.forget",
+      "operation_class": "run",
+      "description": "Reset a stopped mount's owned cache tree",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O14",
+      "delivery_artifact": "SB-C01"
+    },
+    {
+      "name": "namespace.inspect",
+      "operation_class": "query",
+      "description": "Inspect Android mount namespace topology and observed visibility",
+      "implementing_overlay": "SB-O15",
+      "webui_consumers": "Runtime, Mounts, Doctor",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O15",
+      "delivery_artifact": "SB-C02"
+    },
+    {
+      "name": "namespace.preview",
+      "operation_class": "preview",
+      "description": "Preview app-visibility namespace mutations",
+      "implementing_overlay": "SB-O16",
+      "webui_consumers": "Runtime, Mounts, Doctor",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O16",
+      "delivery_artifact": "SB-C02"
+    },
+    {
+      "name": "namespace.apply",
+      "operation_class": "run",
+      "description": "Apply app-visibility namespace mutations transactionally",
+      "implementing_overlay": "SB-O16",
+      "webui_consumers": "Runtime, Mounts, Doctor",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O16",
+      "delivery_artifact": "SB-C02"
+    },
+    {
+      "name": "namespace.rollback.preview",
+      "operation_class": "preview",
+      "description": "Preview release of Skybind-owned namespace binds",
+      "implementing_overlay": "SB-O17",
+      "webui_consumers": "Runtime, Mounts, Doctor",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O17",
+      "delivery_artifact": "SB-C02"
+    },
+    {
+      "name": "namespace.rollback",
+      "operation_class": "run",
+      "description": "Release Skybind-owned namespace binds and disable app visibility",
+      "implementing_overlay": "SB-O17",
+      "webui_consumers": "Runtime, Mounts, Doctor",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O17",
+      "delivery_artifact": "SB-C02"
+    },
+    {
+      "name": "namespace.reconcile",
+      "operation_class": "reconcile",
+      "description": "Reconcile persisted app-visibility intent after namespace churn",
+      "implementing_overlay": "SB-O17",
+      "webui_consumers": "Runtime, Mounts, Doctor",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O17",
+      "delivery_artifact": "SB-C02"
+    },
+    {
+      "name": "jobs.snapshot",
+      "operation_class": "query",
+      "description": "Read the typed scheduled-job registry",
+      "implementing_overlay": "SB-O20",
+      "webui_consumers": "Jobs, Activity",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O20",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "jobs.preview",
+      "operation_class": "preview",
+      "description": "Validate and preview the scheduled-job registry",
+      "implementing_overlay": "SB-O20",
+      "webui_consumers": "Jobs, Activity",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O20",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "jobs.apply",
+      "operation_class": "run",
+      "description": "Atomically publish the scheduled-job registry",
+      "implementing_overlay": "SB-O20",
+      "webui_consumers": "Jobs, Activity",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O20",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "jobs.status",
+      "operation_class": "query",
+      "description": "Read persisted scheduled-job execution state",
+      "implementing_overlay": "SB-O20",
+      "webui_consumers": "Jobs, Activity",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O20",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "job.run.preview",
+      "operation_class": "preview",
+      "description": "Preview a managed rclone job and its policy/destructive status",
+      "implementing_overlay": "SB-O21",
+      "webui_consumers": "Jobs, Activity",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O21",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "job.run",
+      "operation_class": "run",
+      "description": "Run one allow-listed managed rclone job",
+      "implementing_overlay": "SB-O21",
+      "webui_consumers": "Jobs, Activity",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O21",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "rc.metrics",
+      "operation_class": "query",
+      "description": "Read allow-listed local-only rclone RC metrics",
+      "implementing_overlay": "SB-O22",
+      "webui_consumers": "Runtime, Home",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O22",
+      "delivery_artifact": "SB-C03"
+    },
+    {
+      "name": "operation.status",
+      "operation_class": "query",
+      "description": "Read persistent operation journal state",
+      "implementing_overlay": "SB-O07",
+      "webui_consumers": "Activity",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O07",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "operation.list",
+      "operation_class": "query",
+      "description": "List persistent operation journal state",
+      "implementing_overlay": "SB-O07",
+      "webui_consumers": "Activity",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O07",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "operation.cancel",
+      "operation_class": "cancel",
+      "description": "Cancel one active request by request_id",
+      "implementing_overlay": "SB-O07",
+      "webui_consumers": "Activity",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O07",
+      "delivery_artifact": "ALREADY_IMPLEMENTED_OR_DEFINED"
+    },
+    {
+      "name": "doctor.report",
+      "operation_class": "query",
+      "description": "Run structured Skybind diagnostics",
+      "implementing_overlay": "SB-O25",
+      "webui_consumers": "Doctor, Logs",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O25",
+      "delivery_artifact": "SB-C04"
+    },
+    {
+      "name": "doctor.bundle",
+      "operation_class": "run",
+      "description": "Create a deterministic sanitized support bundle",
+      "implementing_overlay": "SB-O26",
+      "webui_consumers": "Doctor, Logs",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O26",
+      "delivery_artifact": "SB-C04"
+    },
+    {
+      "name": "doctor.bundle.read",
+      "operation_class": "query",
+      "description": "Read one Skybind-created bounded support bundle",
+      "implementing_overlay": "SB-O26",
+      "webui_consumers": "Doctor, Logs",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O26",
+      "delivery_artifact": "SB-C04"
+    },
+    {
+      "name": "diagnostics.logs",
+      "operation_class": "query",
+      "description": "Read bounded sanitized structured Skybind logs",
+      "implementing_overlay": "SB-O25",
+      "webui_consumers": "Doctor, Logs",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O25",
+      "delivery_artifact": "SB-C04"
+    },
+    {
+      "name": "platform.status",
+      "operation_class": "query",
+      "description": "Inspect root-manager capabilities and module integrity",
+      "implementing_overlay": "SB-O18",
+      "webui_consumers": "Runtime, Home",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O18",
+      "delivery_artifact": "SB-C02"
+    },
+    {
+      "name": "ui.settings",
+      "operation_class": "query",
+      "description": "Read persisted WebUI presentation settings",
+      "implementing_overlay": "SB-O32",
+      "webui_consumers": "Settings",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O32",
+      "delivery_artifact": "SB-C05"
+    },
+    {
+      "name": "ui.settings.preview",
+      "operation_class": "preview",
+      "description": "Validate and preview WebUI settings",
+      "implementing_overlay": "SB-O32",
+      "webui_consumers": "Settings",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O32",
+      "delivery_artifact": "SB-C05"
+    },
+    {
+      "name": "ui.settings.apply",
+      "operation_class": "run",
+      "description": "Persist preview-bound WebUI settings",
+      "implementing_overlay": "SB-O32",
+      "webui_consumers": "Settings",
+      "status": "PLANNED",
+      "original_implementing_obligation": "SB-O32",
+      "delivery_artifact": "SB-C05"
+    }
+  ],
+  "original_remaining_implementation_obligations": [
     {
       "id": "SB-O10",
       "title": "Owned process, FUSE lifecycle and explicit desired state",
@@ -974,37 +2018,7 @@
       "status": "PLANNED"
     }
   ],
-  "gate_overlays": [
-    {
-      "id": "SB-G01",
-      "title": "Foundation and static supply-chain milestone",
-      "wave": "A",
-      "dependencies": [
-        "SB-O01",
-        "SB-O02",
-        "SB-O03",
-        "SB-O04",
-        "SB-O05"
-      ],
-      "required_checks": "Recheck authoritative contract, target graph, private path invariants, signed/pinned input authenticity where applicable, single runtime, NewFuture helper and both provider reproducibility. Verify no excluded paths/features entered new code.",
-      "assurance_ceiling": "SOURCE_BUILD_PASS only; device capability and FUSE usability remain NOT_ATTESTED.",
-      "status": "PLANNED"
-    },
-    {
-      "id": "SB-G02",
-      "title": "Typed authority and transactional configuration milestone",
-      "wave": "B",
-      "dependencies": [
-        "SB-G01",
-        "SB-O06",
-        "SB-O07",
-        "SB-O08",
-        "SB-O09"
-      ],
-      "required_checks": "Recheck protocol/daemon owner lock, full operation registry, durable journal, proof replay/race/failure, config atomic publish/rollback and CLI parity under malformed/adversarial input.",
-      "assurance_ceiling": "SOURCE_CONTROL_PASS; no real Android mount, daemon boot or device inference.",
-      "status": "PLANNED"
-    },
+  "original_remaining_gate_obligations": [
     {
       "id": "SB-G03",
       "title": "Mount lifecycle, recovery and resource safety milestone",
@@ -1107,7 +2121,7 @@
       "status": "PLANNED"
     }
   ],
-  "final_seal": {
+  "original_final_seal_obligation": {
     "id": "SB-FS1",
     "dependencies": [
       "SB-G08",
@@ -1130,495 +2144,300 @@
     ],
     "status": "PLANNED"
   },
-  "typed_api_operations": [
+  "original_implementation_baseline": [
     {
-      "name": "runtime.status",
-      "operation_class": "query",
-      "description": "Inspect canonical bundled runtime/config authority",
-      "implementing_overlay": "SB-O04",
-      "webui_consumers": "Runtime, Home",
+      "id": "SB-O01",
+      "title": "Product contract, threat model and UI reference freeze",
+      "wave": "A",
+      "original_phases": [
+        "P00",
+        "P16"
+      ],
+      "dependencies": [],
+      "targets": [
+        "skybind",
+        "skybind_webui"
+      ],
+      "scopes": [
+        "docs/architecture",
+        "docs/contracts",
+        "tests/contracts",
+        "tests/fixtures/webui-reference"
+      ],
+      "implementation": "Freeze Skybind-wide identifiers and forbid legacy branding in new artifacts. Freeze build-time NewFuture/bclone selection, root-private state, single bundled executable and FUSE-helper layout; enumerate every feature/operation/state/API error; record threat boundaries, Android capability truth, independent source-vs-device assurance and explicit exclusions. Snapshot original module/webroot assets unmodified with SHA-256, DOM inventory, golden screen/state/interaction cases and visual-baseline manifest. List every retained and excluded UI control, and never import historical dynamic-runtime or migration behavior.",
+      "targeted_validation": "Schema inventory, baseline hash verifier, static forbidden-feature grep, 57-operation coverage check, freeze verification, threat-case traceability.",
+      "negative_gate": "Unexpected old-brand identifier outside quarantined original-source fixtures blocks. An omitted retained UI control, a UI hash mismatch, an orphaned operation, or an excluded historical feature fails the contract. Baseline snapshots must be genuinely captured or marked missing, never invented.",
+      "promotion_criterion": "A current-product specification, frozen UI reference and immutable operation/feature checklist exist; all later overlays can resolve against exact baselines.",
       "status": "PLANNED"
     },
     {
-      "name": "provider.status",
-      "operation_class": "query",
-      "description": "Inspect provider/rclone/FUSE/config readiness",
-      "implementing_overlay": "SB-O23",
-      "webui_consumers": "Remotes, Mount wizard",
+      "id": "SB-O02",
+      "title": "First-class Devtool targets, graph, workflows and fixtures",
+      "wave": "A",
+      "original_phases": [
+        "P01",
+        "P17"
+      ],
+      "dependencies": [
+        "SB-O01"
+      ],
+      "targets": [
+        "skybind",
+        "skybind_webui",
+        "skybind_runtime_inputs",
+        "skybind_android_device",
+        "skybind_release"
+      ],
+      "scopes": [
+        ".devtool.toml",
+        "scripts/devtool",
+        "tests/devtool",
+        "docs/development"
+      ],
+      "implementation": "Declare canonical targets, target-local read-only test jobs, cross-target build jobs, named workflows, release groups, path inputs/outputs, safe parallel scheduler limits, wrapper commands, target/runner/execution-environment identities, targeted validation recipes and Android-provider detection. Distinguish source-only, build, host integration, real-device and release gates. Register baseline/parity fixtures and a project-specific seal check. Keep Devtool as orchestrator: no duplicate test scheduler, overlay engine or invented validation state machine.",
+      "targeted_validation": "devtool config/targets/groups/jobs/workflows/plan/preflight/doctor checks; invalid target reference, write-scope escape, conflicting output, absent interpreter and toolchain-negative fixtures.",
+      "negative_gate": "Missing named workflow, unknown dependency, unsafe parallel output overlap, phantom Android device, or zero executed validation checks blocks.",
+      "promotion_criterion": "The rebuilt repo is natively understood by Devtool and has machine-readable dependency/affected graphs and reproducible targeted test selection.",
       "status": "PLANNED"
     },
     {
-      "name": "provider.remotes",
-      "operation_class": "query",
-      "description": "List configured rclone remotes with credential-free encryption metadata",
-      "implementing_overlay": "SB-O23",
-      "webui_consumers": "Remotes, Mount wizard",
+      "id": "SB-O03",
+      "title": "Go skeleton and root-private filesystem invariants",
+      "wave": "A",
+      "original_phases": [
+        "P01"
+      ],
+      "dependencies": [
+        "SB-O02"
+      ],
+      "targets": [
+        "skybind"
+      ],
+      "scopes": [
+        "go.mod",
+        "cmd/skybind",
+        "internal/paths",
+        "internal/buildinfo",
+        "internal/atomicfile",
+        "tests/fixtures"
+      ],
+      "implementation": "Create Go commands and package boundaries, canonical /data/adb/modules/skybind and /data/adb/skybind paths, separate immutable module bytes from retained state, owner-only 0700 dirs/0600 secrets, nofollow checks, lock/atomic write/fsync helpers and injectable filesystem adapter for non-root test fixtures only. Define run/socket, configuration, desired state, health, jobs, namespace, cache, logs, RC, UI settings and support paths. Compile Android arm64 and Linux fixture targets.",
+      "targeted_validation": "go test ./internal/paths ./internal/atomicfile ./cmd/skybind; Go cross-compile; host fixtures for permissions, symlink traversal, partial writes and owner mismatch.",
+      "negative_gate": "A symlinked state root, group-readable secret, invalid absolute path, platform override on a privileged build, or partial publication must be rejected.",
+      "promotion_criterion": "Private state and executable skeleton are deterministic, testable without root, and fail closed on unsafe layouts.",
       "status": "PLANNED"
     },
     {
-      "name": "provider.browse",
-      "operation_class": "query",
-      "description": "Browse a configured remote path without exposing credentials",
-      "implementing_overlay": "SB-O23",
-      "webui_consumers": "Remotes, Mount wizard",
+      "id": "SB-O04",
+      "title": "Pinned NewFuture executable and canonical FUSE helper",
+      "wave": "A",
+      "original_phases": [
+        "P02"
+      ],
+      "dependencies": [
+        "SB-O03"
+      ],
+      "targets": [
+        "skybind_runtime_inputs",
+        "skybind"
+      ],
+      "scopes": [
+        "scripts/dev/runtime/newfuture",
+        "internal/runtimeauth",
+        "internal/integrity",
+        "module/system",
+        "docs/build"
+      ],
+      "implementation": "Acquire the exact official NewFuture arm64 package with pinned digest; safely extract one system/bin/rclone and the official system/vendor/bin/fusermount3 plus required libfuse siblings. Implement source/ELF/mode/hash/provenance verifier and strictly canonical runtime resolver. Never search PATH or use untrusted runtime overrides. Package deterministically without executing the target binary on the host.",
+      "targeted_validation": "Provider acquisition fixtures, archive path/symlink bombs, ELF ABI and hash tests; one-runtime binary inventory; reproducible ZIP comparison; go test ./internal/runtimeauth ./internal/integrity.",
+      "negative_gate": "Two executables, untrusted helper origin, helper from bclone, modified bytes, PATH hijack, corrupt manifest or nondeterministic archive blocks.",
+      "promotion_criterion": "A locally reproducible NewFuture arm64 artifact with independently attested helper provenance and an operational read-only status contract.",
       "status": "PLANNED"
     },
     {
-      "name": "provider.crypt.password.status",
-      "operation_class": "query",
-      "description": "Report whether the user-defined Skybind rclone encryption password is configured",
-      "implementing_overlay": "SB-O24",
-      "webui_consumers": "Remotes/crypt modal, Settings",
+      "id": "SB-O05",
+      "title": "Pinned bclone compile and two-provider package parity",
+      "wave": "A",
+      "original_phases": [
+        "P02"
+      ],
+      "dependencies": [
+        "SB-O04"
+      ],
+      "targets": [
+        "skybind_runtime_inputs",
+        "skybind"
+      ],
+      "scopes": [
+        "scripts/dev/runtime/bclone",
+        "scripts/dev/build_skybind.py",
+        "scripts/dev/package",
+        "tests/package"
+      ],
+      "implementation": "Build bclone from an immutable commit with pinned Android NDK and explicit arm64/ABI flags. Select exactly one rclone-family executable at ZIP build time; obtain the unchanged helper/library family from NewFuture. Produce canonical runtime.provenance.json, package/SBOM inventory, deterministic timestamp/order/modes, checksum files and release diagnostics. Verify build reproducibility and effective executable identity for both provider variants.",
+      "targeted_validation": "NDK/toolchain/provenance checks, two clean-build byte comparisons per provider, one-rclone invariant, artifact verification, helper equality fixture and corruption/negative tests.",
+      "negative_gate": "Provider mismatch, unsupported GOARCH/ELF, missing library, second runtime, unpinned commit, manifest drift or unverifiable supply chain fails.",
+      "promotion_criterion": "Both build-time variants are reproducible and can be differentiated by immutable provenance while sharing the canonical NewFuture helper.",
       "status": "PLANNED"
     },
     {
-      "name": "provider.crypt.password.set",
-      "operation_class": "run",
-      "description": "Store the user-defined Skybind rclone encryption password without returning it",
-      "implementing_overlay": "SB-O24",
-      "webui_consumers": "Remotes/crypt modal, Settings",
+      "id": "SB-O06",
+      "title": "Versioned typed protocol, Unix socket and daemon authority",
+      "wave": "B",
+      "original_phases": [
+        "P03"
+      ],
+      "dependencies": [
+        "SB-G01"
+      ],
+      "targets": [
+        "skybind"
+      ],
+      "scopes": [
+        "internal/protocol",
+        "internal/control",
+        "internal/daemon",
+        "cmd/skybind",
+        "tests/protocol"
+      ],
+      "implementation": "Implement one root-owned skybindd Unix socket with exclusive daemon lock, request_id and schema_version, client protocol min/max negotiation, classes query/preview/run/cancel/reconcile, strict allow-listed operation descriptors, bounded JSON requests/responses/events and stable categories/stages/retryability. skybind supports version, capabilities, rpc, daemon and machine-friendly event streams. Restrict local fallback to identical authorization semantics.",
+      "targeted_validation": "go test ./internal/protocol ./internal/control ./internal/daemon; fuzz invalid envelopes and unknown fields; Linux socket permission/locking tests; CLI golden JSON/NDJSON.",
+      "negative_gate": "Unknown operation, generic shell/RC/file primitive, oversized envelope, multiple daemon owners, unsupported version or unbounded stream fails.",
+      "promotion_criterion": "CLI and daemon use a single typed engine with deterministic errors, no arbitrary command execution and no transport-specific authority drift.",
       "status": "PLANNED"
     },
     {
-      "name": "provider.crypt.preview",
-      "operation_class": "preview",
-      "description": "Preview creation of an rclone crypt remote using the configured Skybind encryption password",
-      "implementing_overlay": "SB-O24",
-      "webui_consumers": "Remotes/crypt modal, Settings",
+      "id": "SB-O07",
+      "title": "Durable operations, cancellations and one-use proofs",
+      "wave": "B",
+      "original_phases": [
+        "P03",
+        "P04"
+      ],
+      "dependencies": [
+        "SB-O06"
+      ],
+      "targets": [
+        "skybind"
+      ],
+      "scopes": [
+        "internal/journal",
+        "internal/previewproof",
+        "internal/control",
+        "tests/transactions"
+      ],
+      "implementation": "Journal each operation before effects; persist structured progress, process identity, owner, timestamps, terminal outcome and interrupted-on-crash status. Implement cancellation only at approved boundaries. Issue typed digest/revision/action/subject-bound expiring single-use confirmation proofs, consumed atomically under resource locks; keep non-cancellable commit spans intact and expose list/status/cancel.",
+      "targeted_validation": "Journal crash/restart replay fixtures, simultaneous cancellation, proof double-spend/expiry/revision swap tests, event-stream bounds and secret-canary scans.",
+      "negative_gate": "Lost work history, acceptance of a replayed/stale proof, cancellation during atomic commit, forged request owner or leaked secret blocks.",
+      "promotion_criterion": "Mutation tracking and proof semantics support every later transactional domain and the existing Activity UI.",
       "status": "PLANNED"
     },
     {
-      "name": "provider.crypt.create",
-      "operation_class": "run",
-      "description": "Create and verify an rclone crypt remote using the configured Skybind encryption password",
-      "implementing_overlay": "SB-O24",
-      "webui_consumers": "Remotes/crypt modal, Settings",
+      "id": "SB-O08",
+      "title": "Transactional mount registry, diff and rollback",
+      "wave": "B",
+      "original_phases": [
+        "P04"
+      ],
+      "dependencies": [
+        "SB-O07"
+      ],
+      "targets": [
+        "skybind"
+      ],
+      "scopes": [
+        "internal/mounts/config",
+        "internal/previewproof",
+        "internal/paths",
+        "tests/config"
+      ],
+      "implementation": "Implement config registry-v2.json and previous-v2.json with canonical digest, revision, strict fields, normalized remote/destination, nested-target/private-path guards, network/power/VFS/cache settings, trusted server-only args_file and public has_args_file. Provide snapshot/validate/preview/apply/previous/rollback.preview/rollback; plan precise mount/policy/cache/namespace consequences. Atomically fsync/publish and rollback as a NEW revision with no unnecessary restart for policy-only edits.",
+      "targeted_validation": "go test ./internal/mounts ./internal/previewproof; config golden matrices; interrupted atomic-write and previous-good tests; stale/digest/race/secret cases.",
+      "negative_gate": "Duplicate/overlapping targets, arbitrary flags/browser args_file, wrong revision, drifted candidate or partial state blocks; unrelated mounts remain unchanged.",
+      "promotion_criterion": "Existing WebUI configuration wizard can use a stable preview/apply/rollback protocol without altering its flow.",
       "status": "PLANNED"
     },
     {
-      "name": "provider.crypt.recovery.status",
-      "operation_class": "query",
-      "description": "Report non-secret rclone crypt recovery and password-generation provenance",
-      "implementing_overlay": "SB-O24",
-      "webui_consumers": "Remotes/crypt modal, Settings",
-      "status": "PLANNED"
-    },
-    {
-      "name": "config.snapshot",
-      "operation_class": "query",
-      "description": "Read the credential-free configuration registry",
-      "implementing_overlay": "SB-O08",
-      "webui_consumers": "Mounts, wizard, rollback",
-      "status": "PLANNED"
-    },
-    {
-      "name": "config.validate",
-      "operation_class": "query",
-      "description": "Validate a full candidate registry without issuing a mutation proof",
-      "implementing_overlay": "SB-O08",
-      "webui_consumers": "Mounts, wizard, rollback",
-      "status": "PLANNED"
-    },
-    {
-      "name": "config.preview",
-      "operation_class": "preview",
-      "description": "Validate a full candidate registry and preview its diff",
-      "implementing_overlay": "SB-O08",
-      "webui_consumers": "Mounts, wizard, rollback",
-      "status": "PLANNED"
-    },
-    {
-      "name": "config.apply",
-      "operation_class": "run",
-      "description": "Atomically publish a revision-bound candidate registry",
-      "implementing_overlay": "SB-O08",
-      "webui_consumers": "Mounts, wizard, rollback",
-      "status": "PLANNED"
-    },
-    {
-      "name": "config.previous",
-      "operation_class": "query",
-      "description": "Read previous-known-good configuration metadata",
-      "implementing_overlay": "SB-O08",
-      "webui_consumers": "Mounts, wizard, rollback",
-      "status": "PLANNED"
-    },
-    {
-      "name": "config.rollback.preview",
-      "operation_class": "preview",
-      "description": "Preview rollback to previous-known-good configuration",
-      "implementing_overlay": "SB-O08",
-      "webui_consumers": "Mounts, wizard, rollback",
-      "status": "PLANNED"
-    },
-    {
-      "name": "config.rollback",
-      "operation_class": "run",
-      "description": "Rollback to previous-known-good configuration",
-      "implementing_overlay": "SB-O08",
-      "webui_consumers": "Mounts, wizard, rollback",
-      "status": "PLANNED"
-    },
-    {
-      "name": "mount.list",
-      "operation_class": "query",
-      "description": "List configured mount names",
-      "implementing_overlay": "SB-O10",
-      "webui_consumers": "Mounts, Home, Runtime",
-      "status": "PLANNED"
-    },
-    {
-      "name": "mount.status",
-      "operation_class": "query",
-      "description": "Read one or all managed mount states",
-      "implementing_overlay": "SB-O10",
-      "webui_consumers": "Mounts, Home, Runtime",
-      "status": "PLANNED"
-    },
-    {
-      "name": "mount.health",
-      "operation_class": "query",
-      "description": "Read supervisor health/readiness state",
-      "implementing_overlay": "SB-O11",
-      "webui_consumers": "Mounts, Home, Runtime",
-      "status": "PLANNED"
-    },
-    {
-      "name": "mount.start.preview",
-      "operation_class": "preview",
-      "description": "Validate and preview a mount start",
-      "implementing_overlay": "SB-O10",
-      "webui_consumers": "Mounts, Home, Runtime",
-      "status": "PLANNED"
-    },
-    {
-      "name": "mount.start",
-      "operation_class": "run",
-      "description": "Start one configured mount",
-      "implementing_overlay": "SB-O10",
-      "webui_consumers": "Mounts, Home, Runtime",
-      "status": "PLANNED"
-    },
-    {
-      "name": "mount.stop",
-      "operation_class": "run",
-      "description": "Stop one managed mount",
-      "implementing_overlay": "SB-O10",
-      "webui_consumers": "Mounts, Home, Runtime",
-      "status": "PLANNED"
-    },
-    {
-      "name": "mount.restart",
-      "operation_class": "run",
-      "description": "Restart one managed mount",
-      "implementing_overlay": "SB-O10",
-      "webui_consumers": "Mounts, Home, Runtime",
-      "status": "PLANNED"
-    },
-    {
-      "name": "mount.reconcile",
-      "operation_class": "reconcile",
-      "description": "Reconcile desired mounts with readiness/recovery state",
-      "implementing_overlay": "SB-O10",
-      "webui_consumers": "Mounts, Home, Runtime",
-      "status": "PLANNED"
-    },
-    {
-      "name": "policy.status",
-      "operation_class": "query",
-      "description": "Read resource-policy decisions without changing lifecycle state",
-      "implementing_overlay": "SB-O13",
-      "webui_consumers": "Runtime, Mount wizard",
-      "status": "PLANNED"
-    },
-    {
-      "name": "vfs.profiles",
-      "operation_class": "query",
-      "description": "List named VFS profiles and advisory resource recommendation",
-      "implementing_overlay": "SB-O13",
-      "webui_consumers": "Runtime, Mount wizard",
-      "status": "PLANNED"
-    },
-    {
-      "name": "cache.status",
-      "operation_class": "query",
-      "description": "Read owned VFS cache pressure and limits",
-      "implementing_overlay": "SB-O14",
-      "webui_consumers": "Runtime, Mount wizard",
-      "status": "PLANNED"
-    },
-    {
-      "name": "cache.prune.preview",
-      "operation_class": "preview",
-      "description": "Preview bounded owned-cache pruning",
-      "implementing_overlay": "SB-O14",
-      "webui_consumers": "Runtime, Mount wizard",
-      "status": "PLANNED"
-    },
-    {
-      "name": "cache.prune",
-      "operation_class": "run",
-      "description": "Prune owned cache to configured low-water limits",
-      "implementing_overlay": "SB-O14",
-      "webui_consumers": "Runtime, Mount wizard",
-      "status": "PLANNED"
-    },
-    {
-      "name": "cache.clear.preview",
-      "operation_class": "preview",
-      "description": "Preview owned-cache file clearing",
-      "implementing_overlay": "SB-O14",
-      "webui_consumers": "Runtime, Mount wizard",
-      "status": "PLANNED"
-    },
-    {
-      "name": "cache.clear",
-      "operation_class": "run",
-      "description": "Clear regular files from a stopped mount's owned cache",
-      "implementing_overlay": "SB-O14",
-      "webui_consumers": "Runtime, Mount wizard",
-      "status": "PLANNED"
-    },
-    {
-      "name": "cache.forget.preview",
-      "operation_class": "preview",
-      "description": "Preview complete owned-cache reset",
-      "implementing_overlay": "SB-O14",
-      "webui_consumers": "Runtime, Mount wizard",
-      "status": "PLANNED"
-    },
-    {
-      "name": "cache.forget",
-      "operation_class": "run",
-      "description": "Reset a stopped mount's owned cache tree",
-      "implementing_overlay": "SB-O14",
-      "webui_consumers": "Runtime, Mount wizard",
-      "status": "PLANNED"
-    },
-    {
-      "name": "namespace.inspect",
-      "operation_class": "query",
-      "description": "Inspect Android mount namespace topology and observed visibility",
-      "implementing_overlay": "SB-O15",
-      "webui_consumers": "Runtime, Mounts, Doctor",
-      "status": "PLANNED"
-    },
-    {
-      "name": "namespace.preview",
-      "operation_class": "preview",
-      "description": "Preview app-visibility namespace mutations",
-      "implementing_overlay": "SB-O16",
-      "webui_consumers": "Runtime, Mounts, Doctor",
-      "status": "PLANNED"
-    },
-    {
-      "name": "namespace.apply",
-      "operation_class": "run",
-      "description": "Apply app-visibility namespace mutations transactionally",
-      "implementing_overlay": "SB-O16",
-      "webui_consumers": "Runtime, Mounts, Doctor",
-      "status": "PLANNED"
-    },
-    {
-      "name": "namespace.rollback.preview",
-      "operation_class": "preview",
-      "description": "Preview release of Skybind-owned namespace binds",
-      "implementing_overlay": "SB-O17",
-      "webui_consumers": "Runtime, Mounts, Doctor",
-      "status": "PLANNED"
-    },
-    {
-      "name": "namespace.rollback",
-      "operation_class": "run",
-      "description": "Release Skybind-owned namespace binds and disable app visibility",
-      "implementing_overlay": "SB-O17",
-      "webui_consumers": "Runtime, Mounts, Doctor",
-      "status": "PLANNED"
-    },
-    {
-      "name": "namespace.reconcile",
-      "operation_class": "reconcile",
-      "description": "Reconcile persisted app-visibility intent after namespace churn",
-      "implementing_overlay": "SB-O17",
-      "webui_consumers": "Runtime, Mounts, Doctor",
-      "status": "PLANNED"
-    },
-    {
-      "name": "jobs.snapshot",
-      "operation_class": "query",
-      "description": "Read the typed scheduled-job registry",
-      "implementing_overlay": "SB-O20",
-      "webui_consumers": "Jobs, Activity",
-      "status": "PLANNED"
-    },
-    {
-      "name": "jobs.preview",
-      "operation_class": "preview",
-      "description": "Validate and preview the scheduled-job registry",
-      "implementing_overlay": "SB-O20",
-      "webui_consumers": "Jobs, Activity",
-      "status": "PLANNED"
-    },
-    {
-      "name": "jobs.apply",
-      "operation_class": "run",
-      "description": "Atomically publish the scheduled-job registry",
-      "implementing_overlay": "SB-O20",
-      "webui_consumers": "Jobs, Activity",
-      "status": "PLANNED"
-    },
-    {
-      "name": "jobs.status",
-      "operation_class": "query",
-      "description": "Read persisted scheduled-job execution state",
-      "implementing_overlay": "SB-O20",
-      "webui_consumers": "Jobs, Activity",
-      "status": "PLANNED"
-    },
-    {
-      "name": "job.run.preview",
-      "operation_class": "preview",
-      "description": "Preview a managed rclone job and its policy/destructive status",
-      "implementing_overlay": "SB-O21",
-      "webui_consumers": "Jobs, Activity",
-      "status": "PLANNED"
-    },
-    {
-      "name": "job.run",
-      "operation_class": "run",
-      "description": "Run one allow-listed managed rclone job",
-      "implementing_overlay": "SB-O21",
-      "webui_consumers": "Jobs, Activity",
-      "status": "PLANNED"
-    },
-    {
-      "name": "rc.metrics",
-      "operation_class": "query",
-      "description": "Read allow-listed local-only rclone RC metrics",
-      "implementing_overlay": "SB-O22",
-      "webui_consumers": "Runtime, Home",
-      "status": "PLANNED"
-    },
-    {
-      "name": "operation.status",
-      "operation_class": "query",
-      "description": "Read persistent operation journal state",
-      "implementing_overlay": "SB-O07",
-      "webui_consumers": "Activity",
-      "status": "PLANNED"
-    },
-    {
-      "name": "operation.list",
-      "operation_class": "query",
-      "description": "List persistent operation journal state",
-      "implementing_overlay": "SB-O07",
-      "webui_consumers": "Activity",
-      "status": "PLANNED"
-    },
-    {
-      "name": "operation.cancel",
-      "operation_class": "cancel",
-      "description": "Cancel one active request by request_id",
-      "implementing_overlay": "SB-O07",
-      "webui_consumers": "Activity",
-      "status": "PLANNED"
-    },
-    {
-      "name": "doctor.report",
-      "operation_class": "query",
-      "description": "Run structured Skybind diagnostics",
-      "implementing_overlay": "SB-O25",
-      "webui_consumers": "Doctor, Logs",
-      "status": "PLANNED"
-    },
-    {
-      "name": "doctor.bundle",
-      "operation_class": "run",
-      "description": "Create a deterministic sanitized support bundle",
-      "implementing_overlay": "SB-O26",
-      "webui_consumers": "Doctor, Logs",
-      "status": "PLANNED"
-    },
-    {
-      "name": "doctor.bundle.read",
-      "operation_class": "query",
-      "description": "Read one Skybind-created bounded support bundle",
-      "implementing_overlay": "SB-O26",
-      "webui_consumers": "Doctor, Logs",
-      "status": "PLANNED"
-    },
-    {
-      "name": "diagnostics.logs",
-      "operation_class": "query",
-      "description": "Read bounded sanitized structured Skybind logs",
-      "implementing_overlay": "SB-O25",
-      "webui_consumers": "Doctor, Logs",
-      "status": "PLANNED"
-    },
-    {
-      "name": "platform.status",
-      "operation_class": "query",
-      "description": "Inspect root-manager capabilities and module integrity",
-      "implementing_overlay": "SB-O18",
-      "webui_consumers": "Runtime, Home",
-      "status": "PLANNED"
-    },
-    {
-      "name": "ui.settings",
-      "operation_class": "query",
-      "description": "Read persisted WebUI presentation settings",
-      "implementing_overlay": "SB-O32",
-      "webui_consumers": "Settings",
-      "status": "PLANNED"
-    },
-    {
-      "name": "ui.settings.preview",
-      "operation_class": "preview",
-      "description": "Validate and preview WebUI settings",
-      "implementing_overlay": "SB-O32",
-      "webui_consumers": "Settings",
-      "status": "PLANNED"
-    },
-    {
-      "name": "ui.settings.apply",
-      "operation_class": "run",
-      "description": "Persist preview-bound WebUI settings",
-      "implementing_overlay": "SB-O32",
-      "webui_consumers": "Settings",
+      "id": "SB-O09",
+      "title": "Complete CLI parity and API inventory lock",
+      "wave": "B",
+      "original_phases": [
+        "P03",
+        "P04"
+      ],
+      "dependencies": [
+        "SB-O08"
+      ],
+      "targets": [
+        "skybind"
+      ],
+      "scopes": [
+        "cmd/skybind",
+        "internal/control",
+        "docs/contracts/operations",
+        "tests/cli"
+      ],
+      "implementation": "Expose the complete typed operation catalog with classes, argument schemas, response fixtures, stable errors, client capability discovery and CLI shorthand matching backend effects. Generate/test a machine-readable API inventory mapped to all original in-scope UI handlers, including future operations as declared yet unsupported capabilities until their overlays land. No fake-success stub may be exposed as operational.",
+      "targeted_validation": "Typed schema/test inventory, request envelope golden vectors, CLI/daemon equivalence fixtures, requiredOperations crosswalk, capability/version negative tests.",
+      "negative_gate": "An advertised nonimplemented operation, mismatched CLI vs daemon response, unspecified cancellation capability or silently accepted extra field blocks.",
+      "promotion_criterion": "Every current-scope operation is enumerated and versioned; implemented subset is truthful and safely extendable by subsequent overlays.",
       "status": "PLANNED"
     }
   ],
-  "typed_api_count": 57,
-  "gate_evidence_policy": "Per-gate promise ledger, exported obligations, fixed-point source audit, explicit source/device split and no gate implementation repair",
-  "program_name": "SKYBIND — Devtool Overlay Campaign",
-  "display_name": "Skybind",
-  "campaign": "Skybind Devtool Overlay Campaign",
-  "identity": {
-    "repository": "skybind",
-    "module_id": "skybind",
-    "module_display_name": "Skybind",
-    "module_root": "/data/adb/modules/skybind",
-    "persistent_state_root": "/data/adb/skybind",
-    "cli": "skybind",
-    "daemon": "skybindd",
-    "daemon_socket": "/data/adb/skybind/run/skybindd.sock",
-    "devtool_targets": [
-      "skybind",
-      "skybind_webui",
-      "skybind_runtime_inputs",
-      "skybind_android_device",
-      "skybind_release"
-    ],
-    "overlay_prefix": "SB",
-    "webui_brand": "Skybind",
-    "upstream_engine_binary": "system/bin/rclone",
-    "allowed_legacy_source_refs": "quarantined original-source fixtures only",
-    "identity_verification_gates": [
-      "SB-G01",
-      "SB-G07",
-      "SB-G08",
-      "SB-FS1"
-    ],
-    "scope": "new project identity only; no installed-product migration"
-  }
+  "original_gate_baseline": [
+    {
+      "id": "SB-G01",
+      "title": "Foundation and static supply-chain milestone",
+      "wave": "A",
+      "dependencies": [
+        "SB-O01",
+        "SB-O02",
+        "SB-O03",
+        "SB-O04",
+        "SB-O05"
+      ],
+      "required_checks": "Recheck authoritative contract, target graph, private path invariants, signed/pinned input authenticity where applicable, single runtime, NewFuture helper and both provider reproducibility. Verify no excluded paths/features entered new code.",
+      "assurance_ceiling": "SOURCE_BUILD_PASS only; device capability and FUSE usability remain NOT_ATTESTED.",
+      "status": "PLANNED"
+    },
+    {
+      "id": "SB-G02",
+      "title": "Typed authority and transactional configuration milestone",
+      "wave": "B",
+      "dependencies": [
+        "SB-G01",
+        "SB-O06",
+        "SB-O07",
+        "SB-O08",
+        "SB-O09"
+      ],
+      "required_checks": "Recheck protocol/daemon owner lock, full operation registry, durable journal, proof replay/race/failure, config atomic publish/rollback and CLI parity under malformed/adversarial input.",
+      "assurance_ceiling": "SOURCE_CONTROL_PASS; no real Android mount, daemon boot or device inference.",
+      "status": "PLANNED"
+    }
+  ],
+  "preserved_contracts": {
+    "frontend": "Reuse original WebUI source directly; verify exact responsive visual and interaction parity, only narrow approved adapter/brand/exclusion edits",
+    "runtime": "One build-time selected NewFuture or bclone arm64 rclone binary and official FUSE helper; no installed runtime update/select features",
+    "state": "Root-private /data/adb/skybind state, transactional config, operation journal, mount ownership; no migration",
+    "tests": "All original targeted validations and negative tests retained per obligation",
+    "gates": "All SB-G01..SB-G08 still independently evaluated; definitions do not certify them",
+    "seal": "SB-FS1 is a distinct final qualification artifact; physical Android and ordinary app read/write mandatory"
+  },
+  "host_validation_policy": {
+    "termux": "Use writable private temp path, never hardcode /tmp. Long Unix socket paths: short private sockets. Umask 077 fixture chmod and stat explicit. Race detector unsupported Android/arm64: record NOT_RUN and require another qualifying host for relevant gate, not PASS.",
+    "go": "Run target tests + vet + cross-build through Devtool hooks/jobs; no output artifacts left in worktree",
+    "proof": "Targeted validation, negative cases, SHA pinning, rollback, evidence receipts, source/device split"
+  },
+  "explicit_exclusions": [
+    "installed dynamic runtime selection/download/update",
+    "historical migrations/state migration",
+    "obsolete migration UI and legacy campaign"
+  ],
+  "release_blockers": [
+    "SB-G01 and SB-G02 actual qualification blocked absent required independent evidence",
+    "Real NewFuture/bclone pinned provider build provenance required",
+    "Physical Android device and ordinary-app exact-path access required",
+    "All gate obligations, visual parity, secrets and safety obligations require evidence"
+  ]
 }

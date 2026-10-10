@@ -13,11 +13,16 @@ import (
 	"skybind/internal/control"
 	"skybind/internal/daemon"
 	"skybind/internal/journal"
+	"skybind/internal/mounts/cache"
 	"skybind/internal/mounts/config"
+	"skybind/internal/mounts/lifecycle"
+	"skybind/internal/mounts/policy"
+	"skybind/internal/mounts/supervisor"
 	"skybind/internal/paths"
 	"skybind/internal/protocol"
 	"skybind/internal/runtimeauth"
 	"syscall"
+	"time"
 )
 
 func main() { os.Exit(run(os.Args[1:])) }
@@ -95,7 +100,18 @@ func daemonCommand() int {
 		fmt.Fprintln(os.Stderr, "config:", err)
 		return 1
 	}
-	srv := daemon.New(paths.DaemonSocket, daemon.EngineWithConfig(j, cfg))
+	mountEngine := lifecycle.Canonical(cfg)
+	cacheEngine := cache.Canonical(func(name string) bool {
+		st, err := mountEngine.Status(name)
+		return err != nil || st.Observed != "STOPPED"
+	})
+	supervisorEngine, err := supervisor.NewCanonical(mountEngine)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "supervisor state:", err)
+		return 1
+	}
+	supervisorEngine.ConfigureCache(cacheEngine, cfg)
+	srv := daemon.New(paths.DaemonSocket, daemon.EngineWithMounts(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }))
 	if err = srv.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon start:", err)
 		return 1
@@ -103,6 +119,20 @@ func daemonCommand() int {
 	defer srv.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+	// Periodic reconciliation is bounded and driven solely by persisted desired
+	// state; explicit stop is not undone and no unknown network is assumed safe.
+	go func() {
+		timer := time.NewTicker(30 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				_, _ = supervisorEngine.Reconcile(ctx)
+			}
+		}
+	}()
 	if err = srv.Serve(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon:", err)
 		return 1

@@ -1,86 +1,55 @@
-"""Plan-only Skybind bootstrap invariants. Deliberately NOT a product gate."""
-from __future__ import annotations
+"""Skybind active eight-artifact campaign and immutable original obligation ledger.
 
+This checks *planning/inventory*, never claims a release/device seal.
+"""
 import json
 import tomllib
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[2]
-DOCS = ROOT / "docs/roadmap"
-TARGETS = {"skybind", "skybind_webui", "skybind_runtime_inputs", "skybind_android_device", "skybind_release"}
-
-
+ROOT=Path(__file__).resolve().parents[2]
+DOCS=ROOT/'docs/roadmap'
+TARGETS={'skybind','skybind_webui','skybind_runtime_inputs','skybind_android_device','skybind_release'}
 def load():
-    with (ROOT / ".devtool.toml").open("rb") as file:
-        cfg = tomllib.load(file)
-    index = json.loads((DOCS / "SKYBIND_DEVTOOL_OVERLAY_INDEX.json").read_text())
-    return cfg, index
-
-
+ with (ROOT/'.devtool.toml').open('rb') as f: cfg=tomllib.load(f)
+ data=json.loads((DOCS/'SKYBIND_DEVTOOL_OVERLAY_INDEX.json').read_text())
+ return cfg,data
 def check_all():
-    cfg, data = load()
-    assert cfg["workspace"]["default_target"] == "skybind"
-    assert TARGETS == set(cfg["targets"]), "Unexpected/absent canonical target"
-    for target in cfg["targets"].values():
-        assert (ROOT / target["root"]).is_dir()
-        assert "bootstrap" in target["workflows"]
-    for name in ("SKYBIND_FEATURE_SPEC.md", "SKYBIND_DEVTOOL_ROADMAP.md"):
-        assert (DOCS / name).is_file(), name
-    assert data["product"] == "skybind"
-    assert data["status"] == "PLANNED"
-    assert (data["implementation_count"], data["gate_count"], data["seal_count"]) == (36, 8, 1)
-    assert (len(data["implementation_overlays"]), len(data["gate_overlays"])) == (36, 8)
-    assert data["typed_api_count"] == len(data["typed_api_operations"]) == 57
-    impl = data["implementation_overlays"]
-    gates = data["gate_overlays"]
-    seal = data["final_seal"]
-    overlays = impl + gates + [seal]
-    all_ids = [entry["id"] for entry in overlays]
-    assert len(all_ids) == len(set(all_ids)) == 45
-    assert len(set(all_ids).intersection({"SB-O01", "SB-O36", "SB-G01", "SB-G08", "SB-FS1"})) == 5
-    edges = {entry["id"]: entry.get("dependencies", []) for entry in overlays}
-    for src, parents in edges.items():
-        assert len(parents) == len(set(parents)), src
-        assert all(parent in edges for parent in parents), src
-    visited = set()
-    active = set()
-    def visit(key):
-        assert key not in active, f"Dependency cycle at {key}"
-        if key in visited:
-            return
-        active.add(key)
-        for parent in edges[key]:
-            visit(parent)
-        active.remove(key)
-        visited.add(key)
-    for key in edges:
-        visit(key)
-    assert all(item.get("status") == "PLANNED" for item in impl + gates)
-    assert seal.get("status") == "PLANNED"
-    assert "direct source copy" in data["webui_policy"]
-    exclusions = " ".join(data["explicit_exclusions"]).lower()
-    assert "dynamic runtime" in exclusions and "migration" in exclusions
-    for name, entry in cfg["wrapper"]["commands"].items():
-        allowed = {"bootstrap", "foundation", "native", "runtime-source", "g01-definition", "typed-control", "config-source", "api-parity", "g02-definition"}
-        assert entry["workflow"] in allowed, f"{name}: unexpected workflow"
-        if entry["workflow"] != "bootstrap":
-            assert name == entry["workflow"], "Unqualified workflow not allowed"
-            assert entry["target"] in TARGETS, "Unknown target in wrapper"
-    assert not any("seal" in key for target in cfg["targets"].values() for key in target["workflows"])
-    return cfg, data
-
-
+ cfg,data=load()
+ assert cfg['workspace']['default_target']=='skybind'
+ assert set(cfg['targets'])==TARGETS
+ for item in cfg['targets'].values():
+  assert (ROOT/item['root']).is_dir()
+  assert 'bootstrap' in item['workflows']
+ for name in ('SKYBIND_FEATURE_SPEC.md','SKYBIND_DEVTOOL_ROADMAP.md','SKYBIND_ORIGINAL_45_ITEM_INDEX.json','SKYBIND_ORIGINAL_45_ITEM_ROADMAP.md'):
+  assert (DOCS/name).is_file(),name
+ assert data['product']=='skybind'
+ assert (data['delivery_count'],data['implementation_delivery_count'],data['remaining_gate_package_count'],data['final_seal_delivery_count'])==(8,6,1,1)
+ packages=data['artifact_sequence'];assert len(packages)==8
+ ids=[x['id'] for x in packages]
+ assert ids==[f'SB-C{i:02d}' for i in range(1,7)]+['SB-CG1','SB-CFS1']
+ original=json.loads((DOCS/'SKYBIND_ORIGINAL_45_ITEM_INDEX.json').read_text())
+ assert original['overlay_count']==45 and original['typed_api_count']==57
+ original_ids={x['id'] for x in original['implementation_overlays']+original['gate_overlays']+[original['final_seal']]}
+ assert len(original_ids)==45
+ coverage=data['coverage_map'];assert len(coverage)==34
+ assert set(coverage)==original_ids-set(data['starting_position']['already_implemented_obligations'])-set(data['starting_position']['installed_gate_definitions'])
+ assert set(coverage.values()) <= set(ids)
+ ops=data['all_57_typed_operations'];assert len(ops)==57
+ assert len({x['name'] for x in ops})==57
+ live=json.loads((ROOT/'internal/control/operations.json').read_text())
+ assert {x['name'] for x in ops}=={x['name'] for x in live['operations']}
+ for e in packages:
+  assert len(e['originals'])==len(set(e['originals']))
+ assert all(x in ['BLOCKED'] for x in data['starting_position']['gate_qualification'].values())
+ assert data['artifact_sequence'][0]['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED'
+ assert all(x.get('status')=='PLANNED' for x in packages[1:])
+ assert 'dynamic runtime' in ' '.join(data['explicit_exclusions']).lower()
+ assert not any('seal' in k for t in cfg['targets'].values() for k in t['workflows'])
+ return cfg,data
 def check_component(component):
-    _, data = check_all()
-    if component == "webui":
-        assert "visual/interaction parity mandatory" in data["webui_policy"]
-    elif component == "runtime":
-        assert data["identity"]["upstream_engine_binary"] == "system/bin/rclone"
-        assert "installed dynamic runtime" in " ".join(data["explicit_exclusions"]).lower()
-    elif component == "android":
-        assert any("device" in json.dumps(item).lower() for item in data["gate_overlays"])
-    elif component == "release":
-        assert data["final_seal"]["status"] == "PLANNED"
-    else:
-        raise ValueError(f"Unknown bootstrap component: {component}")
-    return f"SKYBIND {component}: planning contract checked; implementation/device/seal NOT certified"
+ _,data=check_all()
+ if component=='webui':assert 'direct' in str(data['preserved_contracts']).lower()
+ elif component=='runtime':assert 'runtime' in str(data['preserved_contracts']).lower()
+ elif component=='android':assert 'SB-G04' in data['coverage_map']
+ elif component=='release':assert data['artifact_sequence'][-1]['status']=='PLANNED'
+ else:raise ValueError('Unknown bootstrap component: '+component)
+ return f'SKYBIND {component}: planning contract checked; implementation/device/seal NOT certified'

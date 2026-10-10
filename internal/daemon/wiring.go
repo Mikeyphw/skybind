@@ -6,9 +6,14 @@ import (
 	"errors"
 	"skybind/internal/control"
 	"skybind/internal/journal"
+	"skybind/internal/mounts/cache"
 	"skybind/internal/mounts/config"
+	"skybind/internal/mounts/lifecycle"
+	"skybind/internal/mounts/policy"
+	"skybind/internal/mounts/supervisor"
 	"skybind/internal/protocol"
 	"skybind/internal/runtimeauth"
+	"time"
 )
 
 func emptyArgs(raw json.RawMessage) error {
@@ -29,6 +34,11 @@ func BaseEngine(j *journal.Journal) *control.Engine { return EngineWithConfig(j,
 // EngineWithConfig is the only daemon registration point for the current
 // implemented feature set. No nonfunctional operation is registered.
 func EngineWithConfig(j *journal.Journal, s *config.Store) *control.Engine {
+	return EngineWithMounts(j, s, nil, nil, nil, nil)
+}
+
+// EngineWithMounts registers only actually implemented native features.
+func EngineWithMounts(j *journal.Journal, s *config.Store, mount *lifecycle.Engine, caches *cache.Manager, sup *supervisor.Supervisor, facts func() policy.Facts) *control.Engine {
 	e := control.New()
 	register := func(name string, class protocol.Class, fn control.Handler) {
 		if err := e.Register(name, class, fn); err != nil {
@@ -150,5 +160,155 @@ func EngineWithConfig(j *journal.Journal, s *config.Store) *control.Engine {
 			return s.Rollback(p.Proof)
 		})
 	}
+	if mount != nil {
+		decodeName := func(a json.RawMessage) (string, error) {
+			var p struct {
+				Name string `json:"name"`
+			}
+			if err := protocol.StrictBytes(a, &p); err != nil {
+				return "", err
+			}
+			if p.Name == "" {
+				return "", errors.New("missing name")
+			}
+			return p.Name, nil
+		}
+		register("mount.list", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			if err := emptyArgs(a); err != nil {
+				return nil, err
+			}
+			return mount.List()
+		})
+		register("mount.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			n, e := decodeName(a)
+			if e != nil {
+				return nil, e
+			}
+			return mount.Status(n)
+		})
+		register("mount.start.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
+			n, e := decodeName(a)
+			if e != nil {
+				return nil, e
+			}
+			return mount.Preview(n)
+		})
+		register("mount.start", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+			var p struct {
+				Name  string `json:"name"`
+				Proof string `json:"proof"`
+			}
+			if err := protocol.StrictBytes(a, &p); err != nil {
+				return nil, err
+			}
+			if p.Name == "" || p.Proof == "" {
+				return nil, errors.New("missing mount name or proof")
+			}
+			return mount.StartGuarded(p.Name, p.Proof)
+		})
+		register("mount.stop", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+			n, e := decodeName(a)
+			if e != nil {
+				return nil, e
+			}
+			return mount.Stop(n)
+		})
+		register("mount.restart", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+			n, e := decodeName(a)
+			if e != nil {
+				return nil, e
+			}
+			return mount.Restart(n)
+		})
+		if sup != nil {
+			register("mount.health", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+				n, e := decodeName(a)
+				if e != nil {
+					return nil, e
+				}
+				return sup.Health(n)
+			})
+			register("mount.reconcile", protocol.Reconcile, func(ctx context.Context, a json.RawMessage) (any, error) {
+				if err := emptyArgs(a); err != nil {
+					return nil, err
+				}
+				return sup.Reconcile(ctx)
+			})
+		}
+		if s != nil && facts != nil {
+			register("policy.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+				n, e := decodeName(a)
+				if e != nil {
+					return nil, e
+				}
+				r, e := s.Snapshot()
+				if e != nil {
+					return nil, e
+				}
+				for _, m := range r.Mounts {
+					if m.Name == n {
+						return policy.Evaluate(m, facts(), time.Now()), nil
+					}
+				}
+				return nil, errors.New("mount not found")
+			})
+		}
+		register("vfs.profiles", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			if err := emptyArgs(a); err != nil {
+				return nil, err
+			}
+			return policy.Profiles(), nil
+		})
+	}
+	if caches != nil {
+		decodeCache := func(a json.RawMessage) (string, string, int64, string, error) {
+			var p struct {
+				Name        string `json:"name"`
+				Proof       string `json:"proof"`
+				TargetBytes int64  `json:"target_bytes"`
+			}
+			if err := protocol.StrictBytes(a, &p); err != nil {
+				return "", "", 0, "", err
+			}
+			if p.Name == "" {
+				return "", "", 0, "", errors.New("missing name")
+			}
+			return p.Name, p.Proof, p.TargetBytes, "", nil
+		}
+		register("cache.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
+			n, _, _, _, e := decodeCache(a)
+			if e != nil {
+				return nil, e
+			}
+			return caches.Status(n)
+		})
+		for _, kind := range []string{"prune", "clear", "forget"} {
+			action := kind
+			register("cache."+kind+".preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
+				n, _, target, _, e := decodeCache(a)
+				if e != nil {
+					return nil, e
+				}
+				if action != "prune" && target != 0 {
+					return nil, errors.New("unexpected target")
+				}
+				return caches.Preview(n, action, target)
+			})
+			register("cache."+kind, protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+				n, proof, target, _, e := decodeCache(a)
+				if e != nil {
+					return nil, e
+				}
+				if proof == "" {
+					return nil, errors.New("missing cache proof")
+				}
+				if action != "prune" && target != 0 {
+					return nil, errors.New("unexpected target")
+				}
+				return caches.Apply(n, action, proof, target)
+			})
+		}
+	}
+
 	return e
 }

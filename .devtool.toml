@@ -74,6 +74,7 @@ native = ["job:foundation-go"]
 typed-control = ["job:typed-control-source"]
 api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
+mount-source = ["job:mount-source-validation"]
 contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
 validate = ["job:bootstrap-contracts"]
@@ -289,3 +290,23 @@ metadata = { read_only = true, qualification = "gate-definition-only", actual_ga
 description = "Test SB-G02 independent blocked gate, not actual source promotion"
 workflow = "g02-definition"
 target = "skybind_release"
+
+# SB-C01 native mount lifecycle, supervisor, Android policies and owned cache.
+# This job is invoked by the overlay validation; no operator-run tests required.
+[targets.skybind.jobs.mount-source-validation]
+runner = "command"
+command = ["bash", "scripts/devtool/check_mount_engine.sh"]
+inputs = ["go.mod", "cmd/skybind/**", "internal/mounts/**", "internal/daemon/**", "scripts/devtool/check_mount_engine.sh", "tests/mounts/**", "docs/roadmap/**"]
+metadata = {read_only = true, qualification = "source-only", gate_g01 = "BLOCKED", gate_g02 = "BLOCKED", android_device = "NOT_ATTESTED"}
+
+[wrapper.commands.mount-source]
+description = "SB-C01 source-only mount/cache/supervisor security tests; NOT device or gate qualification"
+workflow = "mount-source"
+target = "skybind"
+
+[[test]]
+id = "sb-c01-mount-engine"
+name = "SB-C01 owned FUSE mount engine and cache security"
+runner = "command"
+timeout_seconds = 300
+command = ["bash", "scripts/devtool/check_mount_engine.sh"]
