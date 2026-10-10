@@ -14,9 +14,16 @@ import (
 )
 
 type Status struct {
-	Provider string `json:"provider"`
-	Ready    bool   `json:"ready"`
-	Reason   string `json:"reason"`
+	Provider            string `json:"provider"`
+	Ready               bool   `json:"ready"`
+	Reason              string `json:"reason"`
+	ProvenanceAvailable bool   `json:"provenance_available"`
+	ProvenanceValid     bool   `json:"provenance_valid"`
+	RuntimeSHA256       string `json:"runtime_sha256,omitempty"`
+	FuseHelperSHA256    string `json:"fuse_helper_sha256,omitempty"`
+	Binary              string `json:"binary,omitempty"`
+	FuseHelperBinary    string `json:"fuse_helper_binary,omitempty"`
+	Config              string `json:"config,omitempty"`
 }
 
 // StatusCanonical is read-only and intentionally cannot take a path override.
@@ -66,6 +73,12 @@ func inspect(module string) Status {
 		return st
 	}
 	st.Provider = m.Provider
+	st.ProvenanceAvailable = true
+	st.RuntimeSHA256 = m.Files[m.Engine].SHA256
+	st.FuseHelperSHA256 = m.Files[m.Helper].SHA256
+	st.Binary = filepath.Join(module, m.Engine)
+	st.FuseHelperBinary = filepath.Join(module, m.Helper)
+	st.Config = paths.RcloneConfig
 	for name, info := range m.Files {
 		p := filepath.Join(module, name)
 		if e = integrity.CheckOpen(p, info); e != nil {
@@ -75,6 +88,7 @@ func inspect(module string) Status {
 	}
 	// A helper is not proof of actual usable FUSE, which requires device checks.
 	st.Ready = true
+	st.ProvenanceValid = true
 	st.Reason = "on-disk hashes verified; FUSE device untested"
 	return st
 }

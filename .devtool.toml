@@ -73,6 +73,7 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 native = ["job:foundation-go"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
+feature-parity-webui = ["job:fp01-webui-parity"]
 typed-control = ["job:typed-control-source"]
 api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
@@ -509,4 +510,17 @@ metadata = { read_only = true, qualification = "source-integration-only", device
 [wrapper.commands.repair-r02]
 description = "Targeted Skybind R02 operation/UX truth regression; release gates stay blocked"
 workflow = "repair-r02"
+target = "skybind"
+
+# SB-FP01: source-only WebUI/API semantic parity after SB-R02.
+# Devtool runs this job in the overlay validation hook. No browser/device seal.
+[targets.skybind.jobs.fp01-webui-parity]
+runner = "command"
+command = ["bash", "scripts/devtool/check_fp01_webui_parity.sh"]
+inputs = ["module/webroot/app.js", "module/webroot/bridge.js", "module/webroot/parity.js", "internal/runtimeauth/**", "internal/webui/**", "cmd/skybind/**", "tests/integration/test_fp01_webui_parity.mjs", "scripts/devtool/check_fp01_webui_parity.sh"]
+metadata = { read_only = true, qualification = "source-parity-only", visual_qualification = false, device_qualification = false, final_seal = false }
+
+[wrapper.commands.feature-parity-webui]
+description = "Source-level SB-FP01 semantic WebUI parity; original layout preserved, device gates blocked"
+workflow = "feature-parity-webui"
 target = "skybind"

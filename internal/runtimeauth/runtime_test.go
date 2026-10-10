@@ -30,11 +30,15 @@ func TestFixture(t *testing.T) {
 	if e := os.WriteFile(filepath.Join(d, "runtime.provenance.json"), b, 0600); e != nil {
 		t.Fatal(e)
 	}
+	result := inspect(d)
+	if !result.Ready || !result.ProvenanceValid || !result.ProvenanceAvailable || result.RuntimeSHA256 != files["system/bin/rclone"].SHA256 || result.FuseHelperSHA256 != files["system/vendor/bin/fusermount3"].SHA256 {
+		t.Fatalf("missing verified provenance %v", result)
+	}
 	if !inspect(d).Ready {
 		t.Fatalf("valid: %+v", inspect(d))
 	}
 	os.WriteFile(filepath.Join(d, "system/bin/rclone"), []byte("bad"), 0700)
-	if inspect(d).Ready {
+	if inspect(d).Ready || inspect(d).ProvenanceValid {
 		t.Fatal("tampering accepted")
 	}
 }

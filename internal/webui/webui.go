@@ -126,6 +126,8 @@ type Standalone struct {
 	session          string
 	csrf             string
 	sessionExpires   time.Time
+	lastActivity     time.Time
+	idlePolicy       func() (time.Duration, error)
 }
 
 func NewStandalone(call CallFunc, assets string) (*Standalone, error) {
@@ -137,6 +139,34 @@ func NewStandalone(call CallFunc, assets string) (*Standalone, error) {
 		return nil, e
 	}
 	return &Standalone{call: call, assets: assets, bootstrap: token, bootstrapExpires: time.Now().Add(3 * time.Minute)}, nil
+}
+
+// WithIdlePolicy binds authentication expiry to a private, validated settings reader.
+// A nil reader retains the default fifteen-minute idle policy. The callback must
+// fail closed on private-state read/validation errors, never return arbitrary TTLs.
+func (s *Standalone) WithIdlePolicy(read func() (time.Duration, error)) *Standalone {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.idlePolicy = read
+	return s
+}
+func (s *Standalone) idleDuration() (time.Duration, error) {
+	if s.idlePolicy == nil {
+		return sessionTTL, nil
+	}
+	ttl, err := s.idlePolicy()
+	if err != nil {
+		return 0, err
+	}
+	if ttl < 30*time.Second || ttl > time.Hour {
+		return 0, errors.New("invalid WebUI idle policy")
+	}
+	return ttl, nil
+}
+func setSessionCookies(w http.ResponseWriter, session, csrf string, ttl time.Duration) {
+	age := int(ttl.Seconds())
+	http.SetCookie(w, &http.Cookie{Name: "skybind_session", Value: session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: false, MaxAge: age})
+	http.SetCookie(w, &http.Cookie{Name: "skybind_csrf", Value: csrf, Path: "/", SameSite: http.SameSiteStrictMode, Secure: false, MaxAge: age})
 }
 func (s *Standalone) Listen() (string, string, error) {
 	l, e := net.Listen("tcp4", "127.0.0.1:0")
@@ -189,11 +219,23 @@ func secureHeaders(w http.ResponseWriter) {
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'")
 }
-func (s *Standalone) authenticated(r *http.Request) bool {
+func (s *Standalone) authenticated(w http.ResponseWriter, r *http.Request) bool {
+	ttl, err := s.idleDuration()
+	if err != nil {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, e := r.Cookie("skybind_session")
-	return e == nil && time.Now().Before(s.sessionExpires) && eq(c.Value, s.session)
+	now := time.Now()
+	if e != nil || s.session == "" || !eq(c.Value, s.session) || !now.Before(s.sessionExpires) ||
+		!now.Before(s.lastActivity.Add(ttl)) {
+		return false
+	}
+	s.lastActivity = now
+	s.sessionExpires = now.Add(ttl)
+	setSessionCookies(w, s.session, s.csrf, ttl)
+	return true
 }
 func (s *Standalone) csrfOK(r *http.Request) bool {
 	s.mu.Lock()
@@ -213,6 +255,11 @@ func (s *Standalone) Handler() http.Handler {
 			return
 		}
 		if r.URL.Path == "/auth/bootstrap" && r.Method == http.MethodPost {
+			ttl, policyErr := s.idleDuration()
+			if policyErr != nil {
+				http.Error(w, "private session policy unavailable", http.StatusServiceUnavailable)
+				return
+			}
 			r.Body = http.MaxBytesReader(w, r.Body, 512)
 			var payload struct {
 				Token string `json:"token"`
@@ -232,7 +279,8 @@ func (s *Standalone) Handler() http.Handler {
 					s.csrf, e = newSecret()
 				}
 				if e == nil {
-					s.sessionExpires = time.Now().Add(sessionTTL)
+					s.lastActivity = time.Now()
+					s.sessionExpires = s.lastActivity.Add(ttl)
 				} else {
 					good = false
 				}
@@ -243,8 +291,7 @@ func (s *Standalone) Handler() http.Handler {
 				http.Error(w, "invalid or used bootstrap", 403)
 				return
 			}
-			http.SetCookie(w, &http.Cookie{Name: "skybind_session", Value: session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: false, MaxAge: int(sessionTTL.Seconds())})
-			http.SetCookie(w, &http.Cookie{Name: "skybind_csrf", Value: csrf, Path: "/", SameSite: http.SameSiteStrictMode, Secure: false, MaxAge: int(sessionTTL.Seconds())})
+			setSessionCookies(w, session, csrf, ttl)
 			writeJSON(w, map[string]any{"authenticated": true})
 			return
 		}
@@ -256,7 +303,7 @@ func (s *Standalone) Handler() http.Handler {
 			s.serveAsset(w, r)
 			return
 		}
-		if !s.authenticated(r) {
+		if !s.authenticated(w, r) {
 			http.Error(w, "authentication required", 401)
 			return
 		}
@@ -325,7 +372,7 @@ func (s *Standalone) serveAsset(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "index.html"
 	}
-	allowed := map[string]bool{"index.html": true, "app.js": true, "bridge.js": true, "model.js": true, "flow.js": true, "style.css": true, "icon.png": true, "config.json": true, "platform.json": true}
+	allowed := map[string]bool{"index.html": true, "app.js": true, "bridge.js": true, "model.js": true, "flow.js": true, "parity.js": true, "style.css": true, "icon.png": true, "config.json": true, "platform.json": true}
 	if !allowed[path] || filepath.Base(path) != path {
 		http.NotFound(w, r)
 		return

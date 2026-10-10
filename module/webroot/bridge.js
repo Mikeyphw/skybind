@@ -1,4 +1,5 @@
 import { presentActivity, presentJobStatus } from './flow.js';
+import { runtimePresentation, platformPresentation, bundleMetadata, supportDownload, passwordStatus, recoveryPresentation } from './parity.js';
 const SCHEMA_VERSION = 1;
 const PROTOCOL_VERSION = 1;
 const MAX_TEXT = 1024 * 1024;
@@ -272,6 +273,21 @@ function fromState(s){return { ...s, state:s.observed||s.state||'UNKNOWN',enable
 async function compatibleSend(envelope) {
  const {name,klass,args}={name:envelope.operation.name,klass:envelope.operation.class,args:envelope.operation.args||{}};
  const id=envelope.request_id;
+ // Preserve the original UI result contract while relying on the typed backend authority.
+ if(name==='runtime.status')return responseFor(id,runtimePresentation(await native(name,'query')));
+ if(name==='platform.status')return responseFor(id,platformPresentation(await native(name,'query')));
+ if(name==='doctor.bundle')return responseFor(id,bundleMetadata(await native(name,'run',{})));
+ if(name==='doctor.bundle.read') {
+  const requested=args.bundle_id||args.id;
+  const v=await native(name,'query',{id:requested});
+  return responseFor(id,await supportDownload(v,requested));
+ }
+ if(name==='provider.crypt.password.status')return responseFor(id,passwordStatus(await native(name,'query')));
+ if(name==='provider.crypt.password.set')return responseFor(id,passwordStatus(await native(name,'run',args)));
+ if(name==='provider.crypt.recovery.status') {
+  const [status,recovery]=await Promise.all([native('provider.crypt.password.status','query'),native(name,'query')]);
+  return responseFor(id,recoveryPresentation(recovery,status));
+ }
  // Query collections are compositions of the exact native named operations.
  if(name==='mount.status'&&!args.name){
   const names=await native('mount.list','query');
@@ -352,7 +368,6 @@ async function compatibleSend(envelope) {
   const p=await native(name,'run',{spec:{name:spec.name,remote:spec.remote,filename_mode:spec.filename_encryption,directory_names:spec.directory_name_encryption,encoding:spec.filename_encoding},proof:args.preview_proof});
   return responseFor(id,{remote:{name:p.created,encrypted:Boolean(p.encrypted)}});
  }
- if(name==='doctor.bundle.read')return sendEnvelope({...envelope,operation:{...envelope.operation,args:{id:args.bundle_id||args.id}}});
  return sendEnvelope(envelope);
 }
 

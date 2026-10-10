@@ -321,6 +321,17 @@ func webuiCommand(args []string) int {
 			return 2
 		}
 		srv, err := webui.NewStandalone(webui.DaemonCaller(paths.DaemonSocket), paths.ModuleRoot+"/webroot")
+		if err == nil {
+			srv.WithIdlePolicy(func() (time.Duration, error) {
+				store, readErr := uisettings.Open(paths.StateRoot + "/ui")
+				if readErr != nil {
+					return 0, readErr
+				}
+				// Reload each authorization: preference changes take effect without
+				// restarting the WebUI and cannot extend an already expired session.
+				return time.Duration(store.Snapshot().Settings.WebUIIdleSeconds) * time.Second, nil
+			})
+		}
 		if err != nil {
 			return 1
 		}
