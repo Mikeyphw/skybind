@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "gate": "SB-G05",
+  "product": "skybind",
+  "gate_title": "Jobs, RC, remotes and crypt security milestone",
+  "assurance_ceiling": "BACKEND_FEATURE_PASS; network/auth/provider behavior remains fixture-qualified until a device/network run.",
+  "dependencies": [
+    "SB-G03",
+    "SB-O20",
+    "SB-O21",
+    "SB-O22",
+    "SB-O23",
+    "SB-O24"
+  ],
+  "required_checks": "Cross-check scheduled due-run at-most-once, destructive sync proofs, cancellation/process owner, loopback RC credential isolation, bounded browse/config secrets, password and crypt wrapper defaults/negative cases.",
+  "original_implementation_obligations": [
+    "SB-O20",
+    "SB-O21",
+    "SB-O22",
+    "SB-O23",
+    "SB-O24"
+  ],
+  "negative_and_positive_checks": [
+    "job_once_claim",
+    "sync_proof",
+    "cancel_process",
+    "rc_credentials_not_exposed",
+    "browse_bounded",
+    "crypt_secret_redaction"
+  ],
+  "source_paths": [
+    "internal/jobs",
+    "internal/rc",
+    "internal/provider",
+    "internal/provider",
+    "scripts/devtool/check_jobs_providers.sh"
+  ],
+  "required_evidence": [
+    "independent_signed_gate_attestation",
+    "verified_devtool_run_store",
+    "frozen_source_tree_and_commit",
+    "complete_negative_case_results",
+    "raw_evidence_checksums"
+  ],
+  "source_definition_status": "DEFINED_NOT_PROMOTED",
+  "qualification": "BLOCKED_UNTIL_FRESH_INDEPENDENT_EVIDENCE"
+}

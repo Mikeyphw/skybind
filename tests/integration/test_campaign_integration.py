@@ -15,7 +15,7 @@ class IntegrationContracts(unittest.TestCase):
   def test_progress_no_fake_gates_and_devtool_workflows(self):
     plan=json.loads((ROOT/'docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json').read_text())
     self.assertEqual([x['status'] for x in plan['artifact_sequence'][:6]],['SOURCE_IMPLEMENTED_NOT_PROMOTED']*6)
-    self.assertEqual([x['status'] for x in plan['artifact_sequence'][6:]],['PLANNED']*2)
+    self.assertEqual([x['status'] for x in plan['artifact_sequence'][6:]],['SOURCE_IMPLEMENTED_NOT_PROMOTED','PLANNED'])
     self.assertEqual(plan['starting_position']['gate_qualification'],{'SB-G01':'BLOCKED','SB-G02':'BLOCKED'})
     with (ROOT/'.devtool.toml').open('rb') as f: cfg=tomllib.load(f)
     self.assertIn('integration-source',cfg['targets']['skybind']['workflows'])

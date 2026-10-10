@@ -26,3 +26,7 @@ not qualify real hardware or a publication artifact.
 The CLI/daemon and module ID are `skybind`; upstream runtime executable remains
 `rclone`, canonical root-owned state is `/data/adb/skybind`. No dynamic
 installed-runtime system or migration logic is implemented.
+
+## Independent milestone gate package
+
+SB-CG1 installs six read-only gate evaluators (SB-G03..G08), original-promise ledgers, and Devtool-owned validation. The definitions are source implemented, not promoted. SB-G01/G02 remain blocked and SB-CFS1 is not issued. No unsigned or user-supplied evidence can qualify Android devices or releases.

@@ -640,7 +640,7 @@
       ],
       "promotion_requires": [],
       "kind": "gate_package",
-      "status": "PLANNED",
+      "status": "SOURCE_IMPLEMENTED_NOT_PROMOTED",
       "archive_name": "skybind-SB-CG1-independent-milestone-gates.devtool-overlay.zip",
       "files_owned": [],
       "tests_required": [],
@@ -650,7 +650,7 @@
         "post_apply": "Independent fresh process source/contract checks, result/evidence capture and cleanliness; Devtool rollback on failure",
         "user_commands": "Only a Devtool apply-overlay action; no manual test/Go or gate-check commands"
       },
-      "qualification": "GATE_DEFINITION_AND_EVALUATION_ONLY; never equate installed gate with passed gate"
+      "qualification": "GATE_DEFINITIONS_INSTALLED_ALL_MILESTONES_BLOCKED_PENDING_INDEPENDENT_EVIDENCE"
     },
     {
       "id": "SB-CFS1",

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "gate": "SB-G08",
+  "product": "skybind",
+  "gate_title": "Whole-product source/integration and release readiness milestone",
+  "assurance_ceiling": "CANDIDATE_READY requires all source gates; DEVICE_RELEASE_READY only with required real-device evidence and no critical blockers.",
+  "dependencies": [
+    "SB-G01",
+    "SB-G02",
+    "SB-G03",
+    "SB-G04",
+    "SB-G05",
+    "SB-G06",
+    "SB-G07",
+    "SB-O34",
+    "SB-O35",
+    "SB-O36"
+  ],
+  "required_checks": "Run affected then full source/integration/security/reproducibility matrices, verify required real-device receipts when available; compile dependency and unresolved-blocker ledger and cryptographically identify candidate ZIPs.",
+  "original_implementation_obligations": [
+    "SB-O34",
+    "SB-O35",
+    "SB-O36"
+  ],
+  "negative_and_positive_checks": [
+    "reproducible_newfuture_bclone",
+    "physical_device_matrix",
+    "ordinary_app_nonce_io",
+    "android_reboot_fault_matrix",
+    "webui_parity",
+    "uninstall_safety",
+    "no_open_critical_obligations"
+  ],
+  "source_paths": [
+    "scripts/dev/release",
+    "scripts/dev/device",
+    "tests/device",
+    "tests/fault",
+    "tests/integration",
+    "scripts/devtool/check_c06_integration_release.sh"
+  ],
+  "required_evidence": [
+    "independent_signed_gate_attestation",
+    "verified_devtool_run_store",
+    "frozen_source_tree_and_commit",
+    "complete_negative_case_results",
+    "raw_evidence_checksums",
+    "real_provider_source_attestations",
+    "physical_device_manager_matrix",
+    "ordinary_app_read_write_receipts",
+    "final_candidate_integrity",
+    "endurance_and_fault_run"
+  ],
+  "source_definition_status": "DEFINED_NOT_PROMOTED",
+  "qualification": "BLOCKED_UNTIL_FRESH_INDEPENDENT_EVIDENCE"
+}

@@ -191,7 +191,7 @@ The previous campaign separated 36 implementation obligations, 8 milestone gates
 ### SB-CG1 — Independent Milestone Gate Definitions & Execution (G03–G08)
 **Archive:** `skybind-SB-CG1-independent-milestone-gates.devtool-overlay.zip`
 
-**Dependencies:** `SB-C06`. **Promotion gates:** none. **Targets:** `skybind_release`. **Risk:** critical. **State:** `PLANNED`.
+**Dependencies:** `SB-C06`. **Promotion gates:** none. **Targets:** `skybind_release`. **Risk:** critical. **State:** `SOURCE_IMPLEMENTED_NOT_PROMOTED` (six gate definitions installed; no milestone promoted).
 
 **Retained original obligations:** `SB-G03`, `SB-G04`, `SB-G05`, `SB-G06`, `SB-G07`, `SB-G08`.
 

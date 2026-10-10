@@ -51,6 +51,6 @@ class Parity(unittest.TestCase):
   statuses=[x['status'] for x in index['artifact_sequence']]
   self.assertEqual(statuses[:5],['SOURCE_IMPLEMENTED_NOT_PROMOTED']*5)
   self.assertIn(statuses[5],('PLANNED','SOURCE_IMPLEMENTED_NOT_PROMOTED'))
-  self.assertEqual(statuses[6:],['PLANNED']*2)
+  self.assertEqual(statuses[6:],['SOURCE_IMPLEMENTED_NOT_PROMOTED','PLANNED'])
   self.assertEqual(index['starting_position']['gate_qualification'],{'SB-G01':'BLOCKED','SB-G02':'BLOCKED'})
 if __name__=='__main__':unittest.main()

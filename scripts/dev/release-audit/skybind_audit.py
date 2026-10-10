@@ -25,7 +25,7 @@ def blocked_report(repo: pathlib.Path=ROOT)->dict:
     try:
         plan=json.loads((repo/'docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json').read_text())
         statuses=[x['status'] for x in plan['artifact_sequence']]
-        if statuses[:6] != ['SOURCE_IMPLEMENTED_NOT_PROMOTED']*6 or statuses[6:]!=['PLANNED','PLANNED']:
+        if statuses[:6] != ['SOURCE_IMPLEMENTED_NOT_PROMOTED']*6 or statuses[6:]!=['SOURCE_IMPLEMENTED_NOT_PROMOTED','PLANNED']:
             problems.append('C06_SOURCE_OBLIGATION_INCOMPLETE')
         if plan['starting_position']['gate_qualification'] != {'SB-G01':'BLOCKED','SB-G02':'BLOCKED'}:
             problems.append('GATE_STATE_NOT_AUTHENTIC')

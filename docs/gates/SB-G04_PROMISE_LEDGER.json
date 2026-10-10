@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "gate": "SB-G04",
+  "product": "skybind",
+  "gate_title": "Android namespace/platform source-safety milestone",
+  "assurance_ceiling": "ANDROID_SOURCE_PASS only; separate optional DEVICE_PROVISIONAL evidence, never a device release seal.",
+  "dependencies": [
+    "SB-G03",
+    "SB-O15",
+    "SB-O16",
+    "SB-O17",
+    "SB-O18",
+    "SB-O19"
+  ],
+  "required_checks": "Exercise protected-process scans, multi-user alias truth, safe setns planner, transactional bind ownership/rollback, module shell hooks and conservative uninstall. Require root-manager capability coverage without asserting devices not present.",
+  "original_implementation_obligations": [
+    "SB-O15",
+    "SB-O16",
+    "SB-O17",
+    "SB-O18",
+    "SB-O19"
+  ],
+  "negative_and_positive_checks": [
+    "protected_namespaces",
+    "alias_not_target",
+    "android_multiuser",
+    "namespace_bind_rollback",
+    "root_hooks",
+    "uninstall_retains_state"
+  ],
+  "source_paths": [
+    "internal/namespace",
+    "module",
+    "scripts/devtool/check_android_platform.sh"
+  ],
+  "required_evidence": [
+    "independent_signed_gate_attestation",
+    "verified_devtool_run_store",
+    "frozen_source_tree_and_commit",
+    "complete_negative_case_results",
+    "raw_evidence_checksums"
+  ],
+  "source_definition_status": "DEFINED_NOT_PROMOTED",
+  "qualification": "BLOCKED_UNTIL_FRESH_INDEPENDENT_EVIDENCE"
+}

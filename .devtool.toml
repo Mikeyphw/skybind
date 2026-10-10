@@ -158,6 +158,13 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+cg1-definitions = ["job:cg1-gate-definitions"]
+g03 = ["job:cg1-g03"]
+g04 = ["job:cg1-g04"]
+g05 = ["job:cg1-g05"]
+g06 = ["job:cg1-g06"]
+g07 = ["job:cg1-g07"]
+g08 = ["job:cg1-g08"]
 release-candidate-source = ["job:release-candidate-source"]
 g01-definition = ["job:g01-definition"]
 g02-definition = ["job:g02-definition"]
@@ -422,3 +429,48 @@ command = ["bash", "../../scripts/devtool/run_c06_device_matrix.sh"]
 inputs = ["../../scripts/dev/device/**", "../../scripts/devtool/run_c06_device_matrix.sh", "../../tests/device/probe-app/**"]
 outputs = ["../../build/evidence/android/**"]
 metadata = { device_qualification = false, qualification = "raw-device-receipt-only-needs-independent-attestation", read_only = false }
+
+# SB-CG1: independent read-only evidence evaluators, one per original milestone.
+# Successful source validation means definitions work, never that any gate passes.
+[targets.skybind_release.jobs.cg1-gate-definitions]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_cg1_gates.sh"]
+inputs = ["../docs/gates/**", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gates.sh", "../tests/gates/**", "../docs/roadmap/**", "../scripts/dev/release-audit/**"]
+metadata = {read_only = true, qualification = "gate-definitions-only", independent_promotion = false, final_seal = false}
+
+
+[targets.skybind_release.jobs.cg1-g03]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G03"]
+inputs = ["../docs/gates/SB-G03_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g04]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G04"]
+inputs = ["../docs/gates/SB-G04_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g05]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G05"]
+inputs = ["../docs/gates/SB-G05_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g06]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G06"]
+inputs = ["../docs/gates/SB-G06_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g07]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G07"]
+inputs = ["../docs/gates/SB-G07_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g08]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G08"]
+inputs = ["../docs/gates/SB-G08_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
