@@ -61,9 +61,11 @@ def check_all():
     exclusions = " ".join(data["explicit_exclusions"]).lower()
     assert "dynamic runtime" in exclusions and "migration" in exclusions
     for name, entry in cfg["wrapper"]["commands"].items():
-        assert entry["workflow"] in {"bootstrap", "foundation", "native"}, f"{name}: unexpected workflow"
+        allowed = {"bootstrap", "foundation", "native", "runtime-source", "g01-definition"}
+        assert entry["workflow"] in allowed, f"{name}: unexpected workflow"
         if entry["workflow"] != "bootstrap":
-            assert name in {"foundation", "native"}, "Unqualified workflow not allowed"
+            assert name == entry["workflow"], "Unqualified workflow not allowed"
+            assert entry["target"] in TARGETS, "Unknown target in wrapper"
     assert not any("seal" in key for target in cfg["targets"].values() for key in target["workflows"])
     return cfg, data
 

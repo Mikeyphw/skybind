@@ -111,6 +111,7 @@ inputs = ["../../docs/roadmap/**", "../devtool/**"]
 metadata = { read_only = true, qualification = "planning-only" }
 
 [targets.skybind_runtime_inputs.workflows]
+runtime-source = ["job:runtime-source-safety"]
 bootstrap = ["job:bootstrap-runtime-plan"]
 validate = ["job:bootstrap-runtime-plan"]
 
@@ -211,3 +212,18 @@ metadata = { read_only = true, qualification = "go-foundation-source-only" }
 description = "Go filesystem-safety tests and linux/android arm64 cross-compile (source proof only)"
 workflow = "native"
 target = "skybind"
+
+# SB-O04+O05: pinned build-time provider payloads, no installed runtime operation.
+[targets.skybind_runtime_inputs.jobs.runtime-source-safety]
+runner = "command"
+command = ["bash", "../devtool/check_runtime_source.sh"]
+inputs = ["../runtime/**", "../../internal/integrity/**", "../../internal/runtimeauth/**", "../../tests/package/**", "../devtool/check_runtime_source.sh"]
+metadata = { read_only = true, qualification = "source-fixture-only", device_qualification = false }
+
+
+
+[wrapper.commands.runtime-source]
+description = "Check build-time provider input guards using artificial ELF fixtures (not official upstream build qualification)"
+workflow = "runtime-source"
+target = "skybind_runtime_inputs"
+
