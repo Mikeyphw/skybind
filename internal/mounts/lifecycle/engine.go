@@ -442,6 +442,13 @@ func (e *Engine) Start(name string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
+	return e.startLocked(m)
+}
+
+// startLocked runs under Engine.mu after the caller has selected an immutable
+// mount from a validated registry. No registry read or second lock is needed.
+func (e *Engine) startLocked(m config.Mount) (State, error) {
+	name := m.Name
 	if !m.Enabled {
 		return State{}, errors.New("mount disabled")
 	}
@@ -536,6 +543,48 @@ func (e *Engine) Start(name string) (State, error) {
 	}
 	return e.inspect(m)
 }
+
+// stopOwnedLocked is the only process/detach path used by both explicit Stop
+// and configuration publication. The latter keeps persistent desired=true so
+// interrupted transactions recover without losing requested mount intent.
+func (e *Engine) stopOwnedLocked(m config.Mount) error {
+	rec, owned, err := e.owned(m)
+	if err != nil {
+		return err
+	}
+	v, exists, err := e.obs.Mount(m.Mountpoint)
+	if err != nil {
+		return err
+	}
+	if exists && (!owned || !strings.HasPrefix(v.FsType, "fuse") || rec.MountID == "" || rec.MountID != v.MountID) {
+		return errors.New("refuse unowned mount detach")
+	}
+	if owned {
+		if exists {
+			tick, exe, identityErr := e.obs.Identity(rec.PID)
+			if identityErr != nil || tick != rec.StartTicks || exe != rec.Executable {
+				return errors.New("owned process identity lost before unmount")
+			}
+			if err = e.run.Unmount(paths.FuseHelper, m.Mountpoint); err != nil {
+				return err
+			}
+		}
+		tick, exe, identityErr := e.obs.Identity(rec.PID)
+		if identityErr != nil || tick != rec.StartTicks || exe != rec.Executable {
+			return errors.New("process identity cannot be proved before SIGTERM")
+		}
+		if err = e.run.Stop(rec.PID); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		if err = os.Remove(e.recordFile(m.Name)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if e.rcDrop != nil {
+		e.rcDrop(m.Name)
+	}
+	return nil
+}
 func (e *Engine) Stop(name string) (State, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -546,45 +595,95 @@ func (e *Engine) Stop(name string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	rec, owned, err := e.owned(m)
-	if err != nil {
+	if err = e.stopOwnedLocked(m); err != nil {
 		return State{}, err
-	}
-	v, exists, err := e.obs.Mount(m.Mountpoint)
-	if err != nil {
-		return State{}, err
-	}
-	if exists && (!owned || !strings.HasPrefix(v.FsType, "fuse") || rec.MountID == "" || rec.MountID != v.MountID) {
-		return State{}, errors.New("refuse unowned mount detach")
 	}
 	e.state[name] = false
 	if err = e.persistDesired(); err != nil {
 		return State{}, err
 	}
-	if owned {
-		if exists {
-			// Revalidate the process before attempting a mount detach.
-			tick, exe, identityErr := e.obs.Identity(rec.PID)
-			if identityErr != nil || tick != rec.StartTicks || exe != rec.Executable {
-				return State{}, errors.New("owned process identity lost before unmount")
-			}
-			if err = e.run.Unmount(paths.FuseHelper, m.Mountpoint); err != nil {
-				return State{}, err
-			}
-		}
-		if tick, exe, identityErr := e.obs.Identity(rec.PID); identityErr == nil && (tick != rec.StartTicks || exe != rec.Executable) {
-			return State{}, errors.New("process identity changed before SIGTERM")
-		}
-		if err = e.run.Stop(rec.PID); err != nil && !errors.Is(err, syscall.ESRCH) {
-			return State{}, err
-		}
-		_ = os.Remove(e.recordFile(name))
-	}
-	if e.rcDrop != nil {
-		e.rcDrop(name)
-	}
 	return e.inspect(m)
 }
+
+// ApplyConfig binds guarded registry publication to old process/mount identity.
+// Lock order is Engine.mu -> Store.mu; other mount operations use the same order.
+// A failed post-publication restart is explicitly reported and recorded. The
+// new registry revision stays published with desired-state recovery available.
+func (e *Engine) ApplyConfig(raw []byte, proof string) (config.Registry, error) {
+	return e.commitConfig(raw, proof, false)
+}
+func (e *Engine) RollbackConfig(proof string) (config.Registry, error) {
+	return e.commitConfig(nil, proof, true)
+}
+func (e *Engine) commitConfig(raw []byte, proof string, rollback bool) (config.Registry, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.loadDesired(); err != nil {
+		return config.Registry{}, err
+	}
+	var affected []string
+	prepare := func(old, next config.Registry) error {
+		for _, effect := range config.Diff(old, next) {
+			if !effect.Restart {
+				continue
+			}
+			for _, mount := range old.Mounts {
+				if mount.Name == effect.Name {
+					if err := e.stopOwnedLocked(mount); err != nil {
+						return fmt.Errorf("%s: %w", effect.Name, err)
+					}
+					break
+				}
+			}
+			affected = append(affected, effect.Name)
+		}
+		return nil
+	}
+	var result config.Registry
+	var err error
+	if rollback {
+		result, err = e.store.RollbackWithPrepare(proof, prepare)
+	} else {
+		result, err = e.store.ApplyWithPrepare(raw, proof, prepare)
+	}
+	if err != nil {
+		return config.Registry{}, err
+	}
+	byName := make(map[string]config.Mount, len(result.Mounts))
+	for _, m := range result.Mounts {
+		byName[m.Name] = m
+	}
+	var attention []string
+	for _, name := range affected {
+		m, found := byName[name]
+		if !found || !m.Enabled {
+			delete(e.state, name)
+			continue
+		}
+		if !e.state[name] {
+			continue
+		} // explicit prior stop remains stopped
+		if _, startErr := e.startLocked(m); startErr != nil {
+			attention = append(attention, name+": "+startErr.Error())
+		}
+	}
+	if err := os.MkdirAll(e.dir, 0700); err != nil {
+		attention = append(attention, "private desired directory: "+err.Error())
+	} else if err := e.persistDesired(); err != nil {
+		attention = append(attention, "desired-state persistence: "+err.Error())
+	}
+	if len(attention) != 0 {
+		// Root-private durable attention; recovery must not pretend commit failed.
+		message, _ := json.Marshal(map[string]any{"revision": result.Revision, "attention": attention})
+		if err := atomicfile.Write(e.dir, "config-attention-v1.json", message); err != nil {
+			return result, fmt.Errorf("config revision %d published but attention could not persist: %w", result.Revision, err)
+		}
+		return result, fmt.Errorf("config revision %d published; recovery required: %s", result.Revision, strings.Join(attention, "; "))
+	}
+	_ = os.Remove(filepath.Join(e.dir, "config-attention-v1.json"))
+	return result, nil
+}
+
 func (e *Engine) Restart(name string) (State, error) {
 	if _, err := e.Stop(name); err != nil {
 		return State{}, err

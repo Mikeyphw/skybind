@@ -61,6 +61,37 @@ def zip_members(path: Path) -> dict[str, bytes]:
     return result
 
 
+def verify_installed_runtime(files: dict[str, bytes]) -> dict:
+    """Cross-check the assembled module against the on-device Go authority.
+
+    This verifies the *exact* root-level provenance and every referenced member,
+    not just the input runtime archive. It never substitutes an unpinned provider.
+    """
+    try:
+        provenance = json.loads(files['runtime.provenance.json'])
+        if not isinstance(provenance, dict) or provenance.get('schema_version') != 1 or provenance.get('product') != 'Skybind' or provenance.get('arch') != 'arm64':
+            raise Reject('invalid installed runtime provenance schema')
+        if provenance.get('provider') not in ('newfuture', 'bclone') or provenance.get('engine_path') != 'system/bin/rclone' or provenance.get('helper_path') != 'system/vendor/bin/fusermount3':
+            raise Reject('invalid runtime authority identity')
+        required = provenance.get('files')
+        if not isinstance(required, dict) or not 3 <= len(required) <= 66:
+            raise Reject('invalid runtime provenance inventory')
+        for name, record in required.items():
+            if not isinstance(name, str) or not safe_path(name) or not name.startswith('system/') or not isinstance(record, dict):
+                raise Reject('invalid runtime member name')
+            blob = files.get(name)
+            if blob is None or record.get('sha256') != sha(blob) or record.get('size') != len(blob) or not blob:
+                raise Reject('installed runtime member digest/size mismatch: ' + name)
+        for name in ('system/bin/rclone', 'system/vendor/bin/fusermount3'):
+            if name not in required or not is_arm64_elf(files[name]):
+                raise Reject('required runtime ELF missing from provenance')
+        return provenance
+    except (KeyError, TypeError, ValueError, UnicodeError) as exc:
+        if isinstance(exc, Reject):
+            raise
+        raise Reject('invalid installed runtime provenance') from exc
+
+
 def collect(runtime: Path, binary: Path, module: Path, webroot: Path) -> tuple[dict[str, bytes], dict]:
     proven = verify_package(runtime)
     engine = zip_members(runtime)
@@ -68,6 +99,10 @@ def collect(runtime: Path, binary: Path, module: Path, webroot: Path) -> tuple[d
         raise Reject('invalid build-time runtime inventory')
     # Input archive must be the known, complete, hash-verified runtime package.
     payload = {n: b for n, b in engine.items() if n.startswith('system/')}
+    # The installed runtime authority reads this root-level file directly.
+    # Never discard or regenerate upstream build provenance during composition.
+    payload['runtime.provenance.json'] = engine['runtime.provenance.json']
+    verify_installed_runtime(payload)
     if not {'system/bin/rclone','system/vendor/bin/fusermount3'} <= payload.keys():
         raise Reject('runtime binary/helper missing')
     app = checked_source(binary)
@@ -133,6 +168,9 @@ def verify_release(path:Path) ->dict:
     if not {'system/bin/skybind','system/bin/rclone','system/vendor/bin/fusermount3','skybind.manifest.json','SHA256SUMS'} <= entries.keys():
         raise Reject('incomplete module package')
     manifest=json.loads(entries['skybind.manifest.json'])
+    verify_installed_runtime(entries)
+    if manifest.get('runtime_provenance_sha256') != sha(entries['runtime.provenance.json']):
+        raise Reject('release provenance identity mismatch')
     if manifest.get('qualification')!='CANDIDATE_ONLY_NOT_SEALED' or manifest.get('product')!='skybind' or manifest.get('schema_version')!=1:
         raise Reject('forged/missing candidate status')
     if set(manifest['files'])!=set(entries)-{'skybind.manifest.json','SHA256SUMS'}:

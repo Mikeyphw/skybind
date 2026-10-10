@@ -239,12 +239,21 @@ func (s *Store) Preview(raw []byte) (Plan, error) {
 	}
 	return Plan{cur.Revision, d, Diff(cur, candidate), token}, nil
 }
+
+// PrepareFunc executes under the registry publication lock, after a durable
+// pending-recovery record exists and before publishing the new registry.
+// It must fail closed if old owned mounts cannot be safely quiesced.
+type PrepareFunc func(before, candidate Registry) error
+
 func (s *Store) Apply(raw []byte, token string) (Registry, error) {
+	return s.ApplyWithPrepare(raw, token, nil)
+}
+func (s *Store) ApplyWithPrepare(raw []byte, token string, prepare PrepareFunc) (Registry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.apply(raw, token, "config.apply")
+	return s.apply(raw, token, "config.apply", prepare)
 }
-func (s *Store) apply(raw []byte, token, action string) (Registry, error) {
+func (s *Store) apply(raw []byte, token, action string, prepare PrepareFunc) (Registry, error) {
 	cur, e := s.read(RegistryName)
 	if e != nil {
 		return Registry{}, e
@@ -272,6 +281,16 @@ func (s *Store) apply(raw []byte, token, action string) (Registry, error) {
 	b, _ := json.Marshal(txn)
 	if e = atomicfile.Write(s.dir, PendingName, b); e != nil {
 		return Registry{}, e
+	}
+	if prepare != nil {
+		if e = prepare(cur, candidate); e != nil {
+			// No registry revision has been published. Preserve any desired
+			// mount intent so the supervisor can recover safely.
+			if cleanupErr := s.finishPending(); cleanupErr != nil {
+				return Registry{}, fmt.Errorf("prepare failed: %v; pending recovery: %w", e, cleanupErr)
+			}
+			return Registry{}, fmt.Errorf("config lifecycle preparation blocked: %w", e)
+		}
 	}
 	if e = s.write(PreviousName, cur); e != nil {
 		return Registry{}, e
@@ -354,6 +373,9 @@ func (s *Store) RollbackPreview() (Plan, error) {
 	return Plan{cur.Revision, d, Diff(cur, prev), tok}, nil
 }
 func (s *Store) Rollback(token string) (Registry, error) {
+	return s.RollbackWithPrepare(token, nil)
+}
+func (s *Store) RollbackWithPrepare(token string, prepare PrepareFunc) (Registry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cur, e := s.read(RegistryName)
@@ -369,7 +391,7 @@ func (s *Store) Rollback(token string) (Registry, error) {
 	}
 	prev.Revision = cur.Revision
 	b, _ := json.Marshal(prev)
-	return s.apply(b, token, "config.rollback")
+	return s.apply(b, token, "config.rollback", prepare)
 }
 func (s *Store) Validate(raw []byte) (Registry, error) { return Validate(raw) }
 func CheckFileSafe(p string) error {

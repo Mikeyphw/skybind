@@ -161,6 +161,9 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 			if len(p.Candidate) == 0 || p.Proof == "" {
 				return nil, errors.New("missing candidate/proof")
 			}
+			if mount != nil {
+				return mount.ApplyConfig(p.Candidate, p.Proof)
+			}
 			return s.Apply(p.Candidate, p.Proof)
 		})
 		register("config.rollback.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
@@ -178,6 +181,9 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 			}
 			if p.Proof == "" {
 				return nil, errors.New("missing proof")
+			}
+			if mount != nil {
+				return mount.RollbackConfig(p.Proof)
 			}
 			return s.Rollback(p.Proof)
 		})

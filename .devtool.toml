@@ -71,6 +71,7 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 
 [targets.skybind.workflows]
 native = ["job:foundation-go"]
+repair-r01 = ["job:repair-r01-runtime-mount"]
 typed-control = ["job:typed-control-source"]
 api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
@@ -488,3 +489,11 @@ metadata = {read_only = true, qualification = "final-auditor-source-only", final
 description = "Check independent SB-CFS1 final auditor; never issue a seal without real evidence"
 workflow = "final-audit"
 target = "skybind_release"
+
+# SB-R01 source repair: tests are fully Devtool-owned and automatically run
+# as the overlay validation hook. No independent release/device gate is promoted.
+[targets.skybind.jobs.repair-r01-runtime-mount]
+runner = "command"
+command = ["bash", "scripts/devtool/check_r01_runtime_mount.sh"]
+inputs = ["internal/mounts/config/**", "internal/mounts/lifecycle/**", "internal/daemon/**", "internal/runtimeauth/**", "scripts/dev/release/**", "scripts/devtool/check_r01_runtime_mount.sh", "tests/fault/**", "tests/integration/**"]
+metadata = { read_only = true, qualification = "source-repair-only", release_qualification = false, device_qualification = false }
