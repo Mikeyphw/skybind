@@ -7,7 +7,7 @@ class C03Contracts(unittest.TestCase):
  def test_completeness_and_status(self):
   d=json.loads((ROOT/'docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json').read_text())
   assert d['artifact_sequence'][2]['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED'
-  assert d['artifact_sequence'][3]['status']=='PLANNED'
+  assert d['artifact_sequence'][3]['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED'
   assert d['artifact_sequence'][-1]['status']=='PLANNED'
   assert all(d['coverage_map'][f'SB-O{i}']=='SB-C03' for i in range(20,25))
   assert d['starting_position']['gate_qualification']=={'SB-G01':'BLOCKED','SB-G02':'BLOCKED'}

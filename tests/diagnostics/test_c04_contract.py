@@ -7,10 +7,11 @@ class C04Contract(unittest.TestCase):
     def test_ledger_progression(self):
         p=json.loads((ROOT/'docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json').read_text())
         self.assertEqual([x['status'] for x in p['artifact_sequence'][:4]], ['SOURCE_IMPLEMENTED_NOT_PROMOTED']*4)
-        self.assertTrue(all(x['status']=='PLANNED' for x in p['artifact_sequence'][4:]))
+        self.assertTrue(all(x['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED' for x in p['artifact_sequence'][4:6]))
+        self.assertTrue(all(x['status']=='PLANNED' for x in p['artifact_sequence'][6:]))
         self.assertEqual(p['starting_position']['gate_qualification'],{'SB-G01':'BLOCKED','SB-G02':'BLOCKED'})
     def test_no_webui_visual_parity_claim(self):
-        self.assertFalse((ROOT/'module/webroot/index.html').exists())
+        self.assertTrue((ROOT/'module/webroot/index.html').exists())
         self.assertTrue((ROOT/'tests/fixtures/webui-reference/raw/index.html').exists())
     def test_transport_restrictions(self):
         content=(ROOT/'internal/webui/webui.go').read_text()

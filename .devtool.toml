@@ -75,6 +75,7 @@ typed-control = ["job:typed-control-source"]
 api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
 mount-source = ["job:mount-source-validation"]
+integration-source = ["job:integration-source"]
 android-platform = ["job:android-platform-source"]
 jobs-providers = ["job:jobs-providers-source"]
 diagnostics-transports = ["job:diagnostics-transports-source"]
@@ -137,6 +138,8 @@ inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
 metadata = { read_only = true, device_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_android_device.workflows]
+device-matrix-source = ["job:device-matrix-source"]
+physical-app-probe = ["job:physical-app-probe"]
 bootstrap = ["job:bootstrap-device-plan"]
 validate = ["job:bootstrap-device-plan"]
 
@@ -155,6 +158,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+release-candidate-source = ["job:release-candidate-source"]
 g01-definition = ["job:g01-definition"]
 g02-definition = ["job:g02-definition"]
 foundation = [
@@ -375,3 +379,46 @@ name = "SB-C05 copied frontend and typed backend source contracts"
 runner = "command"
 timeout_seconds = 600
 command = ["bash", "scripts/devtool/check_original_webui.sh"]
+
+# SB-C06 (source and fault matrix only; device/release qualification separate).
+# Devtool overlay validation invokes this automatically and records evidence.
+[targets.skybind.jobs.integration-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_c06_integration_release.sh"]
+inputs = ["go.mod", "cmd/**", "internal/**", "scripts/dev/**", "scripts/devtool/check_c06_integration_release.sh", "tests/integration/**", "tests/fault/**", "tests/security/**", "tests/seal/**", "tests/device/**", "module/**", "docs/roadmap/**"]
+metadata = { read_only = true, qualification = "source-fixture-only", device_qualification = false, release_qualification = false }
+
+[targets.skybind.jobs.device-probe-source]
+runner = "command"
+command = ["python3", "-m", "unittest", "discover", "-s", "tests/device", "-p", "test_*.py", "-v"]
+inputs = ["scripts/dev/device/**", "tests/device/**"]
+metadata = { read_only = true, qualification = "device-probe-source-only", device_qualification = false }
+
+[targets.skybind_android_device.jobs.device-matrix-source]
+runner = "command"
+command = ["python3", "-m", "unittest", "discover", "-s", "../../tests/device", "-p", "test_*.py", "-v"]
+inputs = ["../../scripts/dev/device/**", "../../tests/device/**"]
+metadata = { read_only = true, qualification = "device-test-harness-source-only", device_qualification = false }
+
+[targets.skybind_release.jobs.release-candidate-source]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_c06_integration_release.sh"]
+inputs = ["../scripts/dev/release/**", "../scripts/dev/release-audit/**", "../scripts/devtool/check_c06_integration_release.sh", "../tests/fault/**", "../tests/integration/**", "../tests/seal/**", "../module/**"]
+metadata = { read_only = true, qualification = "candidate-verification-only", release_qualification = false, device_qualification = false }
+
+[wrapper.commands.integration-source]
+description = "SB-C06 whole-product source+fault validation; no physical-device release proof"
+workflow = "integration-source"
+target = "skybind"
+
+[wrapper.commands.release-candidate-source]
+description = "SB-C06 reproducible candidate and blocked release gates; NOT release qualification"
+workflow = "release-candidate-source"
+target = "skybind_release"
+
+[targets.skybind_android_device.jobs.physical-app-probe]
+runner = "command"
+command = ["bash", "../../scripts/devtool/run_c06_device_matrix.sh"]
+inputs = ["../../scripts/dev/device/**", "../../scripts/devtool/run_c06_device_matrix.sh", "../../tests/device/probe-app/**"]
+outputs = ["../../build/evidence/android/**"]
+metadata = { device_qualification = false, qualification = "raw-device-receipt-only-needs-independent-attestation", read_only = false }

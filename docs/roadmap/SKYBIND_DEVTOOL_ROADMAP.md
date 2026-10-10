@@ -1,6 +1,6 @@
 # SKYBIND — Consolidated Devtool Implementation Roadmap
 
-**Status: SB-C01 implemented at SOURCE_ONLY assurance; G01/G02 BLOCKED, no Android mount qualification or release seal.**
+**Current status: SB-C01–SB-C06 source-implemented (NOT PROMOTED); G01/G02 BLOCKED; physical-device, UI screenshot and independent milestone gates NOT ATTESTED; final seal NOT ISSUED.**
 
 ## Decision: 34 remaining obligations, only 8 future overlay artifacts
 
@@ -168,7 +168,7 @@ The previous campaign separated 36 implementation obligations, 8 milestone gates
 ### SB-C06 — Whole-Product Integration, Device Matrix & Reproducible Release
 **Archive:** `skybind-SB-C06-integration-release.devtool-overlay.zip`
 
-**Dependencies:** `SB-C02`, `SB-C03`, `SB-C04`, `SB-C05`. **Promotion gates:** `SB-G07`. **Targets:** `skybind`, `skybind_android_device`, `skybind_release`. **Risk:** critical. **State:** `PLANNED`.
+**Dependencies:** `SB-C02`, `SB-C03`, `SB-C04`, `SB-C05`. **Promotion gates:** `SB-G07`. **Targets:** `skybind`, `skybind_android_device`, `skybind_release`. **Risk:** critical. **State:** `SOURCE_IMPLEMENTED_NOT_PROMOTED` (automatic source/fault tests only; real device and both official provider variants not attested).
 
 **Retained original obligations:** `SB-O34`, `SB-O35`, `SB-O36`.
 
@@ -535,6 +535,13 @@ The descriptions, targeted tests, negative cases and promotion criteria below ar
 
 ## Next action
 
-**Begin `SB-C01`**, including atomic Devtool roadmap/contract-test reindexing and the entire owned FUSE lifecycle, readiness, supervisor, network/power/VFS policies, and cache safety (`SB-O10`–`SB-O14`). Its artifact must run all tests during Devtool application. Do not ask the operator for follow-up `go test`/`go vet`/manual validation commands. Independently preserve blocked G01/G02 and avoid source-to-release promotion until applicable qualification passes.
+**Implement `SB-CG1`**, the independent G03–G08 milestone gate package. Maintain
+G01/G02 as BLOCKED until authentic source/provider/device evidence arrives.
+Qualify actual physical Android ordinary-app exact-target file read/write,
+root-manager lifecycle, UI screenshot parity, official pinned NewFuture/bclone
+artifacts, and endurance separately using Devtool run-store provenance.
+`SB-C06` provides a source-validated deterministic **candidate**, not a sealed
+production release. Final `SB-CFS1` stays blocked until all required independent
+gates pass. No manual post-overlay validation commands.
 
 **Historical reference:** `SKYBIND_ORIGINAL_45_ITEM_ROADMAP.md` in this package is retained only as an obligation-detail reference, not as the active number of deliverables.

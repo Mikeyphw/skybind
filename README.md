@@ -1,60 +1,28 @@
 # Skybind
 
-Android rooted FUSE/cloud filesystem management project. Its new implementation
-is planned as the **Skybind Devtool Overlay Campaign**.
+Android root-integrated FUSE and cloud filesystem management, using an immutable
+installed rclone-family executable and a native Go daemon. The existing WebUI
+has been ported directly with narrow Skybind backend and authentication adapters.
 
-**Status: greenfield foundation implemented (SB-O01+O02 and SB-O03).**
-The product contract is frozen, the original WebUI assets are retained as an
-immutable test reference (not yet shipped as a Skybind UI), and the native Go
-CLI/path/atomic-file foundation now compiles and is covered by source tests.
-The 45-overlay roadmap remains normative. The daemon, mounts, Android app
-visibility, runtime binaries, actual WebUI integration, device qualification,
-milestone gates, and release seal remain **unimplemented/not attested**.
+**Current source state:** `SB-C01` through `SB-C06` implemented with Devtool
+source/fault validation. This does **not** mean an Android release is approved.
+Provider release pins are incomplete; G01/G02 remain BLOCKED, G03–G08 require
+independent device/UX evidence, and final seal `SB-CFS1` is NOT ISSUED.
 
-## Roadmap
+## Roadmap, evidence, and application
 
-- [Devtool overlay campaign](docs/roadmap/SKYBIND_DEVTOOL_ROADMAP.md)
-- [Machine-readable overlay inventory](docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json)
-- [Normative feature specification](docs/roadmap/SKYBIND_FEATURE_SPEC.md)
+- [Active consolidated Devtool campaign](docs/roadmap/SKYBIND_DEVTOOL_ROADMAP.md)
+- [Machine-readable artifact/obligation index](docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json)
+- [Complete feature specification](docs/roadmap/SKYBIND_FEATURE_SPEC.md)
+- [C06 real-device matrix](docs/qualification/SB-C06_DEVICE_MATRIX.md)
+- [Reproducible candidate packaging](docs/release/SB-C06_RELEASE_PROCESS.md)
 
-The upstream `rclone` binary remains `rclone`; product CLI `skybind`, daemon
-`skybindd`, module ID `skybind`, and state path `/data/adb/skybind/`.
-No installed dynamic-runtime functionality or migration/legacy UX is included.
-The original WebUI must be copied with practical visual and interaction parity.
+Apply each supplied `.devtool-overlay.zip` with Devtool. Its preflight and
+validation script run automatically, with atomic rollback on failures. No manual
+post-apply `go test`/`go vet` commands are required. The device-probe and
+release-candidate workflows are Devtool targets, but their mere presence does
+not qualify real hardware or a publication artifact.
 
-## Bootstrap checks (NOT implementation/release proof)
-
-```bash
-python3 -m unittest discover -s tests -p 'test_bootstrap.py' -v
-devtool -r . targets --json
-devtool -r . workflows --json
-devtool -r . plan bootstrap --target skybind_release --json
-devtool -r . preflight --target skybind_release --workflow bootstrap --json
-devtool -r . --target skybind_release invoke bootstrap
-```
-
-After installing your matching Devtool, run `devtool wrapper init` to generate
-`./devtoolw`, then `./devtoolw bootstrap`.
-
-Every future SB-Oxx overlay adds its own real tests and execution jobs; each
-SB-Gxx gate must verify actual evidence, and SB-FS1 must verify device release
-qualification. No gate is represented as passed by these bootstrap checks.
-
-## Implemented foundation checks (source qualification only)
-
-```bash
-python3 -m unittest discover -s tests/contracts -p 'test_*.py' -v
-bash scripts/devtool/check_native.sh
-# Via Devtool, after installing the matching local Devtool version:
-devtool -r . --target skybind_release invoke foundation
-devtool -r . --target skybind invoke native
-```
-
-`SB-O01+O02` imports byte-frozen `tests/fixtures/webui-reference/raw/` assets.
-These are **reference fixtures only**, including excluded historical UI controls;
-they must not be served to end users. Visual screenshots and device evidence are
-intentionally not fabricated. `SB-O03` does not start a daemon or mount filesystems.
-
-## SB-C04 source implementation
-
-Doctor, private redacted logs, bounded owned support ZIPs, and two typed WebUI transports are now source-implemented. The standalone transport is IPv4-loopback-only and requires a one-use bootstrap token, strict host/origin/session/CSRF checks. The root-manager bridge accepts only typed base64url requests. Frontend files are still supplied by SB-C05, and neither real Android application access nor release certification is claimed. Devtool runs `diagnostics-transports` automatically during the overlay application.
+The CLI/daemon and module ID are `skybind`; upstream runtime executable remains
+`rclone`, canonical root-owned state is `/data/adb/skybind`. No dynamic
+installed-runtime system or migration logic is implemented.

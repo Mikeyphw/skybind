@@ -16,7 +16,7 @@ python3 - <<'PY'
 import json
 p=json.load(open('docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json'))
 assert p['artifact_sequence'][2]['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED'
-assert p['artifact_sequence'][3]['status']=='PLANNED'
+assert p['artifact_sequence'][3]['status']=='SOURCE_IMPLEMENTED_NOT_PROMOTED'
 assert p['artifact_sequence'][-1]['status']=='PLANNED'
 print('SB-C03 source tests passed; no Android/RC cloud device evidence, no milestone promotion, no final seal')
 PY

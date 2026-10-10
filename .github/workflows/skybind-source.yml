@@ -1,0 +1,19 @@
+name: Skybind source validation (NOT release qualification)
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Targeted source tests and release evidence denials
+        run: bash scripts/devtool/check_c06_integration_release.sh
