@@ -29,6 +29,10 @@ func (e *Engine) Register(name string, class protocol.Class, fn Handler) error {
 	if name == "" || !class.Valid() || fn == nil {
 		return fmt.Errorf("invalid operation descriptor")
 	}
+	known, ok := Lookup(name)
+	if !ok || known.OperationClass != class {
+		return fmt.Errorf("operation absent from canonical catalog or wrong class: %s", name)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if _, ok := e.entries[name]; ok {
@@ -63,6 +67,12 @@ func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) protocol.Re
 	x, ok := e.entries[req.Operation]
 	e.mu.RUnlock()
 	if !ok {
+		if item, known := Lookup(req.Operation); known {
+			if item.OperationClass != req.Class {
+				return protocol.Fail(req.RequestID, "class_mismatch", "authorization", "dispatch", false)
+			}
+			return protocol.Fail(req.RequestID, "not_implemented", "capability", "dispatch", false)
+		}
 		return protocol.Fail(req.RequestID, "unknown_operation", "authorization", "dispatch", false)
 	}
 	if x.descriptor.Class != req.Class {

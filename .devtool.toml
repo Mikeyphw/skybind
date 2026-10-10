@@ -72,6 +72,7 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 [targets.skybind.workflows]
 native = ["job:foundation-go"]
 typed-control = ["job:typed-control-source"]
+api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
 contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
@@ -262,3 +263,15 @@ runner = "command"
 command = ["bash", "scripts/devtool/check_config.sh"]
 inputs = ["internal/mounts/config/**", "internal/previewproof/**", "scripts/devtool/check_config.sh"]
 metadata = { read_only = true, qualification = "source-only", gate_g01 = "BLOCKED" }
+
+# SB-O09: complete typed API catalog, CLI routing and effective config RPC.
+[targets.skybind.jobs.api-parity-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_api_parity.sh"]
+inputs = ["cmd/skybind/**", "internal/control/**", "internal/daemon/**", "internal/mounts/config/**", "internal/protocol/**", "docs/contracts/typed-operations.json", "tests/cli/**", "scripts/devtool/check_api_parity.sh"]
+metadata = { read_only = true, qualification = "source-only", gate_g01 = "BLOCKED" }
+
+[wrapper.commands.api-parity]
+description = "Verify frozen 57-operation inventory, CLI/backend parity, config RPC and negative tests; source-only"
+workflow = "api-parity"
+target = "skybind"
