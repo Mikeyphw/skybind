@@ -1,0 +1,168 @@
+# Skybind — Devtool repository contract (bootstrap stage)
+# Future SB-Oxx overlays add actual Go/build/WebUI/Android/device/release jobs.
+# Bootstrap workflows validate the PLAN only. They do NOT seal the product.
+
+[project]
+runner = "command"
+platform = "cli"
+
+[workspace]
+default_target = "skybind"
+
+[workspace.groups]
+source = ["skybind", "skybind_webui", "skybind_runtime_inputs"]
+android = ["skybind_android_device"]
+release_readiness = ["@source", "@android", "skybind_release"]
+everything = ["*"]
+
+[workspace.scheduler]
+parallel = false
+max_parallel_nodes = 3
+max_android_device = 1
+max_gradle_nodes = 1
+
+[wrapper]
+schema = 2
+default_command = "bootstrap"
+
+[wrapper.commands.bootstrap]
+description = "Validate Skybind repository, roadmap and planned Devtool overlay graph (NOT product qualification)"
+workflow = "bootstrap"
+target = "skybind_release"
+
+[wrapper.commands.contracts]
+description = "Validate the 45 planned overlays and product identity"
+workflow = "bootstrap"
+target = "skybind"
+
+[wrapper.commands.webui-plan]
+description = "Check the original-WebUI parity plan, not actual visual parity"
+workflow = "bootstrap"
+target = "skybind_webui"
+
+[wrapper.commands.runtime-plan]
+description = "Check static runtime input plan, not runtime binaries"
+workflow = "bootstrap"
+target = "skybind_runtime_inputs"
+
+[wrapper.commands.android-plan]
+description = "Check device gate plan, not Android device evidence"
+workflow = "bootstrap"
+target = "skybind_android_device"
+
+[wrapper.commands.release-plan]
+description = "Check release gate dependency plan; does not issue a release seal"
+workflow = "bootstrap"
+target = "skybind_release"
+
+# Source and CLI/daemon authority: implementation arrives in SB-O03 onward.
+[targets.skybind]
+runner = "command"
+platform = "cli"
+root = "."
+inputs = [".devtool.toml", "docs/roadmap/**", "scripts/devtool/**", "tests/test_bootstrap.py", "cmd/**", "internal/**", "go.mod", "go.sum"]
+outputs = ["build/**", "dist/**"]
+
+[targets.skybind.jobs.bootstrap-contracts]
+runner = "command"
+command = ["python3", "-m", "unittest", "discover", "-s", "tests", "-p", "test_bootstrap.py", "-v"]
+inputs = [".devtool.toml", "docs/roadmap/**", "scripts/devtool/**", "tests/test_bootstrap.py"]
+metadata = { read_only = true, qualification = "bootstrap-plan-only" }
+
+[targets.skybind.workflows]
+bootstrap = ["job:bootstrap-contracts"]
+validate = ["job:bootstrap-contracts"]
+
+# Original WebUI assets must be copied directly and visually qualified in SB-O29..33.
+# No UI parity is claimed by this bootstrap check.
+[targets.skybind_webui]
+runner = "command"
+platform = "web"
+root = "module/webroot"
+inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**", "**/*"]
+outputs = []
+
+[targets.skybind_webui.jobs.bootstrap-ui-plan]
+runner = "command"
+command = ["python3", "../../scripts/devtool/check_bootstrap.py", "webui"]
+inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
+metadata = { read_only = true, qualification = "planning-only" }
+
+[targets.skybind_webui.workflows]
+bootstrap = ["job:bootstrap-ui-plan"]
+validate = ["job:bootstrap-ui-plan"]
+
+# Build-time NewFuture/bclone acquisition is added in dedicated overlays.
+# No installed dynamic runtime selection, downloads or migrations.
+[targets.skybind_runtime_inputs]
+runner = "command"
+platform = "shared"
+root = "scripts/runtime"
+inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**", "**/*"]
+outputs = ["../../build/runtime/**"]
+
+[targets.skybind_runtime_inputs.jobs.bootstrap-runtime-plan]
+runner = "command"
+command = ["python3", "../devtool/check_bootstrap.py", "runtime"]
+inputs = ["../../docs/roadmap/**", "../devtool/**"]
+metadata = { read_only = true, qualification = "planning-only" }
+
+[targets.skybind_runtime_inputs.workflows]
+bootstrap = ["job:bootstrap-runtime-plan"]
+validate = ["job:bootstrap-runtime-plan"]
+
+# Real ADB/root-manager tests require explicit later implementation + device evidence.
+[targets.skybind_android_device]
+runner = "command"
+platform = "android"
+root = "tests/device"
+inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**", "**/*"]
+outputs = ["../../build/evidence/android/**"]
+
+[targets.skybind_android_device.jobs.bootstrap-device-plan]
+runner = "command"
+command = ["python3", "../../scripts/devtool/check_bootstrap.py", "android"]
+inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
+metadata = { read_only = true, device_qualification = false, qualification = "planning-only" }
+
+[targets.skybind_android_device.workflows]
+bootstrap = ["job:bootstrap-device-plan"]
+validate = ["job:bootstrap-device-plan"]
+
+# Composition target. Validation of planning != release qualification.
+[targets.skybind_release]
+runner = "command"
+platform = "shared"
+root = "release"
+inputs = ["../docs/roadmap/**", "../scripts/devtool/**", "**/*"]
+outputs = ["../dist/**", "../build/evidence/release/**"]
+
+[targets.skybind_release.jobs.bootstrap-release-plan]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_bootstrap.py", "release"]
+inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
+metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
+
+[targets.skybind_release.workflows]
+bootstrap = [
+  { id = "contracts", ref = "target:skybind#bootstrap", depends_on = [] },
+  { id = "webui", ref = "target:skybind_webui#bootstrap", depends_on = ["contracts"] },
+  { id = "runtime", ref = "target:skybind_runtime_inputs#bootstrap", depends_on = ["contracts"] },
+  { id = "android", ref = "target:skybind_android_device#bootstrap", depends_on = ["contracts"] },
+  { id = "plan", ref = "job:bootstrap-release-plan", depends_on = ["webui", "runtime", "android"] },
+]
+validate = ["job:bootstrap-release-plan"]
+
+# First-class targeted test name used by Devtool test selectors and overlays.
+[[test]]
+id = "sb-bootstrap-contracts"
+name = "Skybind planned contract and overlay dependency integrity (not product tests)"
+runner = "command"
+timeout_seconds = 90
+command = ["python3", "-m", "unittest", "discover", "-s", "tests", "-p", "test_bootstrap.py", "-v"]
+
+[artifacts]
+output_directory = "dist"
+output_name = "skybind"
+collision = "unique"
+verify = true

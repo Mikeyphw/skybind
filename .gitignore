@@ -1,0 +1,19 @@
+# Devtool, Go, artifacts
+.devtool/
+.devtool-state/
+build/
+dist/
+*.test
+*.out
+coverage/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env
+.env.*
+!/.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.keystore
