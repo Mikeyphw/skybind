@@ -3,11 +3,13 @@
 Android rooted FUSE/cloud filesystem management project. Its new implementation
 is planned as the **Skybind Devtool Overlay Campaign**.
 
-**Status: bootstrap planning only.** This commit supplies the original feature
-specification, 45-overlay dependency roadmap, five Devtool targets, executable
-planning-contract tests, and repository wrapper declarations. It does **not**
-contain the implemented app, copied WebUI, a real Android qualification,
-completed gates, or a release seal.
+**Status: greenfield foundation implemented (SB-O01+O02 and SB-O03).**
+The product contract is frozen, the original WebUI assets are retained as an
+immutable test reference (not yet shipped as a Skybind UI), and the native Go
+CLI/path/atomic-file foundation now compiles and is covered by source tests.
+The 45-overlay roadmap remains normative. The daemon, mounts, Android app
+visibility, runtime binaries, actual WebUI integration, device qualification,
+milestone gates, and release seal remain **unimplemented/not attested**.
 
 ## Roadmap
 
@@ -37,3 +39,18 @@ After installing your matching Devtool, run `devtool wrapper init` to generate
 Every future SB-Oxx overlay adds its own real tests and execution jobs; each
 SB-Gxx gate must verify actual evidence, and SB-FS1 must verify device release
 qualification. No gate is represented as passed by these bootstrap checks.
+
+## Implemented foundation checks (source qualification only)
+
+```bash
+python3 -m unittest discover -s tests/contracts -p 'test_*.py' -v
+bash scripts/devtool/check_native.sh
+# Via Devtool, after installing the matching local Devtool version:
+devtool -r . --target skybind_release invoke foundation
+devtool -r . --target skybind invoke native
+```
+
+`SB-O01+O02` imports byte-frozen `tests/fixtures/webui-reference/raw/` assets.
+These are **reference fixtures only**, including excluded historical UI controls;
+they must not be served to end users. Visual screenshots and device evidence are
+intentionally not fabricated. `SB-O03` does not start a daemon or mount filesystems.

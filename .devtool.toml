@@ -70,6 +70,7 @@ inputs = [".devtool.toml", "docs/roadmap/**", "scripts/devtool/**", "tests/test_
 metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 
 [targets.skybind.workflows]
+native = ["job:foundation-go"]
 contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
 validate = ["job:bootstrap-contracts"]
@@ -199,3 +200,14 @@ description = "Validate frozen product contracts and original WebUI bytes; NOT v
 workflow = "foundation"
 target = "skybind_release"
 
+# SB-O03: isolated Go foundation validation. No runtime/device/release approval.
+[targets.skybind.jobs.foundation-go]
+runner = "command"
+command = ["bash", "scripts/devtool/check_native.sh"]
+inputs = ["go.mod", "cmd/skybind/**", "internal/paths/**", "internal/atomicfile/**", "internal/buildinfo/**", "scripts/devtool/check_native.sh"]
+metadata = { read_only = true, qualification = "go-foundation-source-only" }
+
+[wrapper.commands.native]
+description = "Go filesystem-safety tests and linux/android arm64 cross-compile (source proof only)"
+workflow = "native"
+target = "skybind"
