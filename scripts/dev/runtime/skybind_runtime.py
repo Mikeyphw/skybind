@@ -29,6 +29,28 @@ MAX_TOTAL = 384 * 1024 * 1024
 SHA = re.compile(r'^[0-9a-f]{64}$')
 COMMIT = re.compile(r'^[0-9a-f]{40}$')
 REQUIRED = ('system/bin/rclone', 'system/vendor/bin/fusermount3')
+# Reviewed against NewFuture v1.75.0 build.sh and scripts/build-libfuse3.sh:
+# fusermount3 is built with Meson --default-library=static and the resulting
+# package copies only the rclone and fusermount3 executables. Absence of a
+# libfuse*.so is expected for this exact tag/layout, not evidence of a bad ZIP.
+STATIC_FUSE_TAGS = frozenset({'v1.75.0'})
+UPSTREAM_STATIC_PATHS = frozenset({'system/vendor/bin/rclone',
+                                  'system/vendor/bin/fusermount3'})
+
+
+def fuse_delivery_mode(file_names, tag: str) -> str:
+    """Classify only reviewed NewFuture layouts; do not assume static for arbitrary archives."""
+    files = set(file_names)
+    libs = [p for p in files if PurePosixPath(p).name.startswith('libfuse')
+            and '.so' in PurePosixPath(p).name]
+    if libs:
+        if len(libs) > 64:
+            raise Reject('too many shared libfuse libraries')
+        return 'shared_libfuse'
+    if tag in STATIC_FUSE_TAGS and UPSTREAM_STATIC_PATHS <= files:
+        return 'reviewed_static_helper_layout'
+    raise Reject('no shared libfuse and no reviewed static helper layout for pinned tag')
+
 
 class Reject(ValueError): pass
 
@@ -69,7 +91,7 @@ def check_member(z: zipfile.ZipFile, info: zipfile.ZipInfo) -> tuple[str, bytes]
     if len(raw)!=info.file_size:raise Reject('member length mismatch: '+name)
     return p.as_posix(),raw
 
-def extract_newfuture(archive: Path, expected_sha: str) -> dict[str, bytes]:
+def extract_newfuture(archive: Path, expected_sha: str, tag: str = '') -> dict[str, bytes]:
     if not SHA.fullmatch(expected_sha or ''):raise Reject('NewFuture SHA256 pin is absent or invalid')
     if not archive.is_file() or archive.stat().st_size > MAX_ARCHIVE:raise Reject('NewFuture archive missing/oversized')
     if filehash(archive)!=expected_sha:raise Reject('NewFuture archive checksum mismatch')
@@ -88,7 +110,7 @@ def extract_newfuture(archive: Path, expected_sha: str) -> dict[str, bytes]:
             if info.filename.startswith('/') or '..' in info.filename.split('/') or '\\' in info.filename:raise Reject('unsafe archive entry')
             if stat.S_IFMT((info.external_attr>>16)&0xffff) not in (0,stat.S_IFREG):raise Reject('link/special entry')
         if len(matches['rclone']) != 1 or len(matches['fusermount3']) != 1:raise Reject('ambiguous/missing rclone or fusermount3')
-        if not libs or len(libs)>64:raise Reject('missing/ambiguous libfuse shared libraries')
+        mode=fuse_delivery_mode(seen, tag)
         for name, items in matches.items():
             _,data=check_member(z, items[0]);total+=len(data)
             target='system/bin/rclone' if name=='rclone' else 'system/vendor/bin/fusermount3'
@@ -139,6 +161,7 @@ def provenance(provider:str,payload:dict[str,bytes],lock:dict, archive_sha:str) 
       'engine_path':'system/bin/rclone','helper_path':'system/vendor/bin/fusermount3',
       'newfuture':{'repository':NEWFUTURE,'tag':lock['newfuture']['tag'],'archive_sha256':archive_sha},
       'bclone':({'repository':BCLONE,'commit':lock['bclone']['commit'],'ndk_revision':lock['bclone']['ndk_revision'],'go_version':lock['bclone']['go_version']} if provider=='bclone' else None),
+      'fuse_delivery':('shared_libfuse' if any(PurePosixPath(n).name.startswith('libfuse') for n in payload) else 'reviewed_static_helper_layout'),
       'files':{name:{'sha256':digest(data),'size':len(data)} for name,data in sorted(payload.items())},
     }
 
@@ -152,7 +175,7 @@ def assemble(provider:str,archive:Path,out:Path,bclone_source:Path|None=None,ndk
     if not SHA.fullmatch(expected or ''):raise Reject('NewFuture archive pin must be filled and reviewed')
     if not src['tag'] or not re.fullmatch(r'v\d+\.\d+\.\d+',src['tag']):raise Reject('NewFuture release tag must be immutable and explicit')
     if archive.name != src['asset']:raise Reject('NewFuture archive name does not match pinned asset')
-    files=extract_newfuture(archive,expected)
+    files=extract_newfuture(archive,expected,src['tag'])
     if provider=='bclone':
         if bclone_source is None or ndk is None:raise Reject('bclone source and NDK required')
         b=lock['bclone']
@@ -187,6 +210,11 @@ def verify_package(archive:Path)->dict:
         pr=json.loads(z.read('runtime.provenance.json'))
         if pr.get('schema_version')!=1 or pr.get('product')!='Skybind' or pr.get('provider') not in ('newfuture','bclone'):raise Reject('invalid provenance identity')
         if set(pr['files']) != set(names)-{'runtime.provenance.json','module.prop','SHA256SUMS'}:raise Reject('provenance inventory mismatch')
+        libs=[n for n in pr['files'] if PurePosixPath(n).name.startswith('libfuse') and '.so' in PurePosixPath(n).name]
+        expected_delivery='shared_libfuse' if libs else 'reviewed_static_helper_layout'
+        if pr.get('fuse_delivery') != expected_delivery:raise Reject('provenance FUSE delivery mismatch')
+        if not libs and pr['newfuture'].get('tag') not in STATIC_FUSE_TAGS:
+            raise Reject('unreviewed shared-library-free FUSE helper')
         for name,info in pr['files'].items():
             blob=z.read(name)
             if digest(blob)!=info['sha256'] or len(blob)!=info['size']:raise Reject('tampered package member: '+name)

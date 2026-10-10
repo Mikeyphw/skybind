@@ -45,6 +45,31 @@ class Triage(unittest.TestCase):
                 z.writestr('fusermount3',b'b');z.writestr('libfuse3.so',b'b')
             with self.assertRaises(ValueError):q.verify_zip_structure(path)
 
+
+    def test_newfuture_v175_static_distribution_is_reported_not_qualified(self):
+        lock=json.loads((ROOT/'scripts/dev/runtime/source.lock.json').read_text())
+        with tempfile.TemporaryDirectory() as t:
+            archive=Path(t)/lock['newfuture']['asset']
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr('system/vendor/bin/rclone',b'fixture')
+                z.writestr('system/vendor/bin/fusermount3',b'fixture')
+            inspected=q.inspect_newfuture(archive,ROOT)
+            self.assertEqual(inspected['inventory']['libfuse_member_count'],0)
+            self.assertEqual(inspected['inventory']['fuse_delivery'],'reviewed_static_helper_layout')
+            self.assertEqual(inspected['qualification'],'RAW_UNATTESTED')
+            self.assertFalse(inspected['pin_matches'])
+            with self.assertRaises(ValueError):
+                q.verify_zip_structure(archive,'v1.74.0')
+
+    def test_unreviewed_empty_lib_layout_rejected(self):
+        with tempfile.TemporaryDirectory() as t:
+            archive=Path(t)/'candidate.zip'
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr('a/rclone',b'fake')
+                z.writestr('a/fusermount3',b'fake')
+            with self.assertRaises(ValueError):
+                q.verify_zip_structure(archive,'v1.75.0')
+
     def test_output_external_exclusive_private(self):
         with tempfile.TemporaryDirectory() as t:
             p=Path(t)/'raw.json'

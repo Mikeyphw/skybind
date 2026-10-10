@@ -64,6 +64,34 @@ class RuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);a,l=fixture(root)
             with self.assertRaises(r.Reject):r.assemble('bclone',a,root/'out.zip',root,root,lock_path=l)
+
+    def test_pinned_v175_static_upstream_helper_packaging(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            a=root/'magisk-rclone_arm64-v8a.zip'
+            with ZipFile(a,'w') as z:
+                for name in ('system/vendor/bin/rclone','system/vendor/bin/fusermount3'):
+                    info=ZipInfo(name);info.create_system=3
+                    info.external_attr=(stat.S_IFREG|0o755)<<16
+                    z.writestr(info,elf())
+            lock={'schema':1,'newfuture':{'repository':r.NEWFUTURE,'tag':'v1.75.0',
+                   'asset':a.name,'archive_sha256':r.filehash(a)},
+                   'bclone':{'repository':r.BCLONE,'commit':None,'ndk_revision':None,'go_version':None}}
+            lp=root/'source.lock.json';lp.write_text(json.dumps(lock))
+            r.assemble('newfuture',a,root/'out.zip',lock_path=lp)
+            proof=r.verify_package(root/'out.zip')
+            self.assertEqual(proof['fuse_delivery'],'reviewed_static_helper_layout')
+            self.assertNotIn('system/vendor/lib64/libfuse3.so', proof['files'])
+            self.assertIn('system/vendor/bin/fusermount3',proof['files'])
+            # No static-helper assumption for other upstream tags.
+            lock['newfuture']['tag']='v1.74.0';lp.write_text(json.dumps(lock))
+            with self.assertRaises(r.Reject):
+                r.assemble('newfuture',a,root/'out2.zip',lock_path=lp)
+
+    def test_static_helper_no_unreviewed_path(self):
+        with self.assertRaises(r.Reject):
+            r.fuse_delivery_mode({'random/rclone','random/fusermount3'},'v1.75.0')
+
     def test_wrong_provider(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);a,l=fixture(root)

@@ -17,6 +17,9 @@ import subprocess
 import sys
 import zipfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "runtime"))
+import skybind_runtime as runtime
+
 ROOT = Path(__file__).resolve().parents[3]
 MAX_ARCHIVE = 512 * 1024 * 1024
 MAX_ENTRIES = 8192
@@ -64,7 +67,7 @@ def actual_status(root: Path = ROOT) -> dict:
             'notice':'No trust pin, provider source authenticity, physical-device evidence or independent signatures are issued by this command.'}
 
 
-def verify_zip_structure(path: Path) -> dict:
+def verify_zip_structure(path: Path, tag: str = "") -> dict:
     if path.is_symlink() or not path.is_file():
         raise ValueError('archive missing or symlink')
     if path.stat().st_size <= 0 or path.stat().st_size > MAX_ARCHIVE:
@@ -76,6 +79,7 @@ def verify_zip_structure(path: Path) -> dict:
         seen=set()
         candidates={'rclone':0, 'fusermount3':0}
         helpers=0
+        actual_files=set()
         for info in members:
             name=info.filename
             if (not name or name.startswith('/') or '\\' in name or
@@ -92,20 +96,26 @@ def verify_zip_structure(path: Path) -> dict:
             if info.file_size > MAX_ARCHIVE:
                 raise ValueError('oversized ZIP entry')
             if not info.is_dir():
+                actual_files.add(name)
                 base = name.rsplit('/', 1)[-1]
                 if base in candidates: candidates[base] += 1
                 if base.startswith('libfuse') and '.so' in base: helpers+=1
-        if candidates != {'rclone':1, 'fusermount3':1} or helpers<1:
-            raise ValueError('NewFuture runtime/helper inventory incomplete')
+        if candidates != {'rclone':1, 'fusermount3':1}:
+            raise ValueError('NewFuture binary inventory incomplete: '+str(candidates))
+        try:
+            mode=runtime.fuse_delivery_mode(actual_files,tag)
+        except runtime.Reject as exc:
+            raise ValueError('NewFuture FUSE inventory rejected: '+str(exc)) from exc
     return {'member_count':len(members),'rclone_count':1,'fusermount3_count':1,
-            'libfuse_member_count':helpers}
+            'libfuse_member_count':helpers,'fuse_delivery':mode,
+            'static_linkage_verified':'NO_NEEDS_ELF_AND_DEVICE_QUALIFICATION' if not helpers else 'NOT_APPLICABLE'}
 
 
 def inspect_newfuture(path: Path, root: Path = ROOT) -> dict:
     lock=json.loads((root/'scripts/dev/runtime/source.lock.json').read_text())['newfuture']
     if path.name != lock['asset']:
         raise ValueError('filename does not match reviewed source lock asset')
-    inv=verify_zip_structure(path)
+    inv=verify_zip_structure(path, lock['tag'])
     digest=digest_file(path)
     pin=lock.get('archive_sha256')
     return {'schema_version':1,'kind':'NEWFUTURE_CANDIDATE_INSPECTION',
