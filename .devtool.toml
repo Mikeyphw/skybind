@@ -77,6 +77,7 @@ config-source = ["job:config-transaction-source"]
 mount-source = ["job:mount-source-validation"]
 android-platform = ["job:android-platform-source"]
 jobs-providers = ["job:jobs-providers-source"]
+diagnostics-transports = ["job:diagnostics-transports-source"]
 contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
 validate = ["job:bootstrap-contracts"]
@@ -353,3 +354,10 @@ name = "SB-C03 scheduled jobs, remote crypt and authenticated RC negative gates"
 runner = "command"
 timeout_seconds = 360
 command = ["bash", "scripts/devtool/check_jobs_providers.sh"]
+
+# SB-C04: production source qualification, NOT Android device or WebUI parity proof.
+[targets.skybind.jobs.diagnostics-transports-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_diagnostics_transports.sh"]
+inputs = ["internal/diagnostics/**", "internal/doctor/**", "internal/support/**", "internal/webui/**", "internal/daemon/**", "cmd/skybind/**", "tests/diagnostics/**", "scripts/devtool/check_diagnostics_transports.sh"]
+metadata = {qualification = "source-only", android_device = false, visual_parity = false, release_seal = false}

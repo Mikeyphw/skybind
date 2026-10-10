@@ -54,3 +54,7 @@ devtool -r . --target skybind invoke native
 These are **reference fixtures only**, including excluded historical UI controls;
 they must not be served to end users. Visual screenshots and device evidence are
 intentionally not fabricated. `SB-O03` does not start a daemon or mount filesystems.
+
+## SB-C04 source implementation
+
+Doctor, private redacted logs, bounded owned support ZIPs, and two typed WebUI transports are now source-implemented. The standalone transport is IPv4-loopback-only and requires a one-use bootstrap token, strict host/origin/session/CSRF checks. The root-manager bridge accepts only typed base64url requests. Frontend files are still supplied by SB-C05, and neither real Android application access nor release certification is claimed. Devtool runs `diagnostics-transports` automatically during the overlay application.

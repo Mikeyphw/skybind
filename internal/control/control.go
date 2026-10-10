@@ -22,6 +22,7 @@ type entry struct {
 type Engine struct {
 	mu      sync.RWMutex
 	entries map[string]entry
+	audit   func(string, string)
 }
 
 func New() *Engine { return &Engine{entries: make(map[string]entry)} }
@@ -41,6 +42,13 @@ func (e *Engine) Register(name string, class protocol.Class, fn Handler) error {
 	e.entries[name] = entry{Descriptor{name, class, true}, fn}
 	return nil
 }
+
+// SetAudit attaches a bounded outcomes-only observer; it receives no raw arguments.
+func (e *Engine) SetAudit(fn func(operation, outcome string)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.audit = fn
+}
 func (e *Engine) Descriptors() []Descriptor {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -59,7 +67,19 @@ func sortDescriptors(a []Descriptor) {
 		}
 	}
 }
-func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) protocol.Response {
+func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) (response protocol.Response) {
+	defer func() {
+		e.mu.RLock()
+		fn := e.audit
+		e.mu.RUnlock()
+		if fn != nil {
+			outcome := "ok"
+			if !response.OK && response.Error != nil {
+				outcome = response.Error.Code
+			}
+			fn(req.Operation, outcome)
+		}
+	}()
 	if req.SchemaVersion != protocol.Version {
 		return protocol.Fail(req.RequestID, "unsupported_version", "protocol", "dispatch", false)
 	}

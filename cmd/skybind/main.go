@@ -6,6 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"skybind/internal/diagnostics"
+	"skybind/internal/doctor"
+	"skybind/internal/support"
+	"skybind/internal/webui"
+
 	"fmt"
 	"os"
 	"os/signal"
@@ -54,6 +59,8 @@ func run(args []string) int {
 		return 0
 	case "_ns-worker":
 		return namespace.RunWorker(args[1:])
+	case "webui":
+		return webuiCommand(args[1:])
 	case "daemon":
 		if len(args) != 1 {
 			usage()
@@ -161,7 +168,18 @@ func daemonCommand() int {
 	providerEngine := provider.Canonical()
 	rcEngine := rc.Canonical(func(name string) bool { _, _, err := mountEngine.VerifiedMount(name); return err == nil })
 	mountEngine.ConfigureRC(rcEngine.Prepare, rcEngine.Drop)
-	srv := daemon.New(paths.DaemonSocket, daemon.EngineWithServices(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}, jobStore, providerEngine, rcEngine))
+	logStore, err := diagnostics.Open(paths.StateRoot + "/logs")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "private logs:", err)
+		return 1
+	}
+	bundleStore, err := support.Open(paths.StateRoot + "/support")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "private support:", err)
+		return 1
+	}
+	_ = logStore.Write("INFO", "daemon", "STARTUP", "Skybind daemon starting")
+	srv := daemon.New(paths.DaemonSocket, daemon.EngineWithObservability(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.AndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}, jobStore, providerEngine, rcEngine, logStore, bundleStore, doctor.Canonical()))
 	if err = srv.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon start:", err)
 		return 1
@@ -247,4 +265,72 @@ func uninstallStop() int {
 	}
 	fmt.Printf("Skybind-owned mounts stopped: %d. User state preserved.\n", len(stopped))
 	return 0
+}
+
+// webuiCommand provides exactly two fixed transport entrypoints.
+// The root-manager bridge uses a single base64url argument, never a shell payload.
+func webuiCommand(args []string) int {
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(os.Stderr, "WebUI bridge requires privileged daemon identity")
+		return 1
+	}
+	if len(args) == 0 {
+		return 2
+	}
+	switch args[0] {
+	case "bridge":
+		if len(args) == 2 && args[1] == "--capabilities" {
+			req := protocol.Request{SchemaVersion: 1, RequestID: "webui-caps", Operation: "system.capabilities", Class: protocol.Query, Arguments: json.RawMessage(`{}`)}
+			response, err := daemon.Call(context.Background(), paths.DaemonSocket, req)
+			if err != nil || !response.OK {
+				return 1
+			}
+			if err := json.NewEncoder(os.Stdout).Encode(response.Result); err != nil {
+				return 1
+			}
+			return 0
+		}
+		if len(args) != 3 || args[1] != "--request-base64" || len(args[2]) > protocol.MaxEnvelope*2 {
+			return 2
+		}
+		result, err := webui.CLIRequest(context.Background(), args[2], paths.DaemonSocket)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "invalid typed WebUI request or backend unavailable")
+			return 1
+		}
+		if err = json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return 1
+		}
+		if !result.OK {
+			return 1
+		}
+		return 0
+	case "serve":
+		if len(args) != 1 {
+			return 2
+		}
+		srv, err := webui.NewStandalone(webui.DaemonCaller(paths.DaemonSocket), paths.ModuleRoot+"/webroot")
+		if err != nil {
+			return 1
+		}
+		address, token, err := srv.Listen()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		defer srv.Close()
+		// URL contains NO auth tokens. Enter one-time token in the auth flow.
+		fmt.Fprintln(os.Stdout, "Skybind local WebUI:", address)
+		fmt.Fprintln(os.Stdout, "Skybind one-time authentication token:", token)
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		if err = srv.Serve(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, "WebUI transport unavailable")
+			return 1
+		}
+		return 0
+	default:
+		// Unknown subcommands fail closed.
+		return 2
+	}
 }

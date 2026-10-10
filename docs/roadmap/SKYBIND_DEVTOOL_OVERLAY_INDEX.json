@@ -377,7 +377,7 @@
         "SB-G05"
       ],
       "kind": "implementation",
-      "status": "PLANNED",
+      "status": "SOURCE_IMPLEMENTED_NOT_PROMOTED",
       "archive_name": "skybind-SB-C04-diagnostics-transports.devtool-overlay.zip",
       "files_owned": [
         "cmd/skybind",
