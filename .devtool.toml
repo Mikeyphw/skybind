@@ -164,6 +164,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+qualification-readiness = ["job:q01-gate-triage"]
 final-audit = ["job:cfs1-audit-definition"]
 cg1-definitions = ["job:cg1-gate-definitions"]
 g03 = ["job:cg1-g03"]
@@ -563,3 +564,16 @@ metadata = { read_only = true, qualification = "source-contract-only", device_qu
 description = "Targeted SB-FPH01 source parity, typed CLI/Doctor and original WebUI mapping"
 workflow = "feature-parity-hotfix"
 target = "skybind"
+
+# SB-Q01: actual independent gate triage, not actual gate promotion.
+[targets.skybind_release.jobs.q01-gate-triage]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_q01_qualification.sh"]
+inputs = ["../scripts/dev/qualification/**", "../scripts/dev/gates/**", "../scripts/dev/seal/**", "../tests/qualification/**", "../scripts/devtool/check_q01_qualification.sh"]
+metadata = {read_only = true, qualification = "gate-triage-only", final_seal = false, independent_promotion = false}
+
+[wrapper.commands.qualification-readiness]
+description = "SB-Q01 check the actual G01-G08 and CFS1 blockers; never forge pins, device evidence or seals"
+workflow = "qualification-readiness"
+target = "skybind_release"
+
