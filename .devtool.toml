@@ -72,6 +72,7 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 [targets.skybind.workflows]
 native = ["job:foundation-go"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
+repair-r02 = ["job:repair-r02-operation-ui"]
 typed-control = ["job:typed-control-source"]
 api-parity = ["job:api-parity-source"]
 config-source = ["job:config-transaction-source"]
@@ -497,3 +498,15 @@ runner = "command"
 command = ["bash", "scripts/devtool/check_r01_runtime_mount.sh"]
 inputs = ["internal/mounts/config/**", "internal/mounts/lifecycle/**", "internal/daemon/**", "internal/runtimeauth/**", "scripts/dev/release/**", "scripts/devtool/check_r01_runtime_mount.sh", "tests/fault/**", "tests/integration/**"]
 metadata = { read_only = true, qualification = "source-repair-only", release_qualification = false, device_qualification = false }
+
+# SB-R02: a single target-local, automatically validated UI/operation-truth repair.
+[targets.skybind.jobs.repair-r02-operation-ui]
+runner = "command"
+command = ["bash", "scripts/devtool/check_r02_operation_ui.sh"]
+inputs = ["internal/control/**", "internal/journal/**", "internal/daemon/**", "internal/jobs/**", "module/webroot/**", "tests/integration/**", "scripts/devtool/check_r02_operation_ui.sh"]
+metadata = { read_only = true, qualification = "source-integration-only", device_qualification = false, release_qualification = false }
+
+[wrapper.commands.repair-r02]
+description = "Targeted Skybind R02 operation/UX truth regression; release gates stay blocked"
+workflow = "repair-r02"
+target = "skybind"

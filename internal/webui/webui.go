@@ -325,7 +325,7 @@ func (s *Standalone) serveAsset(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "index.html"
 	}
-	allowed := map[string]bool{"index.html": true, "app.js": true, "bridge.js": true, "model.js": true, "style.css": true, "icon.png": true, "config.json": true, "platform.json": true}
+	allowed := map[string]bool{"index.html": true, "app.js": true, "bridge.js": true, "model.js": true, "flow.js": true, "style.css": true, "icon.png": true, "config.json": true, "platform.json": true}
 	if !allowed[path] || filepath.Base(path) != path {
 		http.NotFound(w, r)
 		return

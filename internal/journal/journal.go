@@ -26,6 +26,8 @@ const (
 type Record struct {
 	ID          string `json:"id"`
 	Action      string `json:"action"`
+	RequestID   string `json:"request_id,omitempty"`
+	RunID       string `json:"run_id,omitempty"`
 	Owner       uint32 `json:"owner"`
 	PID         int    `json:"pid"`
 	Started     string `json:"started"`
@@ -70,6 +72,29 @@ func (j *Journal) Start(action string) (Record, error) {
 	r := Record{ID: hex.EncodeToString(id), Action: action, Owner: uint32(os.Geteuid()), PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339Nano), State: Running, Stage: "reserved", Cancellable: true}
 	return r, j.write(r)
 }
+
+// StartRequest reserves a durable mutation record before any handler side effect.
+// Synchronous handlers have no genuine asynchronous cancellation mechanism;
+// advertising one would permit a false cancelled state while work continues.
+func (j *Journal) StartRequest(action, requestID string) (Record, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if action == "" || requestID == "" || len(requestID) > 80 {
+		return Record{}, errors.New("invalid mutation identity")
+	}
+	for _, c := range requestID {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return Record{}, errors.New("invalid request identity")
+		}
+	}
+	id := make([]byte, 16)
+	if _, e := rand.Read(id); e != nil {
+		return Record{}, e
+	}
+	r := Record{ID: hex.EncodeToString(id), Action: action, RequestID: requestID, Owner: uint32(os.Geteuid()), PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339Nano), State: Running, Stage: "reserved", Cancellable: false}
+	return r, j.write(r)
+}
+
 func (j *Journal) Update(r Record) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -77,7 +102,7 @@ func (j *Journal) Update(r Record) error {
 	if e != nil {
 		return e
 	}
-	if old.State != Running || old.Owner != r.Owner || old.Action != r.Action || old.Started != r.Started {
+	if old.State != Running || old.Owner != r.Owner || old.Action != r.Action || old.Started != r.Started || old.RequestID != r.RequestID || old.RunID != r.RunID && old.RunID != "" {
 		return errors.New("operation owner/state mismatch")
 	}
 	if r.State != Running && r.State != Succeeded && r.State != Failed && r.State != Cancelled {
@@ -109,6 +134,24 @@ func (j *Journal) read(id string) (Record, error) {
 	return r, nil
 }
 func (j *Journal) Get(id string) (Record, error) { j.mu.Lock(); defer j.mu.Unlock(); return j.read(id) }
+
+// ByRequest resolves the public request identity to a private journal record.
+// Requests are bounded by the same 10k-entry ceiling as List.
+func (j *Journal) ByRequest(requestID string) (Record, error) {
+	if requestID == "" || len(requestID) > 80 {
+		return Record{}, errors.New("invalid request id")
+	}
+	records, e := j.List()
+	if e != nil {
+		return Record{}, e
+	}
+	for _, rec := range records {
+		if rec.RequestID == requestID {
+			return rec, nil
+		}
+	}
+	return Record{}, os.ErrNotExist
+}
 func (j *Journal) List() (out []Record, err error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()

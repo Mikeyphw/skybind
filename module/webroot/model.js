@@ -78,7 +78,7 @@ export function activityPresentation(record) {
     'config.apply': 'Mount configuration applied',
     'config.rollback': 'Mount configuration rolled back',
     'jobs.apply': 'Job configuration applied',
-    'job.run': 'Job run completed',
+    'job.run': 'Job run',
     'namespace.apply': 'App visibility applied',
     'namespace.rollback': 'App visibility released',
     'namespace.reconcile': 'App visibility reconciled',

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"skybind/internal/journal"
 	"skybind/internal/protocol"
 	"sync"
 )
@@ -23,6 +24,7 @@ type Engine struct {
 	mu      sync.RWMutex
 	entries map[string]entry
 	audit   func(string, string)
+	journal *journal.Journal
 }
 
 func New() *Engine { return &Engine{entries: make(map[string]entry)} }
@@ -42,6 +44,9 @@ func (e *Engine) Register(name string, class protocol.Class, fn Handler) error {
 	e.entries[name] = entry{Descriptor{name, class, true}, fn}
 	return nil
 }
+
+// SetJournal installs the durable mutation boundary. Failed reservations block effects.
+func (e *Engine) SetJournal(j *journal.Journal) { e.mu.Lock(); defer e.mu.Unlock(); e.journal = j }
 
 // SetAudit attaches a bounded outcomes-only observer; it receives no raw arguments.
 func (e *Engine) SetAudit(fn func(operation, outcome string)) {
@@ -98,7 +103,46 @@ func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) (response p
 	if x.descriptor.Class != req.Class {
 		return protocol.Fail(req.RequestID, "class_mismatch", "authorization", "dispatch", false)
 	}
+	var record journal.Record
+	var store *journal.Journal
+	if req.Class == protocol.Run || req.Class == protocol.Reconcile || req.Class == protocol.Cancel {
+		e.mu.RLock()
+		store = e.journal
+		e.mu.RUnlock()
+		if store != nil {
+			var errorStart error
+			record, errorStart = store.StartRequest(req.Operation, req.RequestID)
+			if errorStart != nil {
+				return protocol.Fail(req.RequestID, "journal_unavailable", "storage", "reserve", false)
+			}
+		}
+	}
 	result, err := x.handler(ctx, req.Arguments)
+	if store != nil {
+		if err != nil {
+			record.State = journal.Failed
+			record.Stage = "handler_failed"
+			record.ErrorCode = "operation_failed"
+		} else {
+			record.State = journal.Succeeded
+			record.Stage = "handler_returned"
+			// A job launch returns RUNNING, not a terminal transfer outcome.
+			if req.Operation == "job.run" {
+				var run struct {
+					ID    string `json:"id"`
+					State string `json:"state"`
+				}
+				if b, e := json.Marshal(result); e == nil && json.Unmarshal(b, &run) == nil && run.State == "RUNNING" && len(run.ID) == 32 {
+					record.RunID = run.ID
+					record.Stage = "job_claimed_not_finished"
+				}
+			}
+		}
+		record.Cancellable = false
+		if updateErr := store.Update(record); updateErr != nil {
+			return protocol.Fail(req.RequestID, "journal_finalize_failed", "storage", "finalize", false)
+		}
+	}
 	if err != nil {
 		return protocol.Fail(req.RequestID, "operation_failed", "operation", "execute", false)
 	}

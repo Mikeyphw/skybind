@@ -1,3 +1,4 @@
+import { presentActivity, presentJobStatus } from './flow.js';
 const SCHEMA_VERSION = 1;
 const PROTOCOL_VERSION = 1;
 const MAX_TEXT = 1024 * 1024;
@@ -285,8 +286,13 @@ async function compatibleSend(envelope) {
   }));
   return responseFor(id,{[name==='mount.health'?'health':name==='policy.status'?'policies':'caches']:rows});
  }
- if(name==='operation.list'){const v=await native('operation.list','query');return responseFor(id,{operations:v||[]});}
- if(name==='operation.status'||name==='operation.cancel')return sendEnvelope({...envelope,operation:{...envelope.operation,args:{id:args.request_id||args.id}}});
+ if(name==='operation.list'){const v=await native('operation.list','query');let status=null;try{status=await native('jobs.status','query');}catch(_){}return responseFor(id,{operations:presentActivity(v||[],status)});}
+ if(name==='operation.status') {
+  const record=await native(name,'query',{id:args.request_id||args.id});
+  let status=null;try{if(record.run_id)status=await native('jobs.status','query');}catch(_){}
+  return responseFor(id,presentActivity([record],status)[0]);
+ }
+ if(name==='operation.cancel')return sendEnvelope({...envelope,operation:{...envelope.operation,args:{id:args.run_id||args.request_id||args.id}}});
  if(name==='config.snapshot'){
   const v=await native(name,'query');configRevision=v.revision;
   return responseFor(id,{...v,mounts:(v.mounts||[]).map(fromNativeMount)});
@@ -315,7 +321,7 @@ async function compatibleSend(envelope) {
   return responseFor(id,{...v,jobs:(v.jobs||[]).map(fromNativeJob)});
  }
  if(name==='jobs.status'){
-  const v=await native(name,'query');return responseFor(id,{jobs:(v.registry?.jobs||[]).map(j=>({...fromNativeJob(j),last_state:'scheduled',next_run_unix_ms:(j.next_unix||0)*1000}))});
+  const v=await native(name,'query');return responseFor(id,{jobs:presentJobStatus(v)});
  }
  if(name==='jobs.preview'){
   const p=await native(name,'preview',{candidate:nativeJobs(args.jobs,jobRevision)});

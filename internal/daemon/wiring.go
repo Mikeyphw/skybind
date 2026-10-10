@@ -57,6 +57,7 @@ func EngineWithPlatform(j *journal.Journal, s *config.Store, mount *lifecycle.En
 // single privileged registration point; no generic backend execution exists.
 func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.Engine, caches *cache.Manager, sup *supervisor.Supervisor, facts func() policy.Facts, ns *namespace.Manager, roots rootmgr.Detector, jobStore *jobs.Store, providers *provider.Manager, metrics *rc.Manager) *control.Engine {
 	e := control.New()
+	e.SetJournal(j)
 	register := func(name string, class protocol.Class, fn control.Handler) {
 		if err := e.Register(name, class, fn); err != nil {
 			panic(err)
@@ -91,7 +92,10 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 			if p.ID == "" {
 				return nil, errors.New("empty id")
 			}
-			return j.Get(p.ID)
+			if rec, e := j.Get(p.ID); e == nil {
+				return rec, nil
+			}
+			return j.ByRequest(p.ID)
 		})
 		register("operation.cancel", protocol.Cancel, func(_ context.Context, a json.RawMessage) (any, error) {
 			var p struct {

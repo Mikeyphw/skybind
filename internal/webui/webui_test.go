@@ -183,7 +183,7 @@ func TestEmbeddedAndStandaloneParity(t *testing.T) {
 func TestPublicShellRestrictedFilesAndPrivateAPI(t *testing.T) {
 	dir := t.TempDir()
 	for name, content := range map[string]string{
-		"index.html": "Skybind UI entry", "app.js": "export const x=1;",
+		"index.html": "Skybind UI entry", "app.js": "export const x=1;", "flow.js": "export const allowed=true;",
 		"secret.txt": "do-not-serve", "config.json": "{}",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
@@ -210,6 +210,9 @@ func TestPublicShellRestrictedFilesAndPrivateAPI(t *testing.T) {
 	}
 	if w := ask("/app.js", "127.0.0.1:30001"); w.Code != 200 {
 		t.Fatalf("script denied: %v", w.Code)
+	}
+	if w := ask("/flow.js", "127.0.0.1:30001"); w.Code != 200 || !strings.Contains(w.Body.String(), "allowed=true") {
+		t.Fatalf("new approved frontend module denied: %v", w.Code)
 	}
 	if w := ask("/api/v1/capabilities", "127.0.0.1:30001"); w.Code != 401 {
 		t.Fatalf("private API public: %v", w.Code)
