@@ -152,6 +152,7 @@ metadata = { read_only = true, release_qualification = false, qualification = "p
 
 [targets.skybind_release.workflows]
 g01-definition = ["job:g01-definition"]
+g02-definition = ["job:g02-definition"]
 foundation = [
  { id = "contracts", ref = "target:skybind#contracts", depends_on = [] },
  { id = "webui", ref = "target:skybind_webui#reference", depends_on = ["contracts"] },
@@ -275,3 +276,16 @@ metadata = { read_only = true, qualification = "source-only", gate_g01 = "BLOCKE
 description = "Verify frozen 57-operation inventory, CLI/backend parity, config RPC and negative tests; source-only"
 workflow = "api-parity"
 target = "skybind"
+
+# SB-G02: independently test the fail-closed gate definition, never silently
+# promote a milestone while SB-G01 has no verified upstream evidence.
+[targets.skybind_release.jobs.g02-definition]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_g02_definition.sh"]
+inputs = ["../scripts/dev/gates/sb_g02.py", "../tests/gates/test_g02.py", "../docs/gates/SB-G02.md", "../scripts/devtool/check_g02_definition.sh", "../internal/**", "../cmd/skybind/**"]
+metadata = { read_only = true, qualification = "gate-definition-only", actual_gate_pass = false }
+
+[wrapper.commands.g02-definition]
+description = "Test SB-G02 independent blocked gate, not actual source promotion"
+workflow = "g02-definition"
+target = "skybind_release"
