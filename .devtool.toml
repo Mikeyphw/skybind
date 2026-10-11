@@ -70,6 +70,24 @@ inputs = [".devtool.toml", "docs/roadmap/**", "scripts/devtool/**", "tests/test_
 metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 
 [targets.skybind.workflows]
+native = ["job:foundation-go"]
+q02-provider-source-contract = ["job:q02-provider-source-contract"]
+q03-upstream-provenance-contract = ["job:q03-upstream-provenance-contract"]
+repair-r01 = ["job:repair-r01-runtime-mount"]
+repair-r02 = ["job:repair-r02-operation-ui"]
+feature-parity-webui = ["job:fp01-webui-parity"]
+feature-parity-provider = ["job:fp02-cli-provider-parity"]
+feature-parity-platform = ["job:fp03-platform-parity"]
+feature-parity-hotfix = ["job:fp-contract-hotfix"]
+typed-control = ["job:typed-control-source"]
+api-parity = ["job:api-parity-source"]
+config-source = ["job:config-transaction-source"]
+mount-source = ["job:mount-source-validation"]
+integration-source = ["job:integration-source"]
+android-platform = ["job:android-platform-source"]
+jobs-providers = ["job:jobs-providers-source"]
+diagnostics-transports = ["job:diagnostics-transports-source"]
+contracts = ["job:foundation-contracts"]
 bootstrap = ["job:bootstrap-contracts"]
 validate = ["job:bootstrap-contracts"]
 
@@ -89,6 +107,7 @@ inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
 metadata = { read_only = true, qualification = "planning-only" }
 
 [targets.skybind_webui.workflows]
+reference = ["job:reference-fidelity"]
 bootstrap = ["job:bootstrap-ui-plan"]
 validate = ["job:bootstrap-ui-plan"]
 
@@ -108,6 +127,7 @@ inputs = ["../../docs/roadmap/**", "../devtool/**"]
 metadata = { read_only = true, qualification = "planning-only" }
 
 [targets.skybind_runtime_inputs.workflows]
+runtime-source = ["job:runtime-source-safety"]
 bootstrap = ["job:bootstrap-runtime-plan"]
 validate = ["job:bootstrap-runtime-plan"]
 
@@ -126,6 +146,8 @@ inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
 metadata = { read_only = true, device_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_android_device.workflows]
+device-matrix-source = ["job:device-matrix-source"]
+physical-app-probe = ["job:physical-app-probe"]
 bootstrap = ["job:bootstrap-device-plan"]
 validate = ["job:bootstrap-device-plan"]
 
@@ -144,6 +166,23 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+qualification-readiness = ["job:q01-gate-triage"]
+final-audit = ["job:cfs1-audit-definition"]
+cg1-definitions = ["job:cg1-gate-definitions"]
+g03 = ["job:cg1-g03"]
+g04 = ["job:cg1-g04"]
+g05 = ["job:cg1-g05"]
+g06 = ["job:cg1-g06"]
+g07 = ["job:cg1-g07"]
+g08 = ["job:cg1-g08"]
+release-candidate-source = ["job:release-candidate-source"]
+g01-definition = ["job:g01-definition"]
+g02-definition = ["job:g02-definition"]
+foundation = [
+ { id = "contracts", ref = "target:skybind#contracts", depends_on = [] },
+ { id = "webui", ref = "target:skybind_webui#reference", depends_on = ["contracts"] },
+ { id = "planning", ref = "job:foundation-evidence", depends_on = ["webui"] },
+]
 bootstrap = [
   { id = "contracts", ref = "target:skybind#bootstrap", depends_on = [] },
   { id = "webui", ref = "target:skybind_webui#bootstrap", depends_on = ["contracts"] },
@@ -166,3 +205,402 @@ output_directory = "dist"
 output_name = "skybind"
 collision = "unique"
 verify = true
+
+# SB-O01+SB-O02: executable source-contract and reference-fidelity checks.
+# Never mistake these tests for completed UI/device/release gates.
+[targets.skybind.jobs.foundation-contracts]
+runner = "command"
+command = ["python3", "-m", "unittest", "discover", "-s", "tests/contracts", "-p", "test_*.py", "-v"]
+inputs = ["docs/contracts/**", "docs/architecture/**", "tests/contracts/**", "tests/fixtures/webui-reference/**"]
+metadata = {read_only = true, qualification = "source-contract-only"}
+
+[targets.skybind_webui.jobs.reference-fidelity]
+runner = "command"
+command = ["python3", "../../scripts/devtool/check_ui_reference.py"]
+inputs = ["../../tests/fixtures/webui-reference/**", "../../tests/contracts/**", "../../scripts/devtool/check_ui_reference.py"]
+metadata = {read_only = true, qualification = "byte-and-dom-baseline-only"}
+
+[targets.skybind_release.jobs.foundation-evidence]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_bootstrap.py", "release"]
+inputs = ["../docs/roadmap/**", "../docs/contracts/**"]
+metadata = {read_only = true, qualification = "planning-and-contract-only"}
+
+[wrapper.commands.foundation]
+description = "Validate frozen product contracts and original WebUI bytes; NOT visual/device qualification"
+workflow = "foundation"
+target = "skybind_release"
+
+# SB-O03: isolated Go foundation validation. No runtime/device/release approval.
+[targets.skybind.jobs.foundation-go]
+runner = "command"
+command = ["bash", "scripts/devtool/check_native.sh"]
+inputs = ["go.mod", "cmd/skybind/**", "internal/paths/**", "internal/atomicfile/**", "internal/buildinfo/**", "scripts/devtool/check_native.sh"]
+metadata = { read_only = true, qualification = "go-foundation-source-only" }
+
+[wrapper.commands.native]
+description = "Go filesystem-safety tests and linux/android arm64 cross-compile (source proof only)"
+workflow = "native"
+target = "skybind"
+
+# SB-O04+O05: pinned build-time provider payloads, no installed runtime operation.
+[targets.skybind_runtime_inputs.jobs.runtime-source-safety]
+runner = "command"
+command = ["bash", "../devtool/check_runtime_source.sh"]
+inputs = ["../runtime/**", "../../internal/integrity/**", "../../internal/runtimeauth/**", "../../tests/package/**", "../devtool/check_runtime_source.sh"]
+metadata = { read_only = true, qualification = "source-fixture-only", device_qualification = false }
+
+
+
+[wrapper.commands.runtime-source]
+description = "Check build-time provider input guards using artificial ELF fixtures (not official upstream build qualification)"
+workflow = "runtime-source"
+target = "skybind_runtime_inputs"
+
+# SB-G01: gate definition self-tests; real gate remains blocked until evidence.
+[targets.skybind_release.jobs.g01-definition]
+runner = "command"
+command = ["python3", "-m", "unittest", "discover", "-s", "../tests/gates", "-p", "test_*.py", "-v"]
+inputs = ["../scripts/dev/gates/**", "../tests/gates/**", "../docs/gates/SB-G01.md"]
+metadata = { read_only = true, qualification = "gate-definition-only", actual_gate_pass = false }
+
+[wrapper.commands.g01-definition]
+description = "Verify SB-G01 fail-closed gate definition, NOT supply-chain certification"
+workflow = "g01-definition"
+target = "skybind_release"
+
+# SB-O06+O07: typed control and operation journal source checks only.
+[targets.skybind.jobs.typed-control-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_control.sh"]
+inputs = ["internal/protocol/**", "internal/control/**", "internal/daemon/**", "internal/previewproof/**", "internal/journal/**", "scripts/devtool/check_control.sh"]
+metadata = { read_only = true, qualification = "source-only", gate_g01 = "BLOCKED" }
+
+[wrapper.commands.typed-control]
+description = "SB-O06+O07 typed control source test (NOT G01 promotion)"
+workflow = "typed-control"
+target = "skybind"
+
+
+
+# SB-O08: transactional configuration source gate; not Android gate or G01 seal.
+[targets.skybind.jobs.config-transaction-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_config.sh"]
+inputs = ["internal/mounts/config/**", "internal/previewproof/**", "scripts/devtool/check_config.sh"]
+metadata = { read_only = true, qualification = "source-only", gate_g01 = "BLOCKED" }
+
+# SB-O09: complete typed API catalog, CLI routing and effective config RPC.
+[targets.skybind.jobs.api-parity-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_api_parity.sh"]
+inputs = ["cmd/skybind/**", "internal/control/**", "internal/daemon/**", "internal/mounts/config/**", "internal/protocol/**", "docs/contracts/typed-operations.json", "tests/cli/**", "scripts/devtool/check_api_parity.sh"]
+metadata = { read_only = true, qualification = "source-only", gate_g01 = "BLOCKED" }
+
+[wrapper.commands.api-parity]
+description = "Verify frozen 57-operation inventory, CLI/backend parity, config RPC and negative tests; source-only"
+workflow = "api-parity"
+target = "skybind"
+
+# SB-G02: independently test the fail-closed gate definition, never silently
+# promote a milestone while SB-G01 has no verified upstream evidence.
+[targets.skybind_release.jobs.g02-definition]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_g02_definition.sh"]
+inputs = ["../scripts/dev/gates/sb_g02.py", "../tests/gates/test_g02.py", "../docs/gates/SB-G02.md", "../scripts/devtool/check_g02_definition.sh", "../internal/**", "../cmd/skybind/**"]
+metadata = { read_only = true, qualification = "gate-definition-only", actual_gate_pass = false }
+
+[wrapper.commands.g02-definition]
+description = "Test SB-G02 independent blocked gate, not actual source promotion"
+workflow = "g02-definition"
+target = "skybind_release"
+
+# SB-C01 native mount lifecycle, supervisor, Android policies and owned cache.
+# This job is invoked by the overlay validation; no operator-run tests required.
+[targets.skybind.jobs.mount-source-validation]
+runner = "command"
+command = ["bash", "scripts/devtool/check_mount_engine.sh"]
+inputs = ["go.mod", "cmd/skybind/**", "internal/mounts/**", "internal/daemon/**", "scripts/devtool/check_mount_engine.sh", "tests/mounts/**", "docs/roadmap/**"]
+metadata = {read_only = true, qualification = "source-only", gate_g01 = "BLOCKED", gate_g02 = "BLOCKED", android_device = "NOT_ATTESTED"}
+
+[wrapper.commands.mount-source]
+description = "SB-C01 source-only mount/cache/supervisor security tests; NOT device or gate qualification"
+workflow = "mount-source"
+target = "skybind"
+
+[[test]]
+id = "sb-c01-mount-engine"
+name = "SB-C01 owned FUSE mount engine and cache security"
+runner = "command"
+timeout_seconds = 300
+command = ["bash", "scripts/devtool/check_mount_engine.sh"]
+
+# SB-C02: all namespace/mount, manager and uninstall validation is run by
+# Devtool itself as part of atomic apply. This is SOURCE ONLY.
+[targets.skybind.jobs.android-platform-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_android_platform.sh"]
+inputs = ["internal/namespace/**", "internal/rootmgr/**", "internal/platformlifecycle/**", "module/**", "cmd/skybind/**", "internal/daemon/**", "tests/platform/**", "docs/contracts/SB-C02_ANDROID_PLATFORM.md", "scripts/devtool/check_android_platform.sh"]
+metadata = {read_only = true, qualification = "android-source-fixture-only", device_qualification = false, gate_g04 = "BLOCKED"}
+
+[wrapper.commands.android-platform]
+description = "SB-C02 namespace and root-manager source tests; real device NOT certified"
+workflow = "android-platform"
+target = "skybind"
+
+
+[[test]]
+id = "sb-c02-android-platform"
+name = "SB-C02 bounded namespace, root manager hooks and safe uninstall"
+runner = "command"
+timeout_seconds = 300
+command = ["bash", "scripts/devtool/check_android_platform.sh"]
+
+# SB-C03 — jobs, credential-isolated provider operations and per-mount RC.
+# Devtool automatically executes this validator while applying the artifact.
+[targets.skybind.jobs.jobs-providers-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_jobs_providers.sh"]
+inputs = ["internal/jobs/**", "internal/provider/**", "internal/rc/**", "internal/daemon/**", "internal/mounts/lifecycle/**", "cmd/skybind/**", "tests/jobs/**", "docs/contracts/SB-C03_JOBS_PROVIDERS.md", "scripts/devtool/check_jobs_providers.sh", "docs/roadmap/**"]
+metadata = {read_only = true, qualification = "source-only", gates = "BLOCKED", device_qualification = false}
+
+[wrapper.commands.jobs-providers]
+description = "SB-C03 typed jobs, bounded providers and RC source/security tests; no device or gate seal"
+workflow = "jobs-providers"
+target = "skybind"
+
+[[test]]
+id = "sb-c03-jobs-providers"
+name = "SB-C03 scheduled jobs, remote crypt and authenticated RC negative gates"
+runner = "command"
+timeout_seconds = 360
+command = ["bash", "scripts/devtool/check_jobs_providers.sh"]
+
+# SB-C04: production source qualification, NOT Android device or WebUI parity proof.
+[targets.skybind.jobs.diagnostics-transports-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_diagnostics_transports.sh"]
+inputs = ["internal/diagnostics/**", "internal/doctor/**", "internal/support/**", "internal/webui/**", "internal/daemon/**", "cmd/skybind/**", "tests/diagnostics/**", "scripts/devtool/check_diagnostics_transports.sh"]
+metadata = {qualification = "source-only", android_device = false, visual_parity = false, release_seal = false}
+
+# SB-C05 original WebUI source fidelity, native transport integration, negative tests.
+[targets.skybind_webui.jobs.original-webui-source]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_original_webui.sh"]
+inputs = ["../module/webroot/**", "../tests/fixtures/webui-reference/**", "../tests/webui/**", "../internal/webui/**", "../internal/uisettings/**", "../internal/daemon/**", "../scripts/devtool/check_original_webui.sh"]
+metadata = { read_only = true, qualification = "source-only", visual_parity = false, device_qualification = false, gate_g07 = "NOT_ATTESTED" }
+
+[[test]]
+id = "sb-c05-original-webui"
+name = "SB-C05 copied frontend and typed backend source contracts"
+runner = "command"
+timeout_seconds = 600
+command = ["bash", "scripts/devtool/check_original_webui.sh"]
+
+# SB-C06 (source and fault matrix only; device/release qualification separate).
+# Devtool overlay validation invokes this automatically and records evidence.
+[targets.skybind.jobs.integration-source]
+runner = "command"
+command = ["bash", "scripts/devtool/check_c06_integration_release.sh"]
+inputs = ["go.mod", "cmd/**", "internal/**", "scripts/dev/**", "scripts/devtool/check_c06_integration_release.sh", "tests/integration/**", "tests/fault/**", "tests/security/**", "tests/seal/**", "tests/device/**", "module/**", "docs/roadmap/**"]
+metadata = { read_only = true, qualification = "source-fixture-only", device_qualification = false, release_qualification = false }
+
+[targets.skybind.jobs.device-probe-source]
+runner = "command"
+command = ["python3", "-m", "unittest", "discover", "-s", "tests/device", "-p", "test_*.py", "-v"]
+inputs = ["scripts/dev/device/**", "tests/device/**"]
+metadata = { read_only = true, qualification = "device-probe-source-only", device_qualification = false }
+
+[targets.skybind_android_device.jobs.device-matrix-source]
+runner = "command"
+command = ["python3", "-m", "unittest", "discover", "-s", "../../tests/device", "-p", "test_*.py", "-v"]
+inputs = ["../../scripts/dev/device/**", "../../tests/device/**"]
+metadata = { read_only = true, qualification = "device-test-harness-source-only", device_qualification = false }
+
+[targets.skybind_release.jobs.release-candidate-source]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_c06_integration_release.sh"]
+inputs = ["../scripts/dev/release/**", "../scripts/dev/release-audit/**", "../scripts/devtool/check_c06_integration_release.sh", "../tests/fault/**", "../tests/integration/**", "../tests/seal/**", "../module/**"]
+metadata = { read_only = true, qualification = "candidate-verification-only", release_qualification = false, device_qualification = false }
+
+[wrapper.commands.integration-source]
+description = "SB-C06 whole-product source+fault validation; no physical-device release proof"
+workflow = "integration-source"
+target = "skybind"
+
+[wrapper.commands.release-candidate-source]
+description = "SB-C06 reproducible candidate and blocked release gates; NOT release qualification"
+workflow = "release-candidate-source"
+target = "skybind_release"
+
+[targets.skybind_android_device.jobs.physical-app-probe]
+runner = "command"
+command = ["bash", "../../scripts/devtool/run_c06_device_matrix.sh"]
+inputs = ["../../scripts/dev/device/**", "../../scripts/devtool/run_c06_device_matrix.sh", "../../tests/device/probe-app/**"]
+outputs = ["../../build/evidence/android/**"]
+metadata = { device_qualification = false, qualification = "raw-device-receipt-only-needs-independent-attestation", read_only = false }
+
+# SB-CG1: independent read-only evidence evaluators, one per original milestone.
+# Successful source validation means definitions work, never that any gate passes.
+[targets.skybind_release.jobs.cg1-gate-definitions]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_cg1_gates.sh"]
+inputs = ["../docs/gates/**", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gates.sh", "../tests/gates/**", "../docs/roadmap/**", "../scripts/dev/release-audit/**"]
+metadata = {read_only = true, qualification = "gate-definitions-only", independent_promotion = false, final_seal = false}
+
+
+[targets.skybind_release.jobs.cg1-g03]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G03"]
+inputs = ["../docs/gates/SB-G03_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g04]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G04"]
+inputs = ["../docs/gates/SB-G04_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g05]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G05"]
+inputs = ["../docs/gates/SB-G05_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g06]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G06"]
+inputs = ["../docs/gates/SB-G06_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g07]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G07"]
+inputs = ["../docs/gates/SB-G07_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+[targets.skybind_release.jobs.cg1-g08]
+runner = "command"
+command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G08"]
+inputs = ["../docs/gates/SB-G08_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
+metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+
+# SB-CFS1: installable independent final-seal verifier. Definition validation is
+# deliberately distinct from actual independently qualified final-seal promotion.
+[targets.skybind_release.jobs.cfs1-audit-definition]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_cfs1_final.sh"]
+inputs = ["../scripts/dev/seal/**", "../scripts/dev/gates/**", "../docs/gates/**", "../tests/seal/**", "../docs/roadmap/**", "../scripts/devtool/check_cfs1_final.sh"]
+metadata = {read_only = true, qualification = "final-auditor-source-only", final_seal = false, device_qualification = false}
+
+[wrapper.commands.final-audit]
+description = "Check independent SB-CFS1 final auditor; never issue a seal without real evidence"
+workflow = "final-audit"
+target = "skybind_release"
+
+# SB-R01 source repair: tests are fully Devtool-owned and automatically run
+# as the overlay validation hook. No independent release/device gate is promoted.
+[targets.skybind.jobs.repair-r01-runtime-mount]
+runner = "command"
+command = ["bash", "scripts/devtool/check_r01_runtime_mount.sh"]
+inputs = ["internal/mounts/config/**", "internal/mounts/lifecycle/**", "internal/daemon/**", "internal/runtimeauth/**", "scripts/dev/release/**", "scripts/devtool/check_r01_runtime_mount.sh", "tests/fault/**", "tests/integration/**"]
+metadata = { read_only = true, qualification = "source-repair-only", release_qualification = false, device_qualification = false }
+
+# SB-R02: a single target-local, automatically validated UI/operation-truth repair.
+[targets.skybind.jobs.repair-r02-operation-ui]
+runner = "command"
+command = ["bash", "scripts/devtool/check_r02_operation_ui.sh"]
+inputs = ["internal/control/**", "internal/journal/**", "internal/daemon/**", "internal/jobs/**", "module/webroot/**", "tests/integration/**", "scripts/devtool/check_r02_operation_ui.sh"]
+metadata = { read_only = true, qualification = "source-integration-only", device_qualification = false, release_qualification = false }
+
+[wrapper.commands.repair-r02]
+description = "Targeted Skybind R02 operation/UX truth regression; release gates stay blocked"
+workflow = "repair-r02"
+target = "skybind"
+
+# SB-FP01: source-only WebUI/API semantic parity after SB-R02.
+# Devtool runs this job in the overlay validation hook. No browser/device seal.
+[targets.skybind.jobs.fp01-webui-parity]
+runner = "command"
+command = ["bash", "scripts/devtool/check_fp01_webui_parity.sh"]
+inputs = ["module/webroot/app.js", "module/webroot/bridge.js", "module/webroot/parity.js", "internal/runtimeauth/**", "internal/webui/**", "cmd/skybind/**", "tests/integration/test_fp01_webui_parity.mjs", "scripts/devtool/check_fp01_webui_parity.sh"]
+metadata = { read_only = true, qualification = "source-parity-only", visual_qualification = false, device_qualification = false, final_seal = false }
+
+[wrapper.commands.feature-parity-webui]
+description = "Source-level SB-FP01 semantic WebUI parity; original layout preserved, device gates blocked"
+workflow = "feature-parity-webui"
+target = "skybind"
+
+# SB-FP02: backend and CLI feature parity with original static-runtime product.
+[targets.skybind.jobs.fp02-cli-provider-parity]
+runner = "command"
+command = ["bash", "scripts/devtool/check_fp02_cli_provider_parity.sh"]
+inputs = ["cmd/skybind/**", "internal/jobs/**", "internal/provider/**", "module/webroot/parity.js", "module/webroot/bridge.js", "tests/integration/test_fp02_crypto_parity.mjs", "scripts/devtool/check_fp02_cli_provider_parity.sh"]
+metadata = { read_only = true, qualification = "source-parity-only", cloud_qualification = false, device_qualification = false, final_seal = false }
+
+[wrapper.commands.feature-parity-provider]
+description = "Targeted SB-FP02 CLI/crypt/local-job parity; independent qualification remains blocked"
+workflow = "feature-parity-provider"
+target = "skybind"
+
+# SB-FP03: platform/source parity; no device or release gate is promoted.
+[targets.skybind.jobs.fp03-platform-parity]
+runner = "command"
+command = ["bash", "scripts/devtool/check_fp03_platform_parity.sh"]
+inputs = ["internal/mounts/policy/**", "internal/doctor/**", "internal/namespace/**", "internal/jobs/**", "internal/daemon/**", "cmd/skybind/main.go", "scripts/devtool/check_fp03_platform_parity.sh"]
+metadata = { read_only = true, qualification = "source-parity-only", device_qualification = false, final_seal = false }
+
+[wrapper.commands.feature-parity-platform]
+description = "Automatic SB-FP03 source parity, Android policy faults, Doctor, VFS, namespace and operation progress"
+workflow = "feature-parity-platform"
+target = "skybind"
+
+# SB-FPH01: exact CLI and original-WebUI/Doctor contract hotfix.
+[targets.skybind.jobs.fp-contract-hotfix]
+runner = "command"
+command = ["bash", "scripts/devtool/check_fp_contract_hotfix.sh"]
+inputs = ["cmd/skybind/**", "module/webroot/**", "internal/doctor/**", "internal/daemon/**", "scripts/devtool/check_fp_contract_hotfix.sh", "tests/integration/test_fp_hotfix_contract.mjs"]
+metadata = { read_only = true, qualification = "source-contract-only", device_qualification = false, final_seal = false }
+
+[wrapper.commands.feature-parity-hotfix]
+description = "Targeted SB-FPH01 source parity, typed CLI/Doctor and original WebUI mapping"
+workflow = "feature-parity-hotfix"
+target = "skybind"
+
+# SB-Q01: actual independent gate triage, not actual gate promotion.
+[targets.skybind_release.jobs.q01-gate-triage]
+runner = "command"
+command = ["bash", "../scripts/devtool/check_q01_qualification.sh"]
+inputs = ["../scripts/dev/qualification/**", "../scripts/dev/gates/**", "../scripts/dev/seal/**", "../tests/qualification/**", "../scripts/devtool/check_q01_qualification.sh"]
+metadata = {read_only = true, qualification = "gate-triage-only", final_seal = false, independent_promotion = false}
+
+[wrapper.commands.qualification-readiness]
+description = "SB-Q01 check the actual G01-G08 and CFS1 blockers; never forge pins, device evidence or seals"
+workflow = "qualification-readiness"
+target = "skybind_release"
+
+
+# SB-Q02: Devtool-integrated source reproducibility contract (not real G01).
+[targets.skybind.jobs.q02-provider-source-contract]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q02_source_build.sh"]
+inputs = ["scripts/dev/runtime/source_build.py", "scripts/dev/runtime/skybind_runtime.py", "scripts/dev/runtime/source.lock.json", "scripts/devtool/check_q02_source_build.sh", "tests/qualification/test_q02_source_build.py", ".github/workflows/skybind-provider-reproducibility.yml"]
+metadata = { read_only = true, qualification = "source-contract-only", independent_builds = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q02-provider-build-contract]
+description = "SB-Q02 fail-closed reproducible provider source contract; NOT independent G01 proof"
+workflow = "q02-provider-source-contract"
+target = "skybind"
+
+
+# SB-Q03: source-only upstream provenance intake; all external gates remain blocked.
+[targets.skybind.jobs.q03-upstream-provenance-contract]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q03_source_provenance.sh"]
+inputs = ["scripts/dev/runtime/source_provenance.py", "scripts/dev/runtime/source.lock.json", "scripts/devtool/check_q03_source_provenance.sh", "tests/qualification/test_q03_source_provenance.py", ".github/workflows/skybind-upstream-provenance.yml"]
+metadata = { read_only = true, qualification = "raw-intake-only", pin_approval = false, independent_attestation = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q03-upstream-provenance-contract]
+description = "SB-Q03 source-only upstream provenance intake; never authorizes pins or release seals"
+workflow = "q03-upstream-provenance-contract"
+target = "skybind"

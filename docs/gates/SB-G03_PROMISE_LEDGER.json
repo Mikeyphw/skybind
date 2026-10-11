@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "gate": "SB-G03",
+  "product": "skybind",
+  "gate_title": "Mount lifecycle, recovery and resource safety milestone",
+  "assurance_ceiling": "HOST_LIFECYCLE_PASS; Android app visibility remains unqualified.",
+  "dependencies": [
+    "SB-G02",
+    "SB-O10",
+    "SB-O11",
+    "SB-O12",
+    "SB-O13",
+    "SB-O14"
+  ],
+  "required_checks": "Run real Linux helper fixture plus virtual proc/mountinfo/FUSE scenarios, PID reuse, explicit stop stability, policy/VFS/cache symlink/disk-pressure matrix and supervisor fault injection. Require bounded retries and cache ownership.",
+  "original_implementation_obligations": [
+    "SB-O10",
+    "SB-O11",
+    "SB-O12",
+    "SB-O13",
+    "SB-O14"
+  ],
+  "negative_and_positive_checks": [
+    "mount_owned_process",
+    "pid_reuse",
+    "mountinfo_identity",
+    "stop_persisted",
+    "supervisor_budget",
+    "cache_symlink_rejection",
+    "power_network_policy"
+  ],
+  "source_paths": [
+    "internal/mounts/lifecycle",
+    "internal/mounts/supervisor",
+    "internal/mounts/cache",
+    "internal/mounts/policy",
+    "scripts/devtool/check_mount_engine.sh"
+  ],
+  "required_evidence": [
+    "independent_signed_gate_attestation",
+    "verified_devtool_run_store",
+    "frozen_source_tree_and_commit",
+    "complete_negative_case_results",
+    "raw_evidence_checksums"
+  ],
+  "source_definition_status": "DEFINED_NOT_PROMOTED",
+  "qualification": "BLOCKED_UNTIL_FRESH_INDEPENDENT_EVIDENCE"
+}

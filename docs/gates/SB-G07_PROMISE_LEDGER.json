@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "gate": "SB-G07",
+  "product": "skybind",
+  "gate_title": "Near-exact original WebUI UI/UX preservation milestone",
+  "assurance_ceiling": "WEBUI_PARITY_PASS only with real reference baseline; if Android embedded screenshots absent, mark its device slice PENDING.",
+  "dependencies": [
+    "SB-G06",
+    "SB-O29",
+    "SB-O30",
+    "SB-O31",
+    "SB-O32",
+    "SB-O33"
+  ],
+  "required_checks": "Compare immutable original assets and adopted ones, collect screen/state/viewports/both palette screenshots, flow traces, responsive safe areas and a11y results. Review every meaningful diff/exception; audit excluded-only controls are surgically absent.",
+  "original_implementation_obligations": [
+    "SB-O29",
+    "SB-O30",
+    "SB-O31",
+    "SB-O32",
+    "SB-O33"
+  ],
+  "negative_and_positive_checks": [
+    "original_asset_reference",
+    "screenshot_comparisons",
+    "interaction_traces",
+    "mobile_safe_areas",
+    "accessibility",
+    "webview_parity"
+  ],
+  "source_paths": [
+    "module/webroot",
+    "tests/fixtures/webui-reference",
+    "tests/webui",
+    "scripts/devtool/check_original_webui.sh"
+  ],
+  "required_evidence": [
+    "independent_signed_gate_attestation",
+    "verified_devtool_run_store",
+    "frozen_source_tree_and_commit",
+    "complete_negative_case_results",
+    "raw_evidence_checksums",
+    "original_reference_visual_diff",
+    "real_browser_interactions",
+    "embedded_android_webview_capture"
+  ],
+  "source_definition_status": "DEFINED_NOT_PROMOTED",
+  "qualification": "BLOCKED_UNTIL_FRESH_INDEPENDENT_EVIDENCE"
+}

@@ -1,0 +1,822 @@
+{
+  "schema_version": 1,
+  "purpose": "immutable original-WebUI byte baseline; NOT an implemented WebUI",
+  "source": "rclone-nexus source snapshot 2026-10-09, module/webroot",
+  "source_archive": "rclone-nexus-20261009-172434-329657.tar.gz",
+  "source_archive_sha256": "d6bda6873d07c8f60bd25074f2fcded161feae931ef0d971e1df52d2786e564f",
+  "files": [
+    {
+      "path": "app.js",
+      "sha256": "14febfe3643d6e0e21fdf0a40ec2c3824088af5a1bacb1998efb090d835d2d48",
+      "size": 144258
+    },
+    {
+      "path": "bridge.js",
+      "sha256": "8413d193335b7589b0bc9982f29c92beccc3aefbd474328973e36c6a24497797",
+      "size": 8493
+    },
+    {
+      "path": "config.json",
+      "sha256": "e7060f44e35a5bfebfd9b4a476046777965e3ca92ff2a884fc4487ec67dbd165",
+      "size": 79
+    },
+    {
+      "path": "icon.png",
+      "sha256": "9f7234a76f01f665611649dd5bb971a141389f192f4ec31f7652e8c73eef1614",
+      "size": 4643
+    },
+    {
+      "path": "index.html",
+      "sha256": "aa0c2421094e091e6ac0230bdc8673b8b276e1a7b304dd516ffb0f75b0e2d9b7",
+      "size": 46146
+    },
+    {
+      "path": "model.js",
+      "sha256": "a78b6f8037e949717f440b1bee984507068bd1ff6c7a6f3b9316a98a9247ff6b",
+      "size": 10309
+    },
+    {
+      "path": "platform.json",
+      "sha256": "1ea2dff80636a7cfb2eb074d108df387c5645e13709449ad0b9d616a85d9062b",
+      "size": 296
+    },
+    {
+      "path": "style.css",
+      "sha256": "811a76708fd530d8d547ee91d3cda5ed82354ea97ab7b96be970b067d870cfcb",
+      "size": 56778
+    }
+  ],
+  "dom": {
+    "ids": [
+      "activityNotice",
+      "addJobButton",
+      "addMountButton",
+      "applyJobButton",
+      "applyMountButton",
+      "applyRollbackButton",
+      "applySettingsButton",
+      "argsFileHint",
+      "behaviorHeading",
+      "browseMountRemoteButton",
+      "bundleButton",
+      "bundleResult",
+      "cleanupCryptMigrationButton",
+      "closeCryptButton",
+      "closeCryptMigrationButton",
+      "closeEditorButton",
+      "closeJobButton",
+      "closeMountActionsButton",
+      "closeRemoteActionsButton",
+      "closeRollbackButton",
+      "compatibility",
+      "createCryptButton",
+      "createCryptRemoteButton",
+      "crypt-directory-names",
+      "crypt-filename-encoding",
+      "crypt-filename-mode",
+      "crypt-inline-password",
+      "crypt-migration-destination-path",
+      "crypt-migration-destination-remote",
+      "crypt-migration-source",
+      "crypt-name",
+      "crypt-remote",
+      "cryptBackdrop",
+      "cryptError",
+      "cryptForm",
+      "cryptMigrationBackdrop",
+      "cryptMigrationError",
+      "cryptMigrationForm",
+      "cryptMigrationPreview",
+      "cryptMigrationTitle",
+      "cryptOptionsFieldset",
+      "cryptPasswordGate",
+      "cryptPasswordNotice",
+      "cryptPasswordStatusPill",
+      "cryptPasswordStatusText",
+      "cryptPreview",
+      "cryptRecoveryDetails",
+      "cryptTitle",
+      "customVfsDetails",
+      "deleteJobButton",
+      "deleteMountButton",
+      "destinationHeading",
+      "destinationStatus",
+      "discardBackdrop",
+      "discardChangesButton",
+      "discardTitle",
+      "doctorCards",
+      "doctorNotice",
+      "doctorSummary",
+      "editorBackdrop",
+      "editorError",
+      "editorIssueSummary",
+      "editorSubtitle",
+      "editorTitle",
+      "field-allow_other",
+      "field-boot_settle",
+      "field-cache_high_water",
+      "field-cache_low_water",
+      "field-charging_only",
+      "field-dir_cache_time",
+      "field-enabled",
+      "field-log_level",
+      "field-min_battery",
+      "field-min_free_cache_space",
+      "field-mountpoint",
+      "field-name",
+      "field-network_mode",
+      "field-network_settle",
+      "field-poll_interval",
+      "field-probe_remote",
+      "field-read_only",
+      "field-remote",
+      "field-vfs_cache_max_age",
+      "field-vfs_cache_max_size",
+      "field-vfs_cache_mode",
+      "field-vfs_profile",
+      "homeActivityHeading",
+      "homeActivityPreview",
+      "homeAddJobButton",
+      "homeAddMountButton",
+      "homeAttention",
+      "homeFuseDetail",
+      "homeFuseValue",
+      "homeHeadline",
+      "homeHealthPill",
+      "homeMountDetail",
+      "homeMountPreview",
+      "homeMountValue",
+      "homeMountsHeading",
+      "homeNetworkDetail",
+      "homeNetworkValue",
+      "homeRuntimeDetail",
+      "homeRuntimeValue",
+      "homeSeeActivityButton",
+      "homeSeeMountsButton",
+      "homeSummary",
+      "job-battery",
+      "job-charging",
+      "job-confirm-sync",
+      "job-destination",
+      "job-enabled",
+      "job-every",
+      "job-name",
+      "job-network",
+      "job-source",
+      "job-type",
+      "jobBackdrop",
+      "jobCards",
+      "jobEditorTitle",
+      "jobEncryptionNotice",
+      "jobError",
+      "jobForm",
+      "jobPreviewText",
+      "jobSourceEncryptionNotice",
+      "jobsNotice",
+      "keepEditingButton",
+      "legacyActivityCount",
+      "legacyActivityToggle",
+      "logCards",
+      "logClearButton",
+      "logCopyButton",
+      "logExportButton",
+      "logFollow",
+      "logPauseButton",
+      "logResultCount",
+      "logSearch",
+      "logSeverityFilter",
+      "logSourceFilter",
+      "logsNotice",
+      "manualRemoteButton",
+      "manualRemoteWrap",
+      "migrateCurrentRemoteButton",
+      "mountActionActivity",
+      "mountActionBackdrop",
+      "mountActionDelete",
+      "mountActionEdit",
+      "mountActionLogs",
+      "mountActionRestart",
+      "mountActionStart",
+      "mountActionStop",
+      "mountActionSubtitle",
+      "mountActionTitle",
+      "mountAdvancedDetails",
+      "mountCards",
+      "mountEncryptionNotice",
+      "mountForm",
+      "mountRemoteBreadcrumb",
+      "mountRemoteBrowser",
+      "mountRemoteEndpoint",
+      "mountRemoteEntries",
+      "mountRemoteParentButton",
+      "mountRemotePath",
+      "mountRemoteSelect",
+      "mountpointHint",
+      "mountsNotice",
+      "networkPolicyHelp",
+      "operationCards",
+      "operationProgress",
+      "operationProgressState",
+      "operationProgressSteps",
+      "operationProgressTitle",
+      "pageTitle",
+      "performanceHeading",
+      "platformDetails",
+      "previewChanges",
+      "previewCountdown",
+      "previewCryptButton",
+      "previewCryptMigrationButton",
+      "previewExpiryHelp",
+      "previewJobButton",
+      "previewMeta",
+      "previewMountButton",
+      "previewPanel",
+      "previewSettingsButton",
+      "profileCards",
+      "profileEffective",
+      "profileRecommendation",
+      "providerReadiness",
+      "reconcileButton",
+      "refreshJobsButton",
+      "refreshLogsButton",
+      "refreshMountsButton",
+      "refreshOperationsButton",
+      "refreshRemotesButton",
+      "refreshRuntimeButton",
+      "refreshSettingsButton",
+      "remoteActionBackdrop",
+      "remoteActionPath",
+      "remoteActionTitle",
+      "remoteBreadcrumb",
+      "remoteButtons",
+      "remoteCopyPath",
+      "remoteEntries",
+      "remoteMigrateCrypt",
+      "remoteParentButton",
+      "remotePathHelp",
+      "remoteProtectCrypt",
+      "remoteStatusPill",
+      "remoteTestResult",
+      "remoteUseJobDestination",
+      "remoteUseJobSource",
+      "remoteUseMount",
+      "remotesNotice",
+      "retryButton",
+      "reviewSafety",
+      "reviewSummary",
+      "reviewTitle",
+      "rollbackBackdrop",
+      "rollbackButton",
+      "rollbackPreview",
+      "rollbackTitle",
+      "runCryptMigrationButton",
+      "runDoctorButton",
+      "runtimeCards",
+      "runtimeEngineManager",
+      "runtimeNotice",
+      "setCryptPasswordButton",
+      "setInlineCryptPasswordButton",
+      "setting-crypt-password",
+      "setting-default-view",
+      "setting-dense",
+      "setting-idle",
+      "setting-log-backups",
+      "setting-log-follow",
+      "setting-log-limit",
+      "setting-log-max",
+      "setting-mount-view",
+      "setting-reduced-motion",
+      "setting-refresh",
+      "settingsActivityHeading",
+      "settingsAppearanceHeading",
+      "settingsApplyHint",
+      "settingsDiagnosticsHeading",
+      "settingsForm",
+      "settingsNotice",
+      "settingsPlatformHeading",
+      "settingsPreview",
+      "settingsSecurityHeading",
+      "settingsSessionHeading",
+      "sourceHeading",
+      "testMountRemoteButton",
+      "transportBadge",
+      "useMountRemoteFolderButton",
+      "view-activity",
+      "view-doctor",
+      "view-home",
+      "view-jobs",
+      "view-logs",
+      "view-more",
+      "view-mounts",
+      "view-remotes",
+      "view-runtime",
+      "view-settings",
+      "viewStatus",
+      "wizardBackButton",
+      "wizardNextButton"
+    ],
+    "data_views": [
+      "activity",
+      "doctor",
+      "home",
+      "jobs",
+      "logs",
+      "more",
+      "mounts",
+      "remotes",
+      "runtime",
+      "settings"
+    ],
+    "buttons": [
+      {
+        "id": null,
+        "data-view": "home",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "mounts",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "jobs",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "activity",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "more",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "runtime",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "remotes",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "doctor",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "logs",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "settings",
+        "aria-label": null
+      },
+      {
+        "id": "homeAddMountButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "homeAddJobButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "homeSeeMountsButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "homeSeeActivityButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "retryButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "addMountButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "reconcileButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "refreshMountsButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "rollbackButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "addJobButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "refreshJobsButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "refreshOperationsButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "runtime",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "remotes",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "doctor",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "logs",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "settings",
+        "aria-label": null
+      },
+      {
+        "id": "refreshRuntimeButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "logPauseButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "refreshLogsButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "logCopyButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "logExportButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "logClearButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "refreshSettingsButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "setCryptPasswordButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "doctor",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "runtime",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "logs",
+        "aria-label": null
+      },
+      {
+        "id": "previewSettingsButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "applySettingsButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "runDoctorButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "bundleButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "migrateCurrentRemoteButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "createCryptRemoteButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "refreshRemotesButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "remoteParentButton",
+        "data-view": null,
+        "aria-label": "Open parent folder"
+      },
+      {
+        "id": "closeEditorButton",
+        "data-view": null,
+        "aria-label": "Close mount editor"
+      },
+      {
+        "id": "browseMountRemoteButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "testMountRemoteButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "manualRemoteButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "mountRemoteParentButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "useMountRemoteFolderButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "wizardBackButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "previewMountButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "wizardNextButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "applyMountButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "deleteMountButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "closeMountActionsButton",
+        "data-view": null,
+        "aria-label": "Close mount actions"
+      },
+      {
+        "id": "mountActionStart",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "mountActionStop",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "mountActionRestart",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "mountActionEdit",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "mountActionActivity",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "mountActionLogs",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "mountActionDelete",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "closeRemoteActionsButton",
+        "data-view": null,
+        "aria-label": "Close remote actions"
+      },
+      {
+        "id": "remoteUseMount",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "remoteUseJobSource",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "remoteUseJobDestination",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "remoteProtectCrypt",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "remoteMigrateCrypt",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "remoteCopyPath",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "keepEditingButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "discardChangesButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "closeCryptButton",
+        "data-view": null,
+        "aria-label": "Close encrypted remote setup"
+      },
+      {
+        "id": "setInlineCryptPasswordButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "previewCryptButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "createCryptButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "closeCryptMigrationButton",
+        "data-view": null,
+        "aria-label": "Close encrypted migration"
+      },
+      {
+        "id": "cleanupCryptMigrationButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "previewCryptMigrationButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "runCryptMigrationButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "closeJobButton",
+        "data-view": null,
+        "aria-label": "Close job editor"
+      },
+      {
+        "id": "deleteJobButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "previewJobButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "applyJobButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": "closeRollbackButton",
+        "data-view": null,
+        "aria-label": "Close rollback preview"
+      },
+      {
+        "id": "applyRollbackButton",
+        "data-view": null,
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "home",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "mounts",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "jobs",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "activity",
+        "aria-label": null
+      },
+      {
+        "id": null,
+        "data-view": "more",
+        "aria-label": null
+      }
+    ]
+  },
+  "retained_ui_scope": "all controls except expressly excluded historical functionality and branding; baseline raw remains byte-for-byte",
+  "excluded_historical_controls": [
+    "legacyActivityToggle",
+    "legacyActivityCount"
+  ],
+  "screenshots": {
+    "status": "NOT_CAPTURED",
+    "required_by": "SB-G07",
+    "reason": "No source browser/device screenshot evidence supplied; must not fabricate goldens"
+  },
+  "interaction_proofs": {
+    "status": "NOT_EXECUTED",
+    "required_by": "SB-G07"
+  }
+}

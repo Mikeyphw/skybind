@@ -1,0 +1,406 @@
+{
+  "schema_version": 1,
+  "product": "Skybind",
+  "total": 57,
+  "operations": [
+    {
+      "name": "runtime.status",
+      "operation_class": "query",
+      "description": "Inspect canonical bundled runtime/config authority",
+      "implementing_overlay": "SB-O04",
+      "webui_consumers": "Runtime, Home"
+    },
+    {
+      "name": "provider.status",
+      "operation_class": "query",
+      "description": "Inspect provider/rclone/FUSE/config readiness",
+      "implementing_overlay": "SB-O23",
+      "webui_consumers": "Remotes, Mount wizard"
+    },
+    {
+      "name": "provider.remotes",
+      "operation_class": "query",
+      "description": "List configured rclone remotes with credential-free encryption metadata",
+      "implementing_overlay": "SB-O23",
+      "webui_consumers": "Remotes, Mount wizard"
+    },
+    {
+      "name": "provider.browse",
+      "operation_class": "query",
+      "description": "Browse a configured remote path without exposing credentials",
+      "implementing_overlay": "SB-O23",
+      "webui_consumers": "Remotes, Mount wizard"
+    },
+    {
+      "name": "provider.crypt.password.status",
+      "operation_class": "query",
+      "description": "Report whether the user-defined Skybind rclone encryption password is configured",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings"
+    },
+    {
+      "name": "provider.crypt.password.set",
+      "operation_class": "run",
+      "description": "Store the user-defined Skybind rclone encryption password without returning it",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings"
+    },
+    {
+      "name": "provider.crypt.preview",
+      "operation_class": "preview",
+      "description": "Preview creation of an rclone crypt remote using the configured Skybind encryption password",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings"
+    },
+    {
+      "name": "provider.crypt.create",
+      "operation_class": "run",
+      "description": "Create and verify an rclone crypt remote using the configured Skybind encryption password",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings"
+    },
+    {
+      "name": "provider.crypt.recovery.status",
+      "operation_class": "query",
+      "description": "Report non-secret rclone crypt recovery and password-generation provenance",
+      "implementing_overlay": "SB-O24",
+      "webui_consumers": "Remotes/crypt modal, Settings"
+    },
+    {
+      "name": "config.snapshot",
+      "operation_class": "query",
+      "description": "Read the credential-free configuration registry",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback"
+    },
+    {
+      "name": "config.validate",
+      "operation_class": "query",
+      "description": "Validate a full candidate registry without issuing a mutation proof",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback"
+    },
+    {
+      "name": "config.preview",
+      "operation_class": "preview",
+      "description": "Validate a full candidate registry and preview its diff",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback"
+    },
+    {
+      "name": "config.apply",
+      "operation_class": "run",
+      "description": "Atomically publish a revision-bound candidate registry",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback"
+    },
+    {
+      "name": "config.previous",
+      "operation_class": "query",
+      "description": "Read previous-known-good configuration metadata",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback"
+    },
+    {
+      "name": "config.rollback.preview",
+      "operation_class": "preview",
+      "description": "Preview rollback to previous-known-good configuration",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback"
+    },
+    {
+      "name": "config.rollback",
+      "operation_class": "run",
+      "description": "Rollback to previous-known-good configuration",
+      "implementing_overlay": "SB-O08",
+      "webui_consumers": "Mounts, wizard, rollback"
+    },
+    {
+      "name": "mount.list",
+      "operation_class": "query",
+      "description": "List configured mount names",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime"
+    },
+    {
+      "name": "mount.status",
+      "operation_class": "query",
+      "description": "Read one or all managed mount states",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime"
+    },
+    {
+      "name": "mount.health",
+      "operation_class": "query",
+      "description": "Read supervisor health/readiness state",
+      "implementing_overlay": "SB-O11",
+      "webui_consumers": "Mounts, Home, Runtime"
+    },
+    {
+      "name": "mount.start.preview",
+      "operation_class": "preview",
+      "description": "Validate and preview a mount start",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime"
+    },
+    {
+      "name": "mount.start",
+      "operation_class": "run",
+      "description": "Start one configured mount",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime"
+    },
+    {
+      "name": "mount.stop",
+      "operation_class": "run",
+      "description": "Stop one managed mount",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime"
+    },
+    {
+      "name": "mount.restart",
+      "operation_class": "run",
+      "description": "Restart one managed mount",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime"
+    },
+    {
+      "name": "mount.reconcile",
+      "operation_class": "reconcile",
+      "description": "Reconcile desired mounts with readiness/recovery state",
+      "implementing_overlay": "SB-O10",
+      "webui_consumers": "Mounts, Home, Runtime"
+    },
+    {
+      "name": "policy.status",
+      "operation_class": "query",
+      "description": "Read resource-policy decisions without changing lifecycle state",
+      "implementing_overlay": "SB-O13",
+      "webui_consumers": "Runtime, Mount wizard"
+    },
+    {
+      "name": "vfs.profiles",
+      "operation_class": "query",
+      "description": "List named VFS profiles and advisory resource recommendation",
+      "implementing_overlay": "SB-O13",
+      "webui_consumers": "Runtime, Mount wizard"
+    },
+    {
+      "name": "cache.status",
+      "operation_class": "query",
+      "description": "Read owned VFS cache pressure and limits",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard"
+    },
+    {
+      "name": "cache.prune.preview",
+      "operation_class": "preview",
+      "description": "Preview bounded owned-cache pruning",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard"
+    },
+    {
+      "name": "cache.prune",
+      "operation_class": "run",
+      "description": "Prune owned cache to configured low-water limits",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard"
+    },
+    {
+      "name": "cache.clear.preview",
+      "operation_class": "preview",
+      "description": "Preview owned-cache file clearing",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard"
+    },
+    {
+      "name": "cache.clear",
+      "operation_class": "run",
+      "description": "Clear regular files from a stopped mount's owned cache",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard"
+    },
+    {
+      "name": "cache.forget.preview",
+      "operation_class": "preview",
+      "description": "Preview complete owned-cache reset",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard"
+    },
+    {
+      "name": "cache.forget",
+      "operation_class": "run",
+      "description": "Reset a stopped mount's owned cache tree",
+      "implementing_overlay": "SB-O14",
+      "webui_consumers": "Runtime, Mount wizard"
+    },
+    {
+      "name": "namespace.inspect",
+      "operation_class": "query",
+      "description": "Inspect Android mount namespace topology and observed visibility",
+      "implementing_overlay": "SB-O15",
+      "webui_consumers": "Runtime, Mounts, Doctor"
+    },
+    {
+      "name": "namespace.preview",
+      "operation_class": "preview",
+      "description": "Preview app-visibility namespace mutations",
+      "implementing_overlay": "SB-O16",
+      "webui_consumers": "Runtime, Mounts, Doctor"
+    },
+    {
+      "name": "namespace.apply",
+      "operation_class": "run",
+      "description": "Apply app-visibility namespace mutations transactionally",
+      "implementing_overlay": "SB-O16",
+      "webui_consumers": "Runtime, Mounts, Doctor"
+    },
+    {
+      "name": "namespace.rollback.preview",
+      "operation_class": "preview",
+      "description": "Preview release of Skybind-owned namespace binds",
+      "implementing_overlay": "SB-O17",
+      "webui_consumers": "Runtime, Mounts, Doctor"
+    },
+    {
+      "name": "namespace.rollback",
+      "operation_class": "run",
+      "description": "Release Skybind-owned namespace binds and disable app visibility",
+      "implementing_overlay": "SB-O17",
+      "webui_consumers": "Runtime, Mounts, Doctor"
+    },
+    {
+      "name": "namespace.reconcile",
+      "operation_class": "reconcile",
+      "description": "Reconcile persisted app-visibility intent after namespace churn",
+      "implementing_overlay": "SB-O17",
+      "webui_consumers": "Runtime, Mounts, Doctor"
+    },
+    {
+      "name": "jobs.snapshot",
+      "operation_class": "query",
+      "description": "Read the typed scheduled-job registry",
+      "implementing_overlay": "SB-O20",
+      "webui_consumers": "Jobs, Activity"
+    },
+    {
+      "name": "jobs.preview",
+      "operation_class": "preview",
+      "description": "Validate and preview the scheduled-job registry",
+      "implementing_overlay": "SB-O20",
+      "webui_consumers": "Jobs, Activity"
+    },
+    {
+      "name": "jobs.apply",
+      "operation_class": "run",
+      "description": "Atomically publish the scheduled-job registry",
+      "implementing_overlay": "SB-O20",
+      "webui_consumers": "Jobs, Activity"
+    },
+    {
+      "name": "jobs.status",
+      "operation_class": "query",
+      "description": "Read persisted scheduled-job execution state",
+      "implementing_overlay": "SB-O20",
+      "webui_consumers": "Jobs, Activity"
+    },
+    {
+      "name": "job.run.preview",
+      "operation_class": "preview",
+      "description": "Preview a managed rclone job and its policy/destructive status",
+      "implementing_overlay": "SB-O21",
+      "webui_consumers": "Jobs, Activity"
+    },
+    {
+      "name": "job.run",
+      "operation_class": "run",
+      "description": "Run one allow-listed managed rclone job",
+      "implementing_overlay": "SB-O21",
+      "webui_consumers": "Jobs, Activity"
+    },
+    {
+      "name": "rc.metrics",
+      "operation_class": "query",
+      "description": "Read allow-listed local-only rclone RC metrics",
+      "implementing_overlay": "SB-O22",
+      "webui_consumers": "Runtime, Home"
+    },
+    {
+      "name": "operation.status",
+      "operation_class": "query",
+      "description": "Read persistent operation journal state",
+      "implementing_overlay": "SB-O07",
+      "webui_consumers": "Activity"
+    },
+    {
+      "name": "operation.list",
+      "operation_class": "query",
+      "description": "List persistent operation journal state",
+      "implementing_overlay": "SB-O07",
+      "webui_consumers": "Activity"
+    },
+    {
+      "name": "operation.cancel",
+      "operation_class": "cancel",
+      "description": "Cancel one active request by request_id",
+      "implementing_overlay": "SB-O07",
+      "webui_consumers": "Activity"
+    },
+    {
+      "name": "doctor.report",
+      "operation_class": "query",
+      "description": "Run structured Skybind diagnostics",
+      "implementing_overlay": "SB-O25",
+      "webui_consumers": "Doctor, Logs"
+    },
+    {
+      "name": "doctor.bundle",
+      "operation_class": "run",
+      "description": "Create a deterministic sanitized support bundle",
+      "implementing_overlay": "SB-O26",
+      "webui_consumers": "Doctor, Logs"
+    },
+    {
+      "name": "doctor.bundle.read",
+      "operation_class": "query",
+      "description": "Read one Skybind-created bounded support bundle",
+      "implementing_overlay": "SB-O26",
+      "webui_consumers": "Doctor, Logs"
+    },
+    {
+      "name": "diagnostics.logs",
+      "operation_class": "query",
+      "description": "Read bounded sanitized structured Skybind logs",
+      "implementing_overlay": "SB-O25",
+      "webui_consumers": "Doctor, Logs"
+    },
+    {
+      "name": "platform.status",
+      "operation_class": "query",
+      "description": "Inspect root-manager capabilities and module integrity",
+      "implementing_overlay": "SB-O18",
+      "webui_consumers": "Runtime, Home"
+    },
+    {
+      "name": "ui.settings",
+      "operation_class": "query",
+      "description": "Read persisted WebUI presentation settings",
+      "implementing_overlay": "SB-O32",
+      "webui_consumers": "Settings"
+    },
+    {
+      "name": "ui.settings.preview",
+      "operation_class": "preview",
+      "description": "Validate and preview WebUI settings",
+      "implementing_overlay": "SB-O32",
+      "webui_consumers": "Settings"
+    },
+    {
+      "name": "ui.settings.apply",
+      "operation_class": "run",
+      "description": "Persist preview-bound WebUI settings",
+      "implementing_overlay": "SB-O32",
+      "webui_consumers": "Settings"
+    }
+  ]
+}

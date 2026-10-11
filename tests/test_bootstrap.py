@@ -7,7 +7,7 @@ from scripts.devtool.bootstrap_contract import check_all, check_component, load,
 class SkybindPlanningContracts(unittest.TestCase):
     def test_full_plan_contract(self):
         cfg, index = check_all()
-        self.assertEqual(index["overlay_count"], 45)
+        self.assertEqual(index["delivery_count"], 8)
         self.assertEqual(set(cfg["targets"]), TARGETS)
 
     def test_webui_copy_policy(self):
@@ -21,7 +21,7 @@ class SkybindPlanningContracts(unittest.TestCase):
 
     def test_final_seal_unissued(self):
         _, index = load()
-        self.assertEqual(index["final_seal"]["status"], "PLANNED")
+        self.assertIn(index["artifact_sequence"][-1]["status"], ("PLANNED", "SOURCE_IMPLEMENTED_NOT_PROMOTED"))
         self.assertIn("NOT certified", check_component("release"))
 
     def test_unknown_component_fail_closed(self):

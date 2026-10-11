@@ -1,0 +1,6 @@
+id=skybind
+name=Skybind
+version=0.1.0-dev
+versionCode=1
+author=Skybind contributors
+description=Root-managed Android FUSE filesystem controller (static installed runtime)

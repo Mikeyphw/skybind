@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "gate": "SB-G06",
+  "product": "skybind",
+  "gate_title": "Diagnostics and dual Web transport security milestone",
+  "assurance_ceiling": "TRANSPORT_SECURITY_PASS; embedded real-manager claim remains device-pending.",
+  "dependencies": [
+    "SB-G02",
+    "SB-G04",
+    "SB-G05",
+    "SB-O25",
+    "SB-O26",
+    "SB-O27",
+    "SB-O28"
+  ],
+  "required_checks": "Check Doctor and support bundle secret canaries, HTTP bootstrap/session/CSRF/Origin/Host/CSP, embedded bridge request equivalence and fallback truth, source-only transport integration.",
+  "original_implementation_obligations": [
+    "SB-O25",
+    "SB-O26",
+    "SB-O27",
+    "SB-O28"
+  ],
+  "negative_and_positive_checks": [
+    "log_redaction",
+    "support_bundle_redaction",
+    "auth_replay",
+    "csrf_origin_host",
+    "bridge_parity",
+    "csp_enforcement"
+  ],
+  "source_paths": [
+    "internal/diagnostics",
+    "internal/doctor",
+    "internal/webui",
+    "scripts/devtool/check_diagnostics_transports.sh"
+  ],
+  "required_evidence": [
+    "independent_signed_gate_attestation",
+    "verified_devtool_run_store",
+    "frozen_source_tree_and_commit",
+    "complete_negative_case_results",
+    "raw_evidence_checksums"
+  ],
+  "source_definition_status": "DEFINED_NOT_PROMOTED",
+  "qualification": "BLOCKED_UNTIL_FRESH_INDEPENDENT_EVIDENCE"
+}

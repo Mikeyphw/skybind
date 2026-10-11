@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "newfuture": {
+    "repository": "NewFuture/rclone-fuse3-magisk",
+    "tag": "v1.75.0",
+    "asset": "magisk-rclone_arm64-v8a.zip",
+    "archive_sha256": null
+  },
+  "bclone": {
+    "repository": "BenjiThatFoxGuy/bclone",
+    "commit": null,
+    "ndk_revision": null,
+    "go_version": null
+  }
+}

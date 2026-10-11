@@ -1,0 +1,125 @@
+# SB-Q02 is an opt-in build-time qualification input, NOT G01 certification.
+# Two separate, disposable Ubuntu jobs must produce exactly equal provider ZIPs.
+name: Skybind pinned Android providers (UNATTESTED)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-provider-lanes:
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [A, B]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - name: Checkout Skybind source (no credentials persisted)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate reviewed lock or fail CLOSED
+        shell: bash
+        run: python3 scripts/dev/runtime/source_build.py pins
+      - name: Install pinned Go (no cache)
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          check-latest: false
+          cache: false
+      - name: Install pinned NDK (no mutable runtime)
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358' >/dev/null
+          test -f "$ANDROID_HOME/ndk/28.2.13676358/source.properties"
+      - name: Fetch exact pinned upstream Git commit into disposable checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(python3 -c 'import json; print(json.load(open("scripts/dev/runtime/source.lock.json"))["bclone"]["commit"])')"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          mkdir upstream
+          git -C upstream init -q
+          git -C upstream remote add origin https://github.com/BenjiThatFoxGuy/bclone.git
+          git -C upstream fetch --no-tags --depth=1 origin "$commit"
+          git -C upstream checkout --detach -q FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "$commit"
+          test -z "$(git -C upstream status --porcelain=v1 --untracked-files=all)"
+      - name: Download upstream NewFuture tagged asset (SHA must match lock)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs
+          gh release download v1.75.0 --repo NewFuture/rclone-fuse3-magisk --pattern magisk-rclone_arm64-v8a.zip --dir inputs
+          python3 scripts/dev/runtime/source_build.py verify-newfuture \
+            --archive inputs/magisk-rclone_arm64-v8a.zip --ndk "$ANDROID_HOME/ndk/28.2.13676358" \
+            > inputs/newfuture-inspection.json
+      - name: Isolated immutable Android/arm64 build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/dev/runtime/source_build.py build --source-dir upstream \
+            --ndk "$ANDROID_HOME/ndk/28.2.13676358" --output-dir dist/lane/bclone_build
+          python3 scripts/dev/runtime/source_build.py verify dist/lane/bclone_build
+      - name: Deterministically package BOTH static runtime providers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/lane/packages
+          python3 scripts/dev/runtime/skybind_runtime.py package --provider newfuture \
+            --newfuture-archive inputs/magisk-rclone_arm64-v8a.zip \
+            --output dist/lane/packages/newfuture.zip
+          python3 scripts/dev/runtime/skybind_runtime.py package --provider bclone \
+            --newfuture-archive inputs/magisk-rclone_arm64-v8a.zip \
+            --bclone-checkout upstream --ndk "$ANDROID_HOME/ndk/28.2.13676358" \
+            --output dist/lane/packages/bclone.zip
+          python3 scripts/dev/runtime/skybind_runtime.py verify dist/lane/packages/newfuture.zip
+          python3 scripts/dev/runtime/skybind_runtime.py verify dist/lane/packages/bclone.zip
+          cp inputs/newfuture-inspection.json dist/lane/newfuture-inspection.json
+      - name: Upload independent lane bytes (not signatures or release proof)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skybind-provider-lane-${{ matrix.lane }}
+          path: dist/lane/
+          retention-days: 30
+          if-no-files-found: error
+
+  compare-independent-builds:
+    needs: pinned-provider-lanes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout comparison/verifier implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download two distinct job outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: skybind-provider-lane-*
+          path: received
+          merge-multiple: false
+      - name: Verify and compare actual bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/dev/runtime/source_build.py compare \
+            --left received/skybind-provider-lane-A/bclone_build \
+            --right received/skybind-provider-lane-B/bclone_build \
+            --left-packages received/skybind-provider-lane-A/packages \
+            --right-packages received/skybind-provider-lane-B/packages \
+            > comparison.json
+          cat comparison.json
+          echo 'BYTE_IDENTICAL_UNATTESTED: independent signing and Android device tests still required.'
+      - name: Upload raw comparison outcome (no G01 promotion)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skybind-provider-unattested-comparison
+          path: comparison.json
+          if-no-files-found: error

@@ -1,39 +1,36 @@
 # Skybind
 
-Android rooted FUSE/cloud filesystem management project. Its new implementation
-is planned as the **Skybind Devtool Overlay Campaign**.
+Android root-integrated FUSE and cloud filesystem management, using an immutable
+installed rclone-family executable and a native Go daemon. The existing WebUI
+has been ported directly with narrow Skybind backend and authentication adapters.
 
-**Status: bootstrap planning only.** This commit supplies the original feature
-specification, 45-overlay dependency roadmap, five Devtool targets, executable
-planning-contract tests, and repository wrapper declarations. It does **not**
-contain the implemented app, copied WebUI, a real Android qualification,
-completed gates, or a release seal.
+**Current source state:** `SB-C01` through `SB-C06` implemented with Devtool
+source/fault validation. This does **not** mean an Android release is approved.
+Provider release pins are incomplete; G01/G02 remain BLOCKED, G03–G08 require
+independent device/UX evidence, and final seal `SB-CFS1` is NOT ISSUED.
 
-## Roadmap
+## Roadmap, evidence, and application
 
-- [Devtool overlay campaign](docs/roadmap/SKYBIND_DEVTOOL_ROADMAP.md)
-- [Machine-readable overlay inventory](docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json)
-- [Normative feature specification](docs/roadmap/SKYBIND_FEATURE_SPEC.md)
+- [Active consolidated Devtool campaign](docs/roadmap/SKYBIND_DEVTOOL_ROADMAP.md)
+- [Machine-readable artifact/obligation index](docs/roadmap/SKYBIND_DEVTOOL_OVERLAY_INDEX.json)
+- [Complete feature specification](docs/roadmap/SKYBIND_FEATURE_SPEC.md)
+- [C06 real-device matrix](docs/qualification/SB-C06_DEVICE_MATRIX.md)
+- [Reproducible candidate packaging](docs/release/SB-C06_RELEASE_PROCESS.md)
 
-The upstream `rclone` binary remains `rclone`; product CLI `skybind`, daemon
-`skybindd`, module ID `skybind`, and state path `/data/adb/skybind/`.
-No installed dynamic-runtime functionality or migration/legacy UX is included.
-The original WebUI must be copied with practical visual and interaction parity.
+Apply each supplied `.devtool-overlay.zip` with Devtool. Its preflight and
+validation script run automatically, with atomic rollback on failures. No manual
+post-apply `go test`/`go vet` commands are required. The device-probe and
+release-candidate workflows are Devtool targets, but their mere presence does
+not qualify real hardware or a publication artifact.
 
-## Bootstrap checks (NOT implementation/release proof)
+The CLI/daemon and module ID are `skybind`; upstream runtime executable remains
+`rclone`, canonical root-owned state is `/data/adb/skybind`. No dynamic
+installed-runtime system or migration logic is implemented.
 
-```bash
-python3 -m unittest discover -s tests -p 'test_bootstrap.py' -v
-devtool -r . targets --json
-devtool -r . workflows --json
-devtool -r . plan bootstrap --target skybind_release --json
-devtool -r . preflight --target skybind_release --workflow bootstrap --json
-devtool -r . --target skybind_release invoke bootstrap
-```
+## Independent milestone gate package
 
-After installing your matching Devtool, run `devtool wrapper init` to generate
-`./devtoolw`, then `./devtoolw bootstrap`.
+SB-CG1 installs six read-only gate evaluators (SB-G03..G08), original-promise ledgers, and Devtool-owned validation. The definitions are source implemented, not promoted. SB-G01/G02 remain blocked and SB-CFS1 is not issued. No unsigned or user-supplied evidence can qualify Android devices or releases.
 
-Every future SB-Oxx overlay adds its own real tests and execution jobs; each
-SB-Gxx gate must verify actual evidence, and SB-FS1 must verify device release
-qualification. No gate is represented as passed by these bootstrap checks.
+## Final seal verifier (SB-CFS1)
+
+The independent, read-only final auditor is implemented and is exercised automatically by Devtool. It **does not issue a seal** from source tests or sign any evidence. Qualification remains BLOCKED until all G01–G08 independently pass and source-, package-, and device-bound external attestation is verified. No root-shell test substitutes for ordinary Android app access.

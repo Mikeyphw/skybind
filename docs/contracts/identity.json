@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "repository": "skybind",
+    "module_id": "skybind",
+    "module_display_name": "Skybind",
+    "module_root": "/data/adb/modules/skybind",
+    "persistent_state_root": "/data/adb/skybind",
+    "cli": "skybind",
+    "daemon": "skybindd",
+    "daemon_socket": "/data/adb/skybind/run/skybindd.sock",
+    "devtool_targets": [
+      "skybind",
+      "skybind_webui",
+      "skybind_runtime_inputs",
+      "skybind_android_device",
+      "skybind_release"
+    ],
+    "overlay_prefix": "SB",
+    "webui_brand": "Skybind",
+    "upstream_engine_binary": "system/bin/rclone",
+    "allowed_legacy_source_refs": "quarantined original-source fixtures only",
+    "identity_verification_gates": [
+      "SB-G01",
+      "SB-G07",
+      "SB-G08",
+      "SB-FS1"
+    ],
+    "scope": "new project identity only; no installed-product migration"
+  },
+  "forbidden_new_product_names": [
+    "Rclone Nexus",
+    "Nexus Reforge"
+  ],
+  "whitelisted_original_source_directory": "tests/fixtures/webui-reference/raw",
+  "allowed_upstream_identifiers": [
+    "rclone",
+    "rclone.conf",
+    "fusermount3",
+    "NewFuture",
+    "bclone"
+  ]
+}

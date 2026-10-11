@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+  <title>Skybind</title>
+  <link rel="icon" href="icon.png" type="image/png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<section id="skybindLogin" class="skybind-auth" aria-labelledby="skybindLoginHeading" hidden>
+  <form id="skybindLoginForm" class="card skybind-auth-card">
+    <p class="eyebrow">Skybind local access</p><h2 id="skybindLoginHeading">Authenticate this session</h2>
+    <p class="muted">Enter the one-time token printed by <code>skybind webui serve</code>. The token never goes in a URL or browser storage.</p>
+    <label for="skybindLoginToken">One-time token</label>
+    <input id="skybindLoginToken" type="password" required autocomplete="off" spellcheck="false" maxlength="128">
+    <p id="skybindLoginError" class="notice error compact" role="alert" hidden></p>
+    <button class="primary" id="skybindLoginButton" type="submit">Connect</button>
+  </form>
+</section>
+  <header class="topbar">
+    <div><p class="eyebrow">Skybind</p><h1 id="pageTitle">Home</h1></div>
+    <span id="transportBadge" class="badge">Connecting…</span>
+  </header>
+  <nav class="desktop-nav" aria-label="Primary navigation">
+    <p class="nav-section-label">Workspace</p>
+    <button class="nav-item active" data-view="home" type="button"><span aria-hidden="true">⌂</span><span>Home</span></button>
+    <button class="nav-item" data-view="mounts" type="button"><span aria-hidden="true">◫</span><span>Mounts</span></button>
+    <button class="nav-item" data-view="jobs" type="button"><span aria-hidden="true">⇄</span><span>Jobs</span></button>
+    <button class="nav-item" data-view="activity" type="button"><span aria-hidden="true">◉</span><span>Activity</span></button>
+    <button class="nav-item" data-view="more" type="button"><span aria-hidden="true">⋯</span><span>More</span></button>
+    <p class="nav-section-label secondary-label">System</p>
+    <button class="nav-secondary" data-view="runtime" type="button">Runtime</button>
+    <button class="nav-secondary" data-view="remotes" type="button">Remote browser</button>
+    <button class="nav-secondary" data-view="doctor" type="button">Doctor</button>
+    <button class="nav-secondary" data-view="logs" type="button">Logs</button>
+    <button class="nav-secondary" data-view="settings" type="button">Settings</button>
+  </nav>
+
+  <main>
+    <section id="compatibility" class="notice" aria-live="polite">Checking backend compatibility…</section>
+    <div id="viewStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    <section id="view-home" class="view">
+      <section class="home-hero" aria-labelledby="homeHeadline">
+        <div class="home-hero-copy">
+          <p class="eyebrow">Skybind control center</p>
+          <h2 id="homeHeadline">Checking Skybind…</h2>
+          <p id="homeSummary" class="muted">Reading runtime, mounts, FUSE, network policy and recent activity from the backend.</p>
+        </div>
+        <span id="homeHealthPill" class="state-pill">Checking</span>
+      </section>
+
+      <section id="homeAttention" class="notice compact home-attention" aria-live="polite" hidden></section>
+
+      <section class="home-status-grid" aria-label="Skybind health summary">
+        <article class="home-status-card">
+          <span class="home-status-icon" aria-hidden="true">◆</span>
+          <div><p class="home-status-label">Runtime</p><p id="homeRuntimeValue" class="home-status-value">—</p><p id="homeRuntimeDetail" class="muted">Checking bundled authority</p></div>
+        </article>
+        <article class="home-status-card">
+          <span class="home-status-icon" aria-hidden="true">◫</span>
+          <div><p class="home-status-label">Mounts</p><p id="homeMountValue" class="home-status-value">—</p><p id="homeMountDetail" class="muted">Checking managed state</p></div>
+        </article>
+        <article class="home-status-card">
+          <span class="home-status-icon" aria-hidden="true">⌁</span>
+          <div><p class="home-status-label">FUSE</p><p id="homeFuseValue" class="home-status-value">—</p><p id="homeFuseDetail" class="muted">Checking helper and device</p></div>
+        </article>
+        <article class="home-status-card">
+          <span class="home-status-icon" aria-hidden="true">◎</span>
+          <div><p class="home-status-label">Network</p><p id="homeNetworkValue" class="home-status-value">—</p><p id="homeNetworkDetail" class="muted">Checking active policy observations</p></div>
+        </article>
+      </section>
+
+      <section class="home-quick-actions" aria-label="Quick actions">
+        <button id="homeAddMountButton" class="primary" type="button">＋ Add mount</button>
+        <button id="homeAddJobButton" type="button">＋ New job</button>
+      </section>
+
+      <section class="home-section" aria-labelledby="homeMountsHeading">
+        <div class="home-section-head">
+          <div><h2 id="homeMountsHeading">Mounts</h2><p class="muted">What Skybind is managing right now.</p></div>
+          <button id="homeSeeMountsButton" class="home-link-button" type="button">See all</button>
+        </div>
+        <div id="homeMountPreview" class="home-preview-stack"></div>
+      </section>
+
+      <section class="home-section" aria-labelledby="homeActivityHeading">
+        <div class="home-section-head">
+          <div><h2 id="homeActivityHeading">Recent activity</h2><p class="muted">Current-product events, translated from the persistent journal.</p></div>
+          <button id="homeSeeActivityButton" class="home-link-button" type="button">View all</button>
+        </div>
+        <div id="homeActivityPreview" class="home-preview-stack"></div>
+      </section>
+
+      <section class="card home-authority-note">
+        <div><strong>Backend-authoritative</strong><p class="muted">This dashboard is rebuilt from Skybind state every time it refreshes. Browser-local state is never runtime truth.</p></div>
+        <button id="retryButton" type="button">Refresh</button>
+      </section>
+    </section>
+
+    <section id="view-mounts" class="view" hidden>
+      <div class="toolbar">
+        <div><h2>Managed mounts</h2><p class="muted">See what is running, then use contextual actions only when you need them.</p></div>
+        <div class="button-row mount-toolbar-actions"><button id="addMountButton" class="primary" type="button">＋ Add mount</button><button id="reconcileButton" type="button">Reconcile all</button><button id="refreshMountsButton" type="button">Refresh</button><button id="rollbackButton" class="secondary-technical-action" type="button">Rollback config</button></div>
+      </div>
+      <div id="mountsNotice" class="notice compact" aria-live="polite" hidden></div>
+      <div id="mountCards" class="stack"></div>
+    </section>
+
+    <section id="view-jobs" class="view" hidden>
+      <div class="toolbar"><div><h2>Scheduled jobs</h2><p class="muted">Typed sync/copy/check jobs with policy-aware execution.</p></div><div class="button-row"><button id="addJobButton" class="primary" type="button">Add job</button><button id="refreshJobsButton" type="button">Refresh</button></div></div>
+      <div id="jobsNotice" class="notice compact" aria-live="polite" hidden></div>
+      <div id="jobCards" class="stack"></div>
+    </section>
+
+    <section id="view-activity" class="view" hidden>
+      <div class="toolbar"><div><h2>Activity</h2><p class="muted">Human-readable activity from the persistent operations journal.</p></div><button id="refreshOperationsButton" type="button">Refresh</button></div>
+      <div class="activity-controls card compact">
+        
+      </div>
+      <div id="activityNotice" class="notice compact" aria-live="polite" hidden></div>
+      <div id="operationCards" class="stack"></div>
+    </section>
+
+    <section id="view-more" class="view" hidden>
+      <div class="toolbar"><div><h2>More</h2><p class="muted">Runtime, diagnostics, remote browsing and preferences live outside the primary mobile navigation.</p></div></div>
+      <div class="more-grid" aria-label="System destinations">
+        <button class="more-card" data-view="runtime" type="button"><strong>Runtime</strong><span>Static runtime authority, policy and cache details</span><span class="more-chevron" aria-hidden="true">›</span></button>
+        <button class="more-card" data-view="remotes" type="button"><strong>Remote browser</strong><span>Credential-free configured remote browsing</span><span class="more-chevron" aria-hidden="true">›</span></button>
+        <button class="more-card" data-view="doctor" type="button"><strong>Doctor</strong><span>Health checks and sanitized support export</span><span class="more-chevron" aria-hidden="true">›</span></button>
+        <button class="more-card" data-view="logs" type="button"><strong>Logs</strong><span>Bounded technical diagnostics</span><span class="more-chevron" aria-hidden="true">›</span></button>
+        <button class="more-card" data-view="settings" type="button"><strong>Settings</strong><span>WebUI presentation and behavior preferences</span><span class="more-chevron" aria-hidden="true">›</span></button>
+      </div>
+    </section>
+
+    <section id="view-runtime" class="view" hidden>
+      <div class="toolbar"><div><h2>Runtime</h2><p class="muted">Immutable runtime authority, provider provenance, NewFuture FUSE helper provenance, and mount readiness.</p></div><button id="refreshRuntimeButton" type="button">Refresh</button></div>
+      <div id="runtimeNotice" class="notice compact" aria-live="polite" hidden></div>
+      <div id="runtimeEngineManager" class="stack"></div>
+      <div id="runtimeCards" class="stack"></div>
+    </section>
+
+    <section id="view-logs" class="view" hidden>
+      <div class="toolbar logs-toolbar"><div><h2>Logs</h2><p class="muted">Dense technical diagnostics for investigation. Activity remains the human-readable history.</p></div><div class="button-row log-actions"><label class="inline-check log-follow"><input id="logFollow" type="checkbox"> Follow</label><button id="logPauseButton" type="button" aria-pressed="false">Pause</button><button id="refreshLogsButton" type="button">Refresh</button></div></div>
+      <div class="log-filters" aria-label="Log filters">
+        <label>Severity<select id="logSeverityFilter"><option value="">All</option><option>ERROR</option><option>WARN</option><option>INFO</option><option>DEBUG</option></select></label>
+        <label>Source<select id="logSourceFilter"><option value="">All sources</option></select></label>
+        <label class="log-search">Search<input id="logSearch" type="search" autocomplete="off" placeholder="mount, error code, message…"></label>
+      </div>
+      <div class="log-commandbar" aria-label="Log actions"><span id="logResultCount" class="muted" role="status" aria-live="polite">0 records</span><div class="button-row"><button id="logCopyButton" type="button">Copy visible</button><button id="logExportButton" type="button">Export</button><button id="logClearButton" type="button">Clear view</button></div></div>
+      <div id="logsNotice" class="notice compact" aria-live="polite" hidden></div>
+      <div id="logCards" class="log-stream" role="log" aria-label="Diagnostic log records"></div>
+    </section>
+
+    <section id="view-settings" class="view" hidden>
+      <div class="toolbar"><div><h2>Settings</h2><p class="muted">Presentation and session preferences. Runtime, root and package authority remain read-only.</p></div><button id="refreshSettingsButton" type="button">Refresh</button></div>
+      <div id="settingsNotice" class="notice compact" aria-live="polite" hidden></div>
+      <form id="settingsForm" class="settings-shell">
+        <section class="settings-group" aria-labelledby="settingsAppearanceHeading"><div class="settings-group-head"><h3 id="settingsAppearanceHeading">Appearance</h3><p class="muted">Choose how Skybind presents common control surfaces.</p></div><div class="settings-list">
+          <label class="settings-row"><span><strong>Default screen</strong><small>Open this destination after connecting.</small></span><select id="setting-default-view"><option>home</option><option>mounts</option><option>jobs</option><option>activity</option><option>more</option><option>runtime</option><option>remotes</option><option>doctor</option><option>logs</option><option>settings</option></select></label>
+          <label class="settings-row"><span><strong>Mount layout</strong><small>Cards are optimized for touch; dense is for expert scanning.</small></span><select id="setting-mount-view"><option value="cards">Cards</option><option value="dense">Dense</option></select></label>
+          <label class="settings-row settings-switch"><span><strong>Dense mode</strong><small>Reduce spacing across technical views.</small></span><input id="setting-dense" type="checkbox"></label>
+          <label class="settings-row settings-switch"><span><strong>Reduce motion</strong><small>Minimize nonessential transitions and smooth scrolling.</small></span><input id="setting-reduced-motion" type="checkbox"></label>
+        </div></section>
+
+        <section class="settings-group" aria-labelledby="settingsActivityHeading"><div class="settings-group-head"><h3 id="settingsActivityHeading">Activity & refresh</h3><p class="muted">Control refresh cadence and bounded diagnostic history.</p></div><div class="settings-list">
+          <label class="settings-row"><span><strong>Refresh interval</strong><small>Seconds between automatic updates.</small></span><input id="setting-refresh" type="number" min="2" max="60" inputmode="numeric"></label>
+          <label class="settings-row settings-switch"><span><strong>Follow logs</strong><small>Refresh Logs while the view is open.</small></span><input id="setting-log-follow" type="checkbox"></label>
+          <label class="settings-row"><span><strong>Visible log records</strong><small>Maximum records requested for the Logs screen.</small></span><input id="setting-log-limit" type="number" min="20" max="500" inputmode="numeric"></label>
+          <label class="settings-row"><span><strong>Log retention</strong><small>Maximum bytes retained by the backend.</small></span><input id="setting-log-max" type="number" min="16384" max="67108864" inputmode="numeric"></label>
+          <label class="settings-row"><span><strong>Log backups</strong><small>Rotated backend log files to retain.</small></span><input id="setting-log-backups" type="number" min="1" max="12" inputmode="numeric"></label>
+        </div></section>
+
+        <section class="settings-group" aria-labelledby="settingsSessionHeading"><div class="settings-group-head"><h3 id="settingsSessionHeading">Session</h3><p class="muted">Control browser-side inactivity behavior.</p></div><div class="settings-list">
+          <label class="settings-row"><span><strong>Idle timeout</strong><small>Seconds before the WebUI returns to an idle state.</small></span><input id="setting-idle" type="number" min="30" max="3600" inputmode="numeric"></label>
+        </div></section>
+
+        <section class="settings-group" aria-labelledby="settingsSecurityHeading"><div class="settings-group-head"><h3 id="settingsSecurityHeading">Security & encryption</h3><p class="muted">Skybind uses one password you define for future auto-created rclone crypt remotes. Skybind never generates it, never returns it, and leaves rclone password2 unset.</p></div><div class="settings-list">
+          <div class="settings-row"><span><strong>Skybind encryption password</strong><small id="cryptPasswordStatusText">Checking configuration…</small></span><span id="cryptPasswordStatusPill" class="state-pill">Checking</span></div>
+          <label class="settings-row settings-secret"><span><strong>Set or replace password</strong><small>The current password is never displayed. Replacing it affects future Skybind-created crypt remotes only; existing crypt remotes keep their current rclone password.</small></span><input id="setting-crypt-password" type="password" autocomplete="new-password" placeholder="Enter a strong passphrase"></label>
+          <div class="settings-row settings-action-row"><span><strong>Apply encryption password</strong><small>Stored privately as an rclone-obscured value for reuse by Skybind. This is not the same as a secrets vault.</small></span><button id="setCryptPasswordButton" type="button">Set password</button></div>
+          <div id="cryptPasswordNotice" class="notice compact wide" aria-live="polite" hidden></div>
+          <div class="settings-row crypt-recovery-row"><span><strong>Recovery & key status</strong><small>Password generations and crypt provenance only. Skybind never exposes the configured password.</small></span><div id="cryptRecoveryDetails" class="crypt-recovery-details" aria-live="polite"><span class="muted">Checking recovery inventory…</span></div></div>
+        </div></section>
+
+        <section class="settings-group" aria-labelledby="settingsDiagnosticsHeading"><div class="settings-group-head"><h3 id="settingsDiagnosticsHeading">Diagnostics</h3><p class="muted">Jump to read-only system truth without mixing it into preferences.</p></div><div class="settings-list settings-links">
+          <button class="settings-link" data-view="doctor" type="button"><span><strong>Doctor</strong><small>Run health checks and build a sanitized support bundle.</small></span><span aria-hidden="true">›</span></button>
+          <button class="settings-link" data-view="runtime" type="button"><span><strong>Runtime details</strong><small>Inspect bundled runtime and NewFuture FUSE provenance.</small></span><span aria-hidden="true">›</span></button>
+          <button class="settings-link" data-view="logs" type="button"><span><strong>Technical logs</strong><small>Open the dense diagnostic log viewer.</small></span><span aria-hidden="true">›</span></button>
+        </div></section>
+
+        <section class="settings-group" aria-labelledby="settingsPlatformHeading"><div class="settings-group-head"><h3 id="settingsPlatformHeading">About this environment</h3><p class="muted">Read-only platform facts reported by Skybind.</p></div><div id="platformDetails" class="detail-list settings-platform"></div></section>
+
+        <section class="settings-apply" aria-label="Settings preview and apply">
+          <div><strong>Review changes before applying</strong><p id="settingsApplyHint" class="muted">Preview changes first. Apply stays disabled until Skybind returns a fresh preview proof.</p><p id="settingsPreview" class="settings-preview" aria-live="polite"></p></div>
+          <div class="button-row"><button id="previewSettingsButton" type="button">Preview changes</button><button id="applySettingsButton" class="primary" type="button" disabled>Apply preview</button></div>
+        </section>
+      </form>
+    </section>
+
+    <section id="view-doctor" class="view" hidden>
+      <div class="toolbar"><div><h2>Doctor</h2><p class="muted">Actionable health checks. Expected static-runtime states are informational, not warnings.</p></div><div class="button-row"><button id="runDoctorButton" type="button">Run doctor</button><button id="bundleButton" type="button">Build support bundle</button></div></div>
+      <div id="doctorNotice" class="notice compact" aria-live="polite" hidden></div>
+      <div id="doctorSummary" class="stack"></div>
+      <div id="doctorCards" class="stack small"></div>
+      <div id="bundleResult" class="notice compact" hidden></div>
+    </section>
+
+    <section id="view-remotes" class="view" hidden>
+      <div class="toolbar"><div><h2>Remote browser</h2><p class="muted">Browse credential-free paths and see whether storage is protected by rclone crypt.</p></div><div class="button-row"><button id="createCryptRemoteButton" class="primary" type="button">Create encrypted remote</button><button id="refreshRemotesButton" type="button">Refresh</button></div></div>
+      <div id="remotesNotice" class="notice compact" aria-live="polite" hidden></div>
+      <div class="remote-browser-shell">
+        <div><p class="eyebrow">Configured remotes</p><div id="remoteButtons" class="remote-choice-row" aria-label="Configured remotes"></div></div>
+        <div class="remote-browser"><div class="remote-browser-head"><button id="remoteParentButton" class="icon-button remote-parent" type="button" aria-label="Open parent folder">↑</button><p id="remoteBreadcrumb" class="code remote-breadcrumb">Choose a remote</p></div><div id="remoteEntries" class="remote-object-list"></div></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="editorBackdrop" class="modal-backdrop" hidden>
+    <section class="modal mount-editor" role="dialog" aria-modal="true" aria-labelledby="editorTitle">
+      <div class="modal-head"><div><p class="eyebrow">Guided mount setup</p><h2 id="editorTitle">Mount</h2><p id="editorSubtitle" class="muted">Four focused steps, with backend-authoritative review before anything changes.</p></div><button id="closeEditorButton" class="icon-button" type="button" aria-label="Close mount editor">×</button></div>
+      <div class="mount-wizard-progress" aria-label="Mount setup progress">
+        <span class="wizard-step active" data-wizard-step="0"><b>1</b><span>Source</span></span>
+        <span class="wizard-step" data-wizard-step="1"><b>2</b><span>Destination</span></span>
+        <span class="wizard-step" data-wizard-step="2"><b>3</b><span>Behavior</span></span>
+        <span class="wizard-step" data-wizard-step="3"><b>4</b><span>Review</span></span>
+      </div>
+      <form id="mountForm" novalidate>
+        <section class="editor-section wizard-panel" data-wizard-panel="0" aria-labelledby="sourceHeading">
+          <div class="section-heading"><div><span class="step-number">1</span><div><h3 id="sourceHeading">Source</h3><p class="muted">Pick a configured rclone remote and folder. Credentials never enter the WebUI.</p></div></div><span id="remoteStatusPill" class="state-pill">Not selected</span></div>
+          <div class="source-picker">
+            <label>Remote<select id="mountRemoteSelect"><option value="">Select a remote…</option></select></label>
+            <label>Folder<input id="mountRemotePath" value="/" readonly aria-describedby="remotePathHelp"></label>
+            <div class="source-actions"><button id="browseMountRemoteButton" type="button">Browse folders</button><button id="testMountRemoteButton" type="button">Test connection</button><button id="manualRemoteButton" type="button">Enter manually</button></div>
+          </div>
+          <p id="remotePathHelp" class="field-help">Selected endpoint: <code id="mountRemoteEndpoint">—</code></p>
+          <div id="mountEncryptionNotice" class="notice compact" aria-live="polite" hidden></div>
+          <div id="providerReadiness" class="validation-strip" aria-live="polite"></div>
+          <div id="manualRemoteWrap" class="manual-remote" hidden>
+            <label data-field="remote">Manual remote:path<input id="field-remote" name="remote" autocomplete="off" placeholder="drive:Media/Movies" required><span class="field-help">Use this only when you intentionally need a path that cannot be selected in the browser.</span></label>
+          </div>
+          <div id="mountRemoteBrowser" class="inline-browser" hidden>
+            <div class="inline-browser-head"><div><strong id="mountRemoteBreadcrumb">Remote folders</strong><p class="muted">Choose a folder, or use the current folder.</p></div><div class="button-row"><button id="mountRemoteParentButton" type="button">↑ Parent</button><button id="useMountRemoteFolderButton" class="primary" type="button">Use this folder</button></div></div>
+            <div id="mountRemoteEntries" class="remote-folder-grid"></div>
+          </div>
+          <div id="remoteTestResult" class="notice compact" hidden aria-live="polite"></div>
+        </section>
+
+        <section class="editor-section wizard-panel" data-wizard-panel="1" aria-labelledby="destinationHeading" hidden>
+          <div class="section-heading"><div><span class="step-number">2</span><div><h3 id="destinationHeading">Destination</h3><p class="muted">Skybind checks collisions and protected paths before a preview can be approved.</p></div></div></div>
+          <div class="form-grid compact-grid">
+            <label data-field="name">Mount name<input id="field-name" name="name" autocomplete="off" required pattern="[A-Za-z0-9._-]+"><span class="field-help">Used for lifecycle commands and cache ownership.</span></label>
+            <label data-field="mountpoint">Mount location<input id="field-mountpoint" name="mountpoint" autocomplete="off" placeholder="/storage/emulated/0/Rclone/Movies" required><span class="field-help" id="mountpointHint">A shared-storage location is recommended for Android app visibility.</span></label>
+          </div>
+          <div id="destinationStatus" class="validation-strip" aria-live="polite"></div>
+          <div class="mountpoint-suggestions" aria-label="Mount location suggestions">
+            <span class="muted">Suggestions</span>
+            <button type="button" class="suggestion-chip" data-mountpoint-template="/storage/emulated/0/Rclone/{name}">Rclone folder</button>
+            <button type="button" class="suggestion-chip" data-mountpoint-template="/storage/emulated/0/{label}">Shared storage</button>
+          </div>
+        </section>
+
+        <section class="editor-section wizard-panel" data-wizard-panel="2" aria-labelledby="performanceHeading" hidden>
+          <div class="section-heading"><div><div><h3 id="performanceHeading">Performance</h3><p class="muted">Choose a profile first. Raw VFS settings stay out of the common path.</p></div></div></div>
+          <input id="field-vfs_profile" name="vfs_profile" type="hidden" value="custom">
+          <div id="profileRecommendation" class="recommendation" hidden></div>
+          <div id="profileCards" class="profile-grid" role="radiogroup" aria-label="VFS performance profile"></div>
+          <div id="profileEffective" class="effective-summary"></div>
+          <details id="customVfsDetails" class="advanced-panel">
+            <summary>Custom VFS settings</summary>
+            <div class="form-grid compact-grid details-grid">
+              <label data-field="vfs_cache_mode">VFS cache mode<select id="field-vfs_cache_mode" name="vfs_cache_mode"><option>off</option><option>minimal</option><option>writes</option><option>full</option></select></label>
+              <label data-field="vfs_cache_max_size">Cache max size<input id="field-vfs_cache_max_size" name="vfs_cache_max_size" placeholder="2GiB"></label>
+              <label data-field="vfs_cache_max_age">Cache max age<input id="field-vfs_cache_max_age" name="vfs_cache_max_age" placeholder="24h"></label>
+              <label data-field="dir_cache_time">Directory cache<input id="field-dir_cache_time" name="dir_cache_time" placeholder="30m"></label>
+              <label data-field="poll_interval">Poll interval<input id="field-poll_interval" name="poll_interval" placeholder="30s"></label>
+              <label data-field="min_free_cache_space">Minimum cache free<input id="field-min_free_cache_space" name="min_free_cache_space" placeholder="2GiB"></label>
+              <label data-field="cache_high_water">Cache high-water %<input id="field-cache_high_water" name="cache_high_water" type="number" min="1" max="100"></label>
+              <label data-field="cache_low_water">Cache low-water %<input id="field-cache_low_water" name="cache_low_water" type="number" min="1" max="99"></label>
+            </div>
+          </details>
+        </section>
+
+        <section class="editor-section wizard-panel" data-wizard-panel="2" aria-labelledby="behaviorHeading" hidden>
+          <div class="section-heading"><div><div><h3 id="behaviorHeading">Behavior</h3><p class="muted">Control startup, Android visibility and policy without exposing advanced flags.</p></div></div></div>
+          <div class="behavior-grid">
+            <label class="choice-card"><input id="field-enabled" name="enabled" type="checkbox"><span><strong>Start automatically</strong><small>Keep this mount enabled in desired state.</small></span></label>
+            <label class="choice-card"><input id="field-allow_other" name="allow_other" type="checkbox"><span><strong>Make visible to Android apps</strong><small>Ask FUSE to allow other users; namespace qualification still decides actual visibility.</small></span></label>
+            <label class="choice-card"><input id="field-read_only" name="read_only" type="checkbox"><span><strong>Read only</strong><small>Prevent writes through this mount.</small></span></label>
+            <label class="choice-card"><input id="field-probe_remote" name="probe_remote" type="checkbox"><span><strong>Check remote before starting</strong><small>Probe remote readiness before lifecycle start.</small></span></label>
+          </div>
+          <div class="form-grid compact-grid policy-grid">
+            <label data-field="network_mode">Network policy<select id="field-network_mode" name="network_mode"><option value="any">Any network</option><option value="wifi">Wi-Fi only</option><option value="unmetered">Unmetered only</option><option value="offline-allowed">Offline allowed</option></select><span id="networkPolicyHelp" class="field-help">Offline allowed lets cached content stay usable while disconnected.</span></label>
+            <label data-field="min_battery">Minimum battery %<input id="field-min_battery" name="min_battery" type="number" min="0" max="100"><span class="field-help">0 disables the battery threshold.</span></label>
+            <label class="choice-card compact-choice"><input id="field-charging_only" name="charging_only" type="checkbox"><span><strong>Charging only</strong><small>Allow lifecycle start only while charging.</small></span></label>
+          </div>
+        </section>
+
+        <details id="mountAdvancedDetails" class="editor-section advanced-panel wizard-panel" data-wizard-panel="2" hidden>
+          <summary>Advanced startup & diagnostics</summary>
+          <p class="muted details-intro">These values are usually best left at their defaults.</p>
+          <div class="form-grid compact-grid details-grid">
+            <label data-field="boot_settle">Boot settle<input id="field-boot_settle" name="boot_settle" placeholder="10s"></label>
+            <label data-field="network_settle">Network settle<input id="field-network_settle" name="network_settle" placeholder="5s"></label>
+            <label data-field="log_level">Log level<select id="field-log_level" name="log_level"><option>DEBUG</option><option>INFO</option><option>NOTICE</option><option>ERROR</option></select></label>
+          </div>
+        </details>
+
+        <p id="argsFileHint" class="muted" hidden>This mount has root-local advanced arguments. Skybind preserves them server-side; the WebUI never reads or edits that file.</p>
+        <div id="editorIssueSummary" class="issue-summary" hidden aria-live="polite"></div>
+        <div id="editorError" class="notice error compact" hidden aria-live="polite"></div>
+
+        <section id="previewPanel" class="preview-panel review-panel wizard-panel" data-wizard-panel="3" hidden>
+          <div class="review-head"><div><p class="eyebrow">Authoritative backend preview</p><h3 id="reviewTitle">Ready to create mount</h3><p id="previewExpiryHelp" class="muted">This approval is temporary and does not change configuration until you apply it.</p></div><span id="previewCountdown" class="state-pill">—</span></div>
+          <div id="reviewSummary" class="review-grid"></div>
+          <div id="reviewSafety" class="notice compact" aria-live="polite"></div>
+          <div id="previewChanges" class="stack small"></div>
+          <details class="technical-details"><summary>Technical details</summary><p id="previewMeta" class="muted code"></p></details>
+        </section>
+
+        <section id="operationProgress" class="operation-progress wizard-panel" data-wizard-panel="3" hidden aria-live="polite">
+          <div class="review-head"><div><p class="eyebrow">Applying</p><h3 id="operationProgressTitle">Creating mount…</h3></div><span id="operationProgressState" class="state-pill warn">Running</span></div>
+          <ol id="operationProgressSteps" class="progress-steps"></ol>
+        </section>
+
+        <div class="modal-actions sticky-actions wizard-actions"><button id="wizardBackButton" type="button">Back</button><span class="spacer"></span><button id="previewMountButton" type="submit" hidden>Review mount</button><button id="wizardNextButton" class="primary" type="button">Continue</button><button id="applyMountButton" class="primary" type="button" disabled hidden>Create mount</button><button id="deleteMountButton" class="danger" type="button" hidden>Delete…</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div id="mountActionBackdrop" class="modal-backdrop action-sheet-backdrop" hidden>
+    <section class="action-sheet" role="dialog" aria-modal="true" aria-labelledby="mountActionTitle">
+      <div class="sheet-grabber" aria-hidden="true"></div>
+      <div class="action-sheet-head"><div><p class="eyebrow">Mount actions</p><h2 id="mountActionTitle">Mount</h2><p id="mountActionSubtitle" class="muted">Choose an action for this managed mount.</p></div><button id="closeMountActionsButton" class="icon-button" type="button" aria-label="Close mount actions">×</button></div>
+      <div class="action-sheet-list">
+        <button id="mountActionStart" type="button"><span>▶</span><span><strong>Start</strong><small>Start or retry this mount.</small></span></button>
+        <button id="mountActionStop" type="button"><span>■</span><span><strong>Stop</strong><small>Stop the running mount.</small></span></button>
+        <button id="mountActionRestart" type="button"><span>↻</span><span><strong>Restart</strong><small>Restart using the current configuration.</small></span></button>
+        <button id="mountActionEdit" type="button"><span>✎</span><span><strong>Edit</strong><small>Open the guided mount editor.</small></span></button>
+        <button id="mountActionActivity" type="button"><span>◉</span><span><strong>View activity</strong><small>Open persistent operation history.</small></span></button>
+        <button id="mountActionLogs" type="button"><span>⌁</span><span><strong>View logs</strong><small>Inspect technical diagnostics.</small></span></button>
+        <button id="mountActionDelete" class="danger-row" type="button"><span>⌫</span><span><strong>Delete mount</strong><small>Review removal before applying it.</small></span></button>
+      </div>
+    </section>
+  </div>
+
+  <div id="remoteActionBackdrop" class="modal-backdrop action-sheet-backdrop" hidden>
+    <section class="action-sheet" role="dialog" aria-modal="true" aria-labelledby="remoteActionTitle">
+      <div class="sheet-grabber" aria-hidden="true"></div>
+      <div class="action-sheet-head"><div><p class="eyebrow">Use remote path</p><h2 id="remoteActionTitle">Remote item</h2><p id="remoteActionPath" class="muted code">—</p></div><button id="closeRemoteActionsButton" class="icon-button" type="button" aria-label="Close remote actions">×</button></div>
+      <div class="action-sheet-list">
+        <button id="remoteUseMount" type="button"><span>◫</span><span><strong>Use as mount source</strong><small>Open Add Mount with this folder selected.</small></span></button>
+        <button id="remoteUseJobSource" type="button"><span>⇥</span><span><strong>Use as job source</strong><small>Fill a job source with this path.</small></span></button>
+        <button id="remoteUseJobDestination" type="button"><span>⇤</span><span><strong>Use as job destination</strong><small>Fill a job destination with this path.</small></span></button>
+        <button id="remoteProtectCrypt" type="button"><span>🔒</span><span><strong>Protect with rclone crypt</strong><small>Create a new encrypted remote backed by this location.</small></span></button>
+        
+        <button id="remoteCopyPath" type="button"><span>⧉</span><span><strong>Copy path</strong><small>Copy the credential-free remote:path value.</small></span></button>
+      </div>
+    </section>
+  </div>
+
+  <div id="discardBackdrop" class="modal-backdrop nested-backdrop" hidden>
+    <section class="modal small-modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="discardTitle">
+      <div><p class="eyebrow">Unsaved changes</p><h2 id="discardTitle">Discard your mount changes?</h2><p class="muted">Your edits have not been applied. The current backend configuration is unchanged.</p></div>
+      <div class="modal-actions"><button id="keepEditingButton" type="button">Keep editing</button><span class="spacer"></span><button id="discardChangesButton" class="danger" type="button">Discard changes</button></div>
+    </section>
+  </div>
+
+  <div id="cryptBackdrop" class="modal-backdrop" hidden>
+    <section class="modal crypt-editor" role="dialog" aria-modal="true" aria-labelledby="cryptTitle">
+      <div class="modal-head"><div><p class="eyebrow">rclone crypt</p><h2 id="cryptTitle">Create encrypted remote</h2><p class="muted">Skybind asks rclone to create the crypt remote using your configured Skybind encryption password. password2 stays unset.</p></div><button id="closeCryptButton" class="icon-button" type="button" aria-label="Close encrypted remote setup">×</button></div>
+      <div id="cryptPasswordGate" class="notice compact warn" hidden>
+        <strong>Set the Skybind encryption password first.</strong>
+        <p>Skybind will not generate an encryption password or create a crypt remote until you provide one. This password becomes the shared password used for future Skybind auto-encryption.</p>
+        <label>New Skybind encryption password<input id="crypt-inline-password" type="password" autocomplete="new-password" placeholder="Enter a strong passphrase"></label>
+        <div class="button-row"><button id="setInlineCryptPasswordButton" class="primary" type="button">Set Skybind password</button></div>
+      </div>
+      <form id="cryptForm" novalidate>
+        <fieldset id="cryptOptionsFieldset" class="plain-fieldset">
+          <div class="form-grid compact-grid">
+            <label>Remote name<input id="crypt-name" autocomplete="off" required pattern="[A-Za-z0-9._-]+" placeholder="SafeDriveCrypt"></label>
+            <label>Backing storage<input id="crypt-remote" autocomplete="off" required placeholder="drive:SkybindEncrypted"></label>
+            <label>Filename protection<select id="crypt-filename-mode"><option value="standard">Standard encryption — recommended</option><option value="obfuscate">Obfuscate only</option><option value="off">Leave filenames visible</option></select></label>
+            <label class="choice-card"><input id="crypt-directory-names" type="checkbox" checked><span><strong>Encrypt directory names</strong><small>Recommended. Has no effect when filename encryption is off.</small></span></label>
+          </div>
+          <details class="advanced-panel crypt-advanced"><summary>Advanced filename encoding</summary><div class="form-grid compact-grid details-grid"><label>Filename encoding<select id="crypt-filename-encoding"><option value="base32">Automatic / base32 — works everywhere</option><option value="base64">base64 — shorter on case-sensitive backends</option><option value="base32768">base32768 — shorter for UTF-16/codepoint-limited backends</option></select><span class="field-help">Advanced rclone crypt option for path-length constraints.</span></label></div></details>
+        </fieldset>
+        <div class="notice compact warn"><strong>Use a fresh backing folder.</strong> Creating a crypt remote does not encrypt files already stored in its backing folder. Use a fresh backing folder.</div>
+        <div id="cryptError" class="notice error compact" hidden aria-live="polite"></div>
+        <div id="cryptPreview" class="crypt-preview" aria-live="polite"></div>
+        <div class="modal-actions"><span class="spacer"></span><button id="previewCryptButton" type="button">Review</button><button id="createCryptButton" class="primary" type="button" disabled>Create encrypted remote</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div id="jobBackdrop" class="modal-backdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="jobEditorTitle">
+      <div class="modal-head"><div><p class="eyebrow">Scheduled job</p><h2 id="jobEditorTitle">Job</h2></div><button id="closeJobButton" class="icon-button" type="button" aria-label="Close job editor">×</button></div>
+      <form id="jobForm" novalidate><div class="form-grid">
+        <label>Name<input id="job-name" required autocomplete="off"></label><label>Type<select id="job-type"><option>copy</option><option>check</option><option>sync</option></select></label>
+        <label class="wide">Source<input id="job-source" required autocomplete="off" placeholder="drive:source"></label><div id="jobSourceEncryptionNotice" class="notice compact wide" aria-live="polite" hidden></div><label class="wide">Destination<input id="job-destination" required autocomplete="off" placeholder="/storage/emulated/0/Backup"></label>
+        <div id="jobEncryptionNotice" class="notice compact wide" aria-live="polite" hidden></div>
+        <label>Every<input id="job-every" value="1h" required></label><label>Network<select id="job-network"><option value="any">Any</option><option value="wifi">Wi-Fi</option><option value="unmetered">Unmetered</option><option value="offline-allowed">Offline allowed</option></select></label>
+        <label>Minimum battery %<input id="job-battery" type="number" min="0" max="100"></label>
+      </div><fieldset class="checks"><legend>Behavior</legend><label><input id="job-enabled" type="checkbox"> Enabled</label><label><input id="job-charging" type="checkbox"> Charging only</label><label><input id="job-confirm-sync" type="checkbox"> Confirm destructive sync</label></fieldset>
+      <div id="jobError" class="notice error compact" hidden></div><p id="jobPreviewText" class="muted"></p><div class="modal-actions"><button id="deleteJobButton" class="danger" type="button" hidden>Preview delete</button><span class="spacer"></span><button id="previewJobButton" type="button">Preview</button><button id="applyJobButton" class="primary" type="button" disabled>Apply preview</button></div></form>
+    </section>
+  </div>
+
+  <div id="rollbackBackdrop" class="modal-backdrop" hidden>
+    <section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="rollbackTitle">
+      <div class="modal-head"><h2 id="rollbackTitle">Rollback previous configuration</h2><button id="closeRollbackButton" class="icon-button" type="button" aria-label="Close rollback preview">×</button></div>
+      <div id="rollbackPreview" class="stack small"></div>
+      <div class="modal-actions"><span class="spacer"></span><button id="applyRollbackButton" class="danger" type="button">Apply rollback</button></div>
+    </section>
+  </div>
+
+
+  <nav class="mobile-nav" aria-label="Primary navigation">
+    <button class="nav-item active" data-view="home" type="button"><span class="nav-icon" aria-hidden="true">⌂</span><span>Home</span></button>
+    <button class="nav-item" data-view="mounts" type="button"><span class="nav-icon" aria-hidden="true">◫</span><span>Mounts</span></button>
+    <button class="nav-item" data-view="jobs" type="button"><span class="nav-icon" aria-hidden="true">⇄</span><span>Jobs</span></button>
+    <button class="nav-item" data-view="activity" type="button"><span class="nav-icon" aria-hidden="true">◉</span><span>Activity</span></button>
+    <button class="nav-item" data-view="more" type="button"><span class="nav-icon" aria-hidden="true">⋯</span><span>More</span></button>
+  </nav>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
