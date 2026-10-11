@@ -70,6 +70,11 @@ inputs = [".devtool.toml", "docs/roadmap/**", "scripts/devtool/**", "tests/test_
 metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 
 [targets.skybind.workflows]
+local-build-newfuture = ["job:local-build-newfuture"]
+local-build-bclone = ["job:local-build-bclone"]
+local-build-both = ["job:local-build-both"]
+local-runtime-newfuture = ["job:local-runtime-newfuture"]
+local-runtime-bclone = ["job:local-runtime-bclone"]
 native = ["job:foundation-go"]
 q02-provider-source-contract = ["job:q02-provider-source-contract"]
 q03-upstream-provenance-contract = ["job:q03-upstream-provenance-contract"]
@@ -724,4 +729,72 @@ metadata = { read_only = true, qualification = "runtime-source-only", physical_d
 [wrapper.commands.q05p5-static-runtime-integrity]
 description = "SB-Q05P5 accepts reviewed two-file static FUSE runtime while rejecting tampered bytes; no device attestation"
 workflow = "q05p5-static-runtime-integrity"
+target = "skybind"
+
+
+# SB-Q05P7 local build wrappers, modeled after Rclone Nexus. These produce
+# UNQUALIFIED candidates using pinned Q04 CI provider bytes. Never a seal.
+[targets.skybind.jobs.local-build-newfuture]
+runner = "command"
+command = ["python3", "scripts/dev/integration/local_build.py", "--provider", "newfuture"]
+inputs = ["go.mod", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
+outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
+metadata = { read_only = false, transaction_root_aware = true, qualification = "candidate-only", independent_attestation = false, final_seal = false }
+
+[targets.skybind.jobs.local-build-bclone]
+runner = "command"
+command = ["python3", "scripts/dev/integration/local_build.py", "--provider", "bclone"]
+inputs = ["go.mod", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
+outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
+metadata = { read_only = false, transaction_root_aware = true, qualification = "candidate-only", independent_attestation = false, final_seal = false }
+
+[targets.skybind.jobs.local-build-both]
+runner = "command"
+command = ["python3", "scripts/dev/integration/local_build.py", "--provider", "both"]
+inputs = ["go.mod", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
+outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
+metadata = { read_only = false, transaction_root_aware = true, qualification = "candidate-only", independent_attestation = false, final_seal = false }
+
+[targets.skybind.jobs.local-runtime-newfuture]
+runner = "command"
+command = ["python3", "scripts/dev/integration/local_build.py", "--provider", "newfuture", "--verify-only"]
+inputs = ["scripts/dev/integration/**", "scripts/dev/runtime/**"]
+outputs = ["build/local-q04-evidence/**"]
+metadata = { read_only = false, transaction_root_aware = true, qualification = "raw-provider-evidence-only", final_seal = false }
+
+[targets.skybind.jobs.local-runtime-bclone]
+runner = "command"
+command = ["python3", "scripts/dev/integration/local_build.py", "--provider", "bclone", "--verify-only"]
+inputs = ["scripts/dev/integration/**", "scripts/dev/runtime/**"]
+outputs = ["build/local-q04-evidence/**"]
+metadata = { read_only = false, transaction_root_aware = true, qualification = "raw-provider-evidence-only", final_seal = false }
+
+[wrapper.commands.build]
+description = "Build local unqualified NewFuture Skybind candidate from verified Q04 provider inputs"
+workflow = "local-build-newfuture"
+target = "skybind"
+
+[wrapper.commands.build-newfuture]
+description = "Build local unqualified Skybind candidate with official NewFuture prebuilt"
+workflow = "local-build-newfuture"
+target = "skybind"
+
+[wrapper.commands.build-bclone]
+description = "Build local unqualified Skybind candidate with pinned Q04 bclone binary"
+workflow = "local-build-bclone"
+target = "skybind"
+
+[wrapper.commands.build-both]
+description = "Build both unqualified Skybind candidates with one compiled native daemon"
+workflow = "local-build-both"
+target = "skybind"
+
+[wrapper.commands.runtime-newfuture]
+description = "Download if necessary and verify Q04 NewFuture provider evidence only (no build/seal)"
+workflow = "local-runtime-newfuture"
+target = "skybind"
+
+[wrapper.commands.runtime-bclone]
+description = "Download if necessary and verify Q04 bclone provider evidence only (no build/seal)"
+workflow = "local-runtime-bclone"
 target = "skybind"

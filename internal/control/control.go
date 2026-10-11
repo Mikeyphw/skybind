@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"skybind/internal/journal"
 	"skybind/internal/protocol"
+	"strings"
 	"sync"
 )
 
@@ -21,10 +22,11 @@ type entry struct {
 	handler    Handler
 }
 type Engine struct {
-	mu      sync.RWMutex
-	entries map[string]entry
-	audit   func(string, string)
-	journal *journal.Journal
+	mu           sync.RWMutex
+	entries      map[string]entry
+	audit        func(string, string)
+	failureAudit func(string, string)
+	journal      *journal.Journal
 }
 
 func New() *Engine { return &Engine{entries: make(map[string]entry)} }
@@ -54,6 +56,45 @@ func (e *Engine) SetAudit(fn func(operation, outcome string)) {
 	defer e.mu.Unlock()
 	e.audit = fn
 }
+
+// SetFailureAudit records only allowlisted, non-secret failure categories.
+// Raw handler errors and request arguments must never be written to WebUI logs.
+func (e *Engine) SetFailureAudit(fn func(operation, reason string)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.failureAudit = fn
+}
+
+// safeOperationReason intentionally uses a closed vocabulary. Error messages
+// from providers, configurations, and arbitrary filesystem paths can contain
+// credentials; they must not be forwarded to an embedded WebUI.
+func safeOperationReason(operation string, err error) string {
+	if err == nil || operation != "mount.start" && operation != "mount.restart" {
+		return "operation_failed"
+	}
+	const prefix = "FUSE readiness/mount identity not observed ("
+	if strings.HasPrefix(err.Error(), prefix) && strings.HasSuffix(err.Error(), ")") {
+		category := strings.TrimSuffix(strings.TrimPrefix(err.Error(), prefix), ")")
+		switch category {
+		case "provider_permission_denied", "fuse_device_unavailable", "mountpoint_not_empty", "mountpoint_busy", "provider_unsupported_option", "fuse_helper_unavailable", "provider_remote_failure", "provider_stderr_unclassified", "provider_no_stderr_observed", "provider_diagnostics_unavailable":
+			return err.Error()
+		}
+	}
+	switch err.Error() {
+	case "FUSE readiness/mount identity not observed",
+		"could not prove child process ownership",
+		"static runtime integrity unverified",
+		"destination contains link/non-directory",
+		"invalid destination",
+		"stale owned process requires recovery",
+		"mount disabled",
+		"source mount not verified running":
+		return err.Error()
+	default:
+		return "mount failed; internal cause unavailable (provider stderr not captured)"
+	}
+}
+
 func (e *Engine) Descriptors() []Descriptor {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -144,7 +185,18 @@ func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) (response p
 		}
 	}
 	if err != nil {
-		return protocol.Fail(req.RequestID, "operation_failed", "operation", "execute", false)
+		reason := safeOperationReason(req.Operation, err)
+		e.mu.RLock()
+		notify := e.failureAudit
+		e.mu.RUnlock()
+		if notify != nil && (req.Operation == "mount.start" || req.Operation == "mount.restart") {
+			notify(req.Operation, reason)
+		}
+		failure := protocol.Fail(req.RequestID, "operation_failed", "operation", "execute", false)
+		if failure.Error != nil && reason != "operation_failed" {
+			failure.Error.Message = reason
+		}
+		return failure
 	}
 	return protocol.Success(req.RequestID, result)
 }

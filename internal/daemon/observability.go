@@ -37,6 +37,12 @@ func EngineWithObservability(j *journal.Journal, s *config.Store, mount *lifecyc
 			}
 			_ = logs.Write(level, "rpc", "OPERATION", "operation="+operation+" outcome="+outcome)
 		})
+		// A separate bounded mount failure report preserves the reason that
+		// the old generic outcome audit discarded. This never logs raw args,
+		// remote config, or child stdout/stderr.
+		e.SetFailureAudit(func(operation, reason string) {
+			_ = logs.Write("ERROR", "mount", "MOUNT_START_FAILED", "operation="+operation+" reason="+reason)
+		})
 	}
 	register := func(name string, kind protocol.Class, h control.Handler) {
 		if err := e.Register(name, kind, h); err != nil {

@@ -156,7 +156,9 @@ def evidence_inventory(root: Path, policy: Path = INPUTS, lock_path: Path = LOCK
     return {'selection':cfg,'run':run,'comparison':compare,'paths':paths,'hashes':hashes}
 
 
-def assemble(root: Path, native: Path, output: Path, policy: Path = INPUTS, lock_path: Path = LOCK) -> dict:
+def assemble(root: Path, native: Path, output: Path, policy: Path = INPUTS, lock_path: Path = LOCK, *, providers: tuple[str, ...] = ('newfuture','bclone')) -> dict:
+    if not providers or len(set(providers)) != len(providers) or set(providers) - {'newfuture','bclone'}:
+        raise Rejected('invalid candidate provider selection')
     inventory = evidence_inventory(root,policy,lock_path)
     native = regular(native)
     if not release.is_arm64_elf(read_regular(native, max_bytes=150*1024*1024)):
@@ -168,7 +170,7 @@ def assemble(root: Path, native: Path, output: Path, policy: Path = INPUTS, lock
     output.mkdir(parents=True, exist_ok=True)
     produced = {}
     try:
-        for provider in ('newfuture','bclone'):
+        for provider in providers:
             dst = output / ('skybind-'+provider+'-CANDIDATE-UNQUALIFIED.zip')
             data, manifest = release.collect(inventory['paths']['A']['packages'][provider],native,ROOT/'module',ROOT/'module/webroot')
             release.write_zip(dst,data)

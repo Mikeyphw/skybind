@@ -69,6 +69,64 @@ type linuxObserver struct{}
 type linuxSpawner struct{}
 type canonicalEnvironment struct{}
 
+// Keep a small in-memory window of child stderr to classify failed mounts.
+// Never persist or return raw provider output: it may include credentials.
+type mountStderr struct {
+	mu   sync.Mutex
+	data []byte
+}
+
+const maxMountStderrBytes = 4096
+
+var mountChildStderr sync.Map // PID -> *mountStderr, removed after startup decision
+func (c *mountStderr) Write(data []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := len(data)
+	if len(data) >= maxMountStderrBytes {
+		c.data = append(c.data[:0], data[len(data)-maxMountStderrBytes:]...)
+	} else {
+		extra := len(c.data) + len(data) - maxMountStderrBytes
+		if extra > 0 {
+			c.data = append([]byte(nil), c.data[extra:]...)
+		}
+		c.data = append(c.data, data...)
+	}
+	return n, nil
+}
+func (c *mountStderr) hint() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	low := strings.ToLower(string(c.data))
+	switch {
+	case strings.Contains(low, "permission denied"), strings.Contains(low, "operation not permitted"):
+		return "provider_permission_denied"
+	case strings.Contains(low, "no such device"), strings.Contains(low, "/dev/fuse") && strings.Contains(low, "not found"):
+		return "fuse_device_unavailable"
+	case strings.Contains(low, "directory not empty"):
+		return "mountpoint_not_empty"
+	case strings.Contains(low, "device or resource busy"):
+		return "mountpoint_busy"
+	case strings.Contains(low, "unknown flag"), strings.Contains(low, "flag provided but not defined"):
+		return "provider_unsupported_option"
+	case strings.Contains(low, "fusermount") && strings.Contains(low, "not found"):
+		return "fuse_helper_unavailable"
+	case strings.Contains(low, "failed to create file system"), strings.Contains(low, "authentication failed"):
+		return "provider_remote_failure"
+	case len(c.data) > 0:
+		return "provider_stderr_unclassified"
+	default:
+		return "provider_no_stderr_observed"
+	}
+}
+func (linuxSpawner) MountFailureHint(pid int) string {
+	if value, ok := mountChildStderr.LoadAndDelete(pid); ok {
+		return value.(*mountStderr).hint()
+	}
+	return "provider_diagnostics_unavailable"
+}
+func (linuxSpawner) ForgetMountCapture(pid int) { mountChildStderr.Delete(pid) }
+
 func (canonicalEnvironment) RuntimeReady() bool { return runtimeauth.StatusCanonical().Ready }
 func (canonicalEnvironment) Facts() policy.Facts {
 	return policy.SampleAndroidFacts(filepath.Join(paths.StateRoot, "cache"))
@@ -76,13 +134,15 @@ func (canonicalEnvironment) Facts() policy.Facts {
 func (canonicalEnvironment) Now() time.Time { return time.Now() }
 func (linuxSpawner) Start(binary string, args []string) (int, error) {
 	c := exec.Command(binary, args...)
+	capture := &mountStderr{}
 	c.Stdin = nil
 	c.Stdout = nil
-	c.Stderr = nil
+	c.Stderr = capture
 	c.Env = []string{"PATH=/system/bin:/system/xbin"}
 	if e := c.Start(); e != nil {
 		return 0, e
 	}
+	mountChildStderr.Store(c.Process.Pid, capture)
 	go func() { _ = c.Wait() }()
 	return c.Process.Pid, nil
 }
@@ -500,6 +560,9 @@ func (e *Engine) startLocked(m config.Mount) (State, error) {
 	}
 	tick, exe, err := e.obs.Identity(pid)
 	if err != nil || exe != paths.Engine || tick == 0 {
+		if capture, ok := e.run.(interface{ ForgetMountCapture(int) }); ok {
+			capture.ForgetMountCapture(pid)
+		}
 		if pid > 0 {
 			_ = e.run.Stop(pid)
 		}
@@ -522,11 +585,19 @@ func (e *Engine) startLocked(m config.Mount) (State, error) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !verified {
+		// Only a fixed category is surfaced. Captured raw stderr is discarded.
+		hint := "provider_diagnostics_unavailable"
+		if capture, ok := e.run.(interface{ MountFailureHint(int) string }); ok {
+			hint = capture.MountFailureHint(pid)
+		}
 		_ = e.run.Stop(pid)
 		if e.rcDrop != nil {
 			e.rcDrop(name)
 		}
-		return State{}, errors.New("FUSE readiness/mount identity not observed")
+		return State{}, fmt.Errorf("FUSE readiness/mount identity not observed (%s)", hint)
+	}
+	if capture, ok := e.run.(interface{ ForgetMountCapture(int) }); ok {
+		capture.ForgetMountCapture(pid)
 	}
 	rec := Ownership{Name: m.Name, PID: pid, StartTicks: tick, Executable: exe, Mountpoint: m.Mountpoint, MountID: observed.MountID, CreatedUnix: e.env.Now().Unix()}
 	buf, _ := json.Marshal(rec)

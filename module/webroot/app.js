@@ -990,7 +990,24 @@ function renderLogs(records = state.logRecords) {
     root.append(row);
   }
 }
-async function loadLogs(){const limit=Number(state.settingsSnapshot?.settings?.log_limit||100);const value=result(await query('diagnostics.logs',{limit}));state.logRecords=value.records||[];renderLogs();if(value.records?.length)state.logCursor=Math.max(...value.records.map((r)=>Number(r.time_unix_ms||0)));byId('logFollow').checked=Boolean(state.settingsSnapshot?.settings?.log_follow);}
+// Native diagnostics.logs returns []Entry with RFC3339 timestamp + level;
+// older UI fixtures provided {records:[{time_unix_ms,severity}]}.
+// Accept both shapes; never silently interpret an unexpected response as zero logs.
+function normalizeBackendLogs(value) {
+  const entries = Array.isArray(value) ? value : value?.records;
+  if (!Array.isArray(entries)) throw new Error('Invalid diagnostics.logs response: expected an array');
+  return entries.filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry)).map((entry) => {
+    const timestamp = Number(entry.time_unix_ms) || Date.parse(entry.timestamp || '') || 0;
+    return {
+      ...entry,
+      severity: String(entry.level || entry.severity || 'INFO').toUpperCase(),
+      time_unix_ms: Number.isFinite(timestamp) ? timestamp : 0,
+      source: String(entry.source || entry.category || 'skybind'),
+      message: String(entry.message || '').slice(0, 1024),
+    };
+  });
+}
+async function loadLogs(){const limit=Number(state.settingsSnapshot?.settings?.log_limit||100);const value=result(await query('diagnostics.logs',{limit}));state.logRecords=normalizeBackendLogs(value);renderLogs();if(state.logRecords.length)state.logCursor=Math.max(...state.logRecords.map((r)=>Number(r.time_unix_ms||0)));byId('logFollow').checked=Boolean(state.settingsSnapshot?.settings?.log_follow);}
 function setLogPaused(paused){state.logPaused=Boolean(paused);const control=byId('logPauseButton');if(control){control.setAttribute('aria-pressed',String(state.logPaused));control.textContent=state.logPaused?'Resume':'Pause';}renderLogs();scheduleRefresh();announceStatus(state.logPaused?'Log following paused.':'Log following resumed.');}
 async function copyVisibleLogs(){const lines=visibleLogRecords().map(logRecordLine).join('\n');if(!lines){showNotice(byId('logsNotice'),'No visible log records to copy.','');return;}try{await navigator.clipboard.writeText(lines);showNotice(byId('logsNotice'),`Copied ${visibleLogRecords().length} visible log records.`,'ok');}catch(error){showNotice(byId('logsNotice'),`Copy unavailable: ${String(error?.message||error)}`,'error');}}
 function exportVisibleLogs(){const rows=visibleLogRecords();if(!rows.length){showNotice(byId('logsNotice'),'No visible log records to export.','');return;}const blob=new Blob([rows.map(logRecordLine).join('\n')+'\n'],{type:'text/plain;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`skybind-logs-${new Date().toISOString().replaceAll(':','-')}.txt`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);showNotice(byId('logsNotice'),`Exported ${rows.length} visible log records.`,'ok');}
