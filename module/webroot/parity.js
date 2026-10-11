@@ -1,5 +1,16 @@
 // Explicit, presentation-only adapters for the original WebUI contract.
 // Unknown provenance, device qualification and crypt generation data remain UNKNOWN.
+// Explain a failed runtime status using the native, read-only diagnostic reason.
+// Never infer an approved runtime from the absence of an error string.
+export function runtimeFailureText(status) {
+  if (status?.operational === true || (status?.operational === undefined && status?.ready === true)) return '';
+  const fallback = 'Backend did not provide a runtime failure reason';
+  const reportedIssue = Array.isArray(status?.issues) ? status.issues[0] : '';
+  const raw = String(status?.reason || (reportedIssue === 'Runtime integrity unavailable' ? '' : reportedIssue) || fallback);
+  const reason = raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 240) || fallback;
+  return `Runtime integrity not verified: ${reason}`;
+}
+
 export function runtimePresentation(v) {
   if (!v || typeof v.ready !== 'boolean' || typeof v.provider !== 'string') throw new Error('Malformed runtime authority');
   const verified = v.ready === true;

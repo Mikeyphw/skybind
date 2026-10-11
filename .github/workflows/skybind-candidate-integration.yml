@@ -37,6 +37,7 @@ jobs:
             node --input-type=module --check < "$source"
           done
           python3 -m unittest discover -s tests/qualification -p 'test_q05p4_webui_esm.py' -v
+          python3 -m unittest discover -s tests/qualification -p 'test_q05p5_webui_runtime.py' -v
       - name: Download selected successful Q04 run and two independent lanes
         shell: bash
         env:

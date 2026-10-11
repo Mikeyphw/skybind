@@ -68,7 +68,10 @@ func Decode(data []byte) (Manifest, error) {
 	if m.Schema != 1 || m.Product != "Skybind" || m.Arch != "arm64" || (m.Provider != "newfuture" && m.Provider != "bclone") || m.Engine != "system/bin/rclone" || m.Helper != "system/vendor/bin/fusermount3" {
 		return m, errors.New("invalid runtime authority")
 	}
-	if len(m.Files) < 3 || len(m.Files) > 66 {
+	// Reviewed static FUSE delivery has exactly rclone + fusermount3; shared
+	// libfuse layouts may have additional members. Both executable members
+	// remain mandatory and every listed file is digest-checked on disk.
+	if len(m.Files) < 2 || len(m.Files) > 66 {
 		return m, errors.New("invalid manifest inventory")
 	}
 	for p, f := range m.Files {

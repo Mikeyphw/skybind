@@ -1,5 +1,6 @@
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
+import { runtimeFailureText } from './parity.js';
 import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, suggestMountDefaults } from './model.js';
 
 const byId = (id) => document.getElementById(id);
@@ -198,7 +199,8 @@ async function loadHome() {
   const blockedPolicies = policies.filter((item) => item?.decision?.allowed === false);
   const network = homeNetworkSummary(policies);
   const issues = [];
-  if (runtime?.operational !== true) issues.push('Bundled runtime is not operational.');
+  const runtimeFailure = runtimeFailureText(runtime);
+  if (runtimeFailure) issues.push(runtimeFailure);
   if (provider?.fuse_helper_ready !== true || provider?.fuse_device_ready !== true) issues.push('FUSE needs attention before mounts can operate normally.');
   if (unhealthyMounts.length) issues.push(`${unhealthyMounts.length} mount${unhealthyMounts.length === 1 ? '' : 's'} report a degraded or failed state.`);
   if (blockedPolicies.length) issues.push(`${blockedPolicies.length} mount polic${blockedPolicies.length === 1 ? 'y is' : 'ies are'} currently blocking lifecycle work.`);
@@ -211,7 +213,7 @@ async function loadHome() {
   if (!healthy) { const list = document.createElement('ul'); list.className = 'home-attention-list'; for (const issue of issues) { const item=document.createElement('li'); item.textContent=issue; list.append(item); } attention.append(list); }
 
   text('homeRuntimeValue', runtime?.operational === true ? (provider?.rclone_version || 'Operational') : 'Needs attention');
-  text('homeRuntimeDetail', `${runtime?.source || 'skybind-bundled-static'} · ${runtime?.mode || 'managed'}`);
+  text('homeRuntimeDetail', runtimeFailure || `${runtime?.source || 'skybind-bundled-static'} · ${runtime?.mode || 'managed'}`);
   text('homeMountValue', statuses.length ? `${running} running` : 'None yet');
   text('homeMountDetail', `${statuses.length} configured`);
   const fuseReady = provider?.fuse_helper_ready === true && provider?.fuse_device_ready === true;
@@ -913,7 +915,10 @@ function renderRuntimeStatus(runtime){
   const grid=document.createElement('div'); grid.className='runtime-provenance-grid';
   metric(grid,'Provider',runtime.runtime_provider||'bundled'); metric(grid,'Repository',runtime.runtime_repository||'—');
   metric(grid,'Architecture','Android arm64'); metric(grid,'Runtime SHA',shortHash(runtime.runtime_sha256));
-  metric(grid,'Authority',runtime.canonical?'Skybind bundled static':'non-canonical'); metric(grid,'Provenance',runtime.provenance_available?(runtime.provenance_valid?'verified':'invalid'):'not available'); card.append(grid);
+  metric(grid,'Authority',runtime.canonical?'Skybind bundled static':'non-canonical'); metric(grid,'Provenance',runtime.provenance_available?(runtime.provenance_valid?'verified':'invalid'):'not available');
+  const runtimeFailure = runtimeFailureText(runtime);
+  if (runtimeFailure) metric(grid,'Integrity failure',runtimeFailure);
+  card.append(grid);
   const fuse=document.createElement('section'); fuse.className='runtime-fuse-card'; const fh=document.createElement('div'); fh.className='mount-head'; const ftitle=document.createElement('div'); const fhead=document.createElement('h4'); fhead.textContent='FUSE helper'; ftitle.append(fhead,paragraph('Provider-independent helper authority is fixed to NewFuture.','muted')); fh.append(ftitle,label(runtime.fuse_helper_ready?'Ready':'Missing',runtime.fuse_helper_ready?'state-pill good':'state-pill bad')); fuse.append(fh);
   const fgrid=document.createElement('div'); fgrid.className='runtime-provenance-grid'; metric(fgrid,'Provider',runtime.fuse_helper_provider==='newfuture'?'NewFuture':runtime.fuse_helper_provider||'NewFuture'); metric(fgrid,'Repository',runtime.fuse_helper_repository||'NewFuture/rclone-fuse3-magisk'); metric(fgrid,'Release',runtime.fuse_helper_release||'—'); metric(fgrid,'Helper SHA',shortHash(runtime.fuse_helper_sha256)); fuse.append(fgrid); card.append(fuse);
   const details=document.createElement('details'); details.className='runtime-technical-details'; const summary=document.createElement('summary'); summary.textContent='Technical paths'; details.append(summary); const dgrid=document.createElement('div'); dgrid.className='runtime-path-list'; metric(dgrid,'Binary',runtime.binary||'—'); metric(dgrid,'FUSE helper',runtime.fuse_helper_binary||'—'); metric(dgrid,'Config',runtime.config||'—'); details.append(dgrid); card.append(details);
@@ -922,7 +927,7 @@ function renderRuntimeStatus(runtime){
   root.append(card);
 }
 
-async function loadRuntime(){const [snapEnvelope,runtimeEnvelope,he,po,ca]=await Promise.all([query('config.snapshot'),query('runtime.status'),query('mount.health'),query('policy.status'),query('cache.status')]);const snap=result(snapEnvelope),runtime=result(runtimeEnvelope);const notice=byId('runtimeNotice');const runtimeMessage=`Runtime authority: ${runtime.mode||'unknown'} · ${runtime.source||'unknown'}${runtime.canonical?' · canonical':''}`;showNotice(notice,runtimeMessage,runtime.operational?'ok':'error');renderRuntimeStatus(runtime);const inspections=new Map(),metrics=new Map();await Promise.all((snap.mounts||[]).map(async(m)=>{try{inspections.set(m.name,result(await query('namespace.inspect',{name:m.name})));}catch(_){inspections.set(m.name,{});}try{metrics.set(m.name,result(await query('rc.metrics',{name:m.name})));}catch(_){metrics.set(m.name,{});}}));renderRuntime(snap,result(he).health||[],result(po).policies||[],result(ca).caches||[],inspections,metrics);}
+async function loadRuntime(){const [snapEnvelope,runtimeEnvelope,he,po,ca]=await Promise.all([query('config.snapshot'),query('runtime.status'),query('mount.health'),query('policy.status'),query('cache.status')]);const snap=result(snapEnvelope),runtime=result(runtimeEnvelope);const notice=byId('runtimeNotice');const runtimeMessage=runtimeFailureText(runtime) || `Runtime authority: ${runtime.mode||'unknown'} · ${runtime.source||'unknown'}${runtime.canonical?' · canonical':''}`;showNotice(notice,runtimeMessage,runtime.operational?'ok':'error');renderRuntimeStatus(runtime);const inspections=new Map(),metrics=new Map();await Promise.all((snap.mounts||[]).map(async(m)=>{try{inspections.set(m.name,result(await query('namespace.inspect',{name:m.name})));}catch(_){inspections.set(m.name,{});}try{metrics.set(m.name,result(await query('rc.metrics',{name:m.name})));}catch(_){metrics.set(m.name,{});}}));renderRuntime(snap,result(he).health||[],result(po).policies||[],result(ca).caches||[],inspections,metrics);}
 
 function logFilterValues() {
   return {
@@ -1046,10 +1051,20 @@ async function loadRemoteBrowser(){await loadRemotes();}
 function stopTimer() { if (state.timer) clearTimeout(state.timer); state.timer = null; }
 function refreshDelay(){const configured=Number(state.settingsSnapshot?.settings?.refresh_seconds||5)*1000;if(state.activeView==='runtime'||state.activeView==='jobs')return Math.max(2000,configured);if(state.activeView==='logs'&&state.settingsSnapshot?.settings?.log_follow&&!state.logPaused)return Math.max(2000,configured);if(state.activeView==='mounts')return Math.max(3000,configured);return Math.max(5000,configured);}
 async function loadViewData(view,{announce=true}={}){const titles={home:'Home',mounts:'Mounts',jobs:'Jobs',activity:'Activity',more:'More',runtime:'Runtime',remotes:'Remote browser',doctor:'Doctor',logs:'Logs',settings:'Settings'};if(view==='more')return;setViewBusy(view,true,announce?`Loading ${titles[view]||view}…`:'');try{if(view==='mounts')await loadMounts();else if(view==='jobs')await loadJobs();else if(view==='activity')await loadOperations();else if(view==='runtime')await loadRuntime();else if(view==='remotes')await loadRemoteBrowser();else if(view==='doctor')await loadDoctor();else if(view==='logs')await loadLogs();else if(view==='settings')await loadSettings();else if(view==='home')await loadHome();if(announce)announceStatus(`${titles[view]||view} ready.`);}catch(error){if(announce)announceStatus(`${titles[view]||view} failed to load.`);throw error;}finally{setViewBusy(view,false);}}
-async function refreshView(view){try{await loadViewData(view,{announce:true});}catch(error){const notices={home:'compatibility',mounts:'mountsNotice',jobs:'jobsNotice',activity:'activityNotice',runtime:'runtimeNotice',remotes:'remotesNotice',doctor:'doctorNotice',logs:'logsNotice',settings:'settingsNotice'};const node=byId(notices[view]||'compatibility');showNotice(node,`Refresh failed: ${String(error?.message||error)}`,'error');}}
+function showHomeLoadFailure(error) {
+  const message = `Home status request failed: ${backendErrorText(error)}`;
+  text('homeHeadline', 'Skybind status unavailable');
+  text('homeSummary', message);
+  const pill = byId('homeHealthPill');
+  if (pill) { pill.textContent = 'Unavailable'; pill.className = 'state-pill bad'; }
+  text('homeRuntimeValue', 'Unavailable');
+  text('homeRuntimeDetail', message);
+  showNotice(byId('homeAttention'), message, 'error');
+}
+async function refreshView(view){try{await loadViewData(view,{announce:true});}catch(error){if(view==='home')showHomeLoadFailure(error);const notices={home:'compatibility',mounts:'mountsNotice',jobs:'jobsNotice',activity:'activityNotice',runtime:'runtimeNotice',remotes:'remotesNotice',doctor:'doctorNotice',logs:'logsNotice',settings:'settingsNotice'};const node=byId(notices[view]||'compatibility');showNotice(node,`Refresh failed: ${String(error?.message||error)}`,'error');}}
 function scheduleRefresh() {
   stopTimer(); if (document.visibilityState !== 'visible') return;
-  state.timer=setTimeout(async()=>{try{if(state.activeView==='logs'&&(!state.settingsSnapshot?.settings?.log_follow||state.logPaused))return;await loadViewData(state.activeView,{announce:false});}catch(_){}finally{scheduleRefresh();}},refreshDelay());
+  state.timer=setTimeout(async()=>{try{if(state.activeView==='logs'&&(!state.settingsSnapshot?.settings?.log_follow||state.logPaused))return;await loadViewData(state.activeView,{announce:false});}catch(error){if(state.activeView==='home')showHomeLoadFailure(error);}finally{scheduleRefresh();}},refreshDelay());
 }
 async function setView(view) {
   const names=['home','mounts','jobs','activity','more','runtime','remotes','doctor','logs','settings'];
@@ -1061,7 +1076,7 @@ async function setView(view) {
   for(const nav of document.querySelectorAll('.nav-item')){const active=nav.dataset.view===primary;nav.classList.toggle('active',active);if(active)nav.setAttribute('aria-current','page');else nav.removeAttribute('aria-current');}
   for(const nav of document.querySelectorAll('.nav-secondary,.more-card,.settings-link')){const active=nav.dataset.view===view;nav.classList.toggle('active',active);if(active)nav.setAttribute('aria-current','page');else nav.removeAttribute('aria-current');}
   text('pageTitle',titles[view]||'Home');
-  try{await loadViewData(view,{announce:true});}catch(error){compatibility.hidden=false;compatibility.className='notice error';compatibility.textContent=`Backend unavailable or incompatible: ${String(error?.message||error)}`;}scheduleRefresh();
+  try{await loadViewData(view,{announce:true});}catch(error){if(view==='home')showHomeLoadFailure(error);compatibility.hidden=false;compatibility.className='notice error';compatibility.textContent=`Backend request failed: ${backendErrorText(error)}`;}scheduleRefresh();
 }
 const skybindLogin = byId('skybindLogin');
 byId('skybindLoginForm')?.addEventListener('submit', async (event) => {

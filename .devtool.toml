@@ -80,6 +80,8 @@ q05-candidate-integration = ["job:q05-candidate-integration"]
 q05p2-native-test-cross-compile = ["job:q05p2-native-test-cross-compile"]
 q05p3-kernelsu-install-contract = ["job:q05p3-kernelsu-install-contract"]
 q05p4-webui-esm-boot = ["job:q05p4-webui-esm-boot"]
+q05p5-static-runtime-integrity = ["job:q05p5-static-runtime-integrity"]
+q05p5-webui-runtime-diagnostics = ["job:q05p5-webui-runtime-diagnostics"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
@@ -704,4 +706,22 @@ metadata = { read_only = true, qualification = "webui-module-syntax-only", physi
 [wrapper.commands.q05p4-webui-esm-boot]
 description = "SB-Q05P4 native ES module syntax gate for candidate WebUI; G01-G08 remain blocked"
 workflow = "q05p4-webui-esm-boot"
+target = "skybind"
+
+# SB-Q05P5: static two-executable provenance is valid; runtime byte checks remain strict.
+[targets.skybind.jobs.q05p5-webui-runtime-diagnostics]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q05p5_webui_runtime.sh"]
+inputs = ["module/webroot/app.js", "module/webroot/parity.js", "tests/qualification/test_q05p5_webui_runtime.py", "scripts/devtool/check_q05p5_webui_runtime.sh"]
+metadata = { qualification = "source-only", device_qualified = false }
+
+[targets.skybind.jobs.q05p5-static-runtime-integrity]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q05p5_static_runtime.sh"]
+inputs = ["internal/integrity/**", "internal/runtimeauth/**", "scripts/devtool/check_q05p5_static_runtime.sh"]
+metadata = { read_only = true, qualification = "runtime-source-only", physical_device = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q05p5-static-runtime-integrity]
+description = "SB-Q05P5 accepts reviewed two-file static FUSE runtime while rejecting tampered bytes; no device attestation"
+workflow = "q05p5-static-runtime-integrity"
 target = "skybind"
