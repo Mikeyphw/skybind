@@ -67,7 +67,7 @@ jobs:
           python3 scripts/dev/runtime/source_build.py build --source-dir upstream \
             --ndk "$ANDROID_HOME/ndk/28.2.13676358" --output-dir dist/lane/bclone_build
           python3 scripts/dev/runtime/source_build.py verify dist/lane/bclone_build
-      - name: Deterministically package BOTH static runtime providers
+      - name: Package exactly the separately verified build bytes (no second build)
         shell: bash
         run: |
           set -euo pipefail
@@ -77,7 +77,7 @@ jobs:
             --output dist/lane/packages/newfuture.zip
           python3 scripts/dev/runtime/skybind_runtime.py package --provider bclone \
             --newfuture-archive inputs/magisk-rclone_arm64-v8a.zip \
-            --bclone-checkout upstream --ndk "$ANDROID_HOME/ndk/28.2.13676358" \
+            --bclone-build-dir dist/lane/bclone_build \
             --output dist/lane/packages/bclone.zip
           python3 scripts/dev/runtime/skybind_runtime.py verify dist/lane/packages/newfuture.zip
           python3 scripts/dev/runtime/skybind_runtime.py verify dist/lane/packages/bclone.zip

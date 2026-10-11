@@ -73,6 +73,7 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 native = ["job:foundation-go"]
 q02-provider-source-contract = ["job:q02-provider-source-contract"]
 q03-upstream-provenance-contract = ["job:q03-upstream-provenance-contract"]
+q04p1-build-binding-contract = ["job:q04p1-build-binding-contract"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
@@ -603,4 +604,18 @@ metadata = { read_only = true, qualification = "raw-intake-only", pin_approval =
 [wrapper.commands.q03-upstream-provenance-contract]
 description = "SB-Q03 source-only upstream provenance intake; never authorizes pins or release seals"
 workflow = "q03-upstream-provenance-contract"
+target = "skybind"
+
+
+# SB-Q04P1: source-level single-authority build/package byte binding.
+# This does not approve any third-party pin or claim an actual CI build.
+[targets.skybind.jobs.q04p1-build-binding-contract]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q04p1_build_binding.sh"]
+inputs = ["scripts/dev/runtime/skybind_runtime.py", "scripts/dev/runtime/source_build.py", "scripts/dev/runtime/source.lock.json", "tests/qualification/test_q04p1_build_binding.py", "scripts/devtool/check_q04p1_build_binding.sh", ".github/workflows/skybind-provider-reproducibility.yml"]
+metadata = { read_only = true, qualification = "source-contract-only", independent_builds = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q04p1-build-binding-contract]
+description = "SB-Q04P1 source-only exact build artifact packaging; G01 still BLOCKED"
+workflow = "q04p1-build-binding-contract"
 target = "skybind"
