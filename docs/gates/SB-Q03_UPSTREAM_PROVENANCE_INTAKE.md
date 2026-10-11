@@ -70,3 +70,8 @@ See <https://go.dev/doc/devel/release>.
 - The evidence tool is not a replacement for SB-Q02's pinned ELF/readelf,
   dependency, reproducibility and packaged FUSE-helper checks.
 - No developer-machine or CI build is certified as device-working by this code.
+
+
+## SB-Q03R1 subsequent policy update (2026-10-10)
+
+The **future bclone build** compiler version is now **Go 1.27.2** (security revision), while the NDK remains `28.2.13676358`. Any earlier Go 1.27.1 reference on this page is historical to the original SB-Q02 implementation. See `docs/gates/SB-Q03R1_TRUST_PIN_REVIEW.md`. No upstream trust pin has been populated, and no device or G01 evidence has been attested.

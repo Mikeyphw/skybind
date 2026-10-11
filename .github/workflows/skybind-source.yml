@@ -21,3 +21,5 @@ jobs:
         run: bash scripts/devtool/check_q02_source_build.sh
       - name: SB-Q03 raw provenance intake contract (no external gates)
         run: bash scripts/devtool/check_q03_source_provenance.sh
+      - name: SB-Q03R1 trust-pin review contract (no external gates)
+        run: bash scripts/devtool/check_q03r1_pin_review.sh

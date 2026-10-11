@@ -160,7 +160,7 @@ def inspect_toolchain(ndk: Path | None) -> dict:
     return {'observed_go_version': go, 'observed_ndk_revision': ndk_rev,
             'q02_go_version': q02.PIN_GO, 'q02_ndk_revision': q02.PIN_NDK,
             'toolchain_pins_reviewed': False,
-            'security_review_required': 'Go 1.27.2 (2026-10-08) fixes security issues; assess migration from pinned Go 1.27.1'}
+            'security_review_required': 'Go 1.27.2 is selected by SB-Q03R1 for future builds; authenticate exact Go and NDK artifacts before trusted pin approval'}
 
 
 def collect(archive: Path, checkout: Path, release_json: Path, commit_json: Path,
