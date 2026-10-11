@@ -132,28 +132,23 @@ def subprocess_safe(cmd:list[str],cwd:Path|None=None,env:dict|None=None)->str:
     if p.returncode:raise Reject('build command failed: '+str(cmd[:2])+' '+(p.stderr or '')[-1200:])
     return p.stdout.strip()
 
-def build_bclone(checkout:Path,commit:str,ndk:Path,ndk_revision:str,go_version:str)->bytes:
-    if not COMMIT.fullmatch(commit or ''):raise Reject('full bclone commit pin required')
-    if not ndk_revision or not go_version:raise Reject('pinned Android NDK revision and Go version required')
-    if not checkout.is_dir() or not (checkout/'go.mod').is_file() or not (checkout/'go.sum').is_file():raise Reject('bclone checkout incomplete')
-    if subprocess_safe(['git','rev-parse','HEAD'],checkout)!=commit:raise Reject('bclone source HEAD not pinned commit')
-    if subprocess_safe(['git','status','--porcelain'],checkout):raise Reject('dirty bclone checkout')
-    props=ndk/'source.properties'
-    if not props.is_file() or ('Pkg.Revision = '+ndk_revision) not in props.read_text():raise Reject('NDK revision mismatch')
-    if subprocess_safe(['go','version'])!=go_version:raise Reject('Go toolchain mismatch')
-    # Distinct paths for Linux x86_64 and Darwin hosts. Termux native compiler
-    # requires its own separately validated recipe, not a host-architecture guess.
-    host=('darwin-x86_64' if sys.platform=='darwin' else 'linux-x86_64')
-    cc=ndk/'toolchains/llvm/prebuilt'/host/'bin/aarch64-linux-android24-clang'
-    if not cc.is_file():raise Reject('NDK aarch64 Android API24 compiler unavailable')
-    with tempfile.TemporaryDirectory() as t:
-        out=Path(t)/'rclone'
-        env={k:v for k,v in os.environ.items() if k not in ('GOFLAGS','GOWORK','GOTOOLCHAIN','GOOS','GOARCH','CGO_ENABLED','CC','CXX','GOPROXY')}
-        env.update(GOOS='android',GOARCH='arm64',CGO_ENABLED='1',CC=str(cc),GOWORK='off',GOTOOLCHAIN='local',GOFLAGS='-trimpath -mod=readonly',SOURCE_DATE_EPOCH='0')
-        subprocess_safe(['go','build','-trimpath','-buildvcs=false','-ldflags=-buildid=','-o',str(out),'.'],checkout,env)
-        blob=out.read_bytes()
-    if not is_arm64_elf(blob):raise Reject('bclone build was not Android-arm64 ELF')
-    return blob
+def build_bclone(checkout:Path,commit:str,ndk:Path,ndk_revision:str,go_version:str,
+                 lock_path:Path=LOCK)->bytes:
+    """SB-Q02: one builder authority, never the old ambient-cache API24 path."""
+    lock=lock_load(lock_path)
+    if (lock['bclone'].get('commit'),lock['bclone'].get('ndk_revision'),
+        lock['bclone'].get('go_version')) != (commit,ndk_revision,go_version):
+        raise Reject('bclone pinned argument mismatch')
+    with tempfile.TemporaryDirectory(prefix='skybind-q02-package-') as temp:
+        output=Path(temp)/'source-build'
+        command=[sys.executable,str(ROOT/'scripts/dev/runtime/source_build.py'),'build',
+                 '--source-dir',str(checkout),'--ndk',str(ndk),'--output-dir',str(output),
+                 '--lock',str(lock_path)]
+        try:
+            subprocess_safe(command)
+        except Reject as exc:
+            raise Reject('SB-Q02 immutable bclone builder rejected input: '+str(exc)) from exc
+        return (output/'rclone').read_bytes()
 
 def provenance(provider:str,payload:dict[str,bytes],lock:dict, archive_sha:str) -> dict:
     return {
@@ -179,7 +174,7 @@ def assemble(provider:str,archive:Path,out:Path,bclone_source:Path|None=None,ndk
     if provider=='bclone':
         if bclone_source is None or ndk is None:raise Reject('bclone source and NDK required')
         b=lock['bclone']
-        files['system/bin/rclone']=build_bclone(bclone_source,b['commit'],ndk,b['ndk_revision'],b['go_version'])
+        files['system/bin/rclone']=build_bclone(bclone_source,b['commit'],ndk,b['ndk_revision'],b['go_version'],lock_path)
     pro=provenance(provider,files,lock,expected)
     files['runtime.provenance.json']=canonical(pro)
     files['module.prop']=(f'id=skybind\nname=Skybind\nversion=0.0.0-dev\nversionCode=1\nauthor=Skybind\ndescription=Skybind build-time {provider} runtime fixture; not an installable full application\n').encode()

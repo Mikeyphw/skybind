@@ -17,3 +17,5 @@ jobs:
           python-version: '3.12'
       - name: Targeted source tests and release evidence denials
         run: bash scripts/devtool/check_c06_integration_release.sh
+      - name: SB-Q02 source-build contract (no external gates)
+        run: bash scripts/devtool/check_q02_source_build.sh

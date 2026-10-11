@@ -71,6 +71,7 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 
 [targets.skybind.workflows]
 native = ["job:foundation-go"]
+q02-provider-source-contract = ["job:q02-provider-source-contract"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
@@ -576,4 +577,17 @@ metadata = {read_only = true, qualification = "gate-triage-only", final_seal = f
 description = "SB-Q01 check the actual G01-G08 and CFS1 blockers; never forge pins, device evidence or seals"
 workflow = "qualification-readiness"
 target = "skybind_release"
+
+
+# SB-Q02: Devtool-integrated source reproducibility contract (not real G01).
+[targets.skybind.jobs.q02-provider-source-contract]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q02_source_build.sh"]
+inputs = ["scripts/dev/runtime/source_build.py", "scripts/dev/runtime/skybind_runtime.py", "scripts/dev/runtime/source.lock.json", "scripts/devtool/check_q02_source_build.sh", "tests/qualification/test_q02_source_build.py", ".github/workflows/skybind-provider-reproducibility.yml"]
+metadata = { read_only = true, qualification = "source-contract-only", independent_builds = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q02-provider-build-contract]
+description = "SB-Q02 fail-closed reproducible provider source contract; NOT independent G01 proof"
+workflow = "q02-provider-source-contract"
+target = "skybind"
 
