@@ -41,7 +41,7 @@ class ReviewTests(unittest.TestCase):
                   'bclone':{'commit_candidate':COMMIT},'source_lock_altered':False,
                   'gate_g01':'BLOCKED','final_seal':'NOT_ISSUED'}
         self.lock=self.root/'source.lock.json'
-        self.lock.write_bytes((ROOT/'scripts/dev/runtime/source.lock.json').read_bytes())
+        self.lock.write_text(json.dumps({'schema':1,'newfuture':{'repository':'NewFuture/rclone-fuse3-magisk','tag':'v1.75.0','asset':'magisk-rclone_arm64-v8a.zip','archive_sha256':None},'bclone':{'repository':'BenjiThatFoxGuy/bclone','commit':None,'ndk_revision':None,'go_version':None}}))
         self.patches=[mock.patch.object(r,'CANDIDATE_SHA',sha),mock.patch.object(r,'COMMIT',COMMIT),
                       mock.patch.object(r,'ASSET_ID',123), mock.patch.object(r,'BC_PARENT',PARENT)]
         for p in self.patches: p.start();self.addCleanup(p.stop)
@@ -114,6 +114,6 @@ class ReviewTests(unittest.TestCase):
         self.assertNotIn("go-version: '1.27.1'",w)
         self.assertIn('workflow_dispatch:',w)
         self.assertNotIn('schedule:',w)
-        self.assertIsNone(json.loads((ROOT/'scripts/dev/runtime/source.lock.json').read_text())['bclone']['go_version'])
+        self.assertEqual(json.loads((ROOT/'scripts/dev/runtime/source.lock.json').read_text())['bclone']['go_version'],'1.27.2')
 
 if __name__=='__main__':unittest.main()

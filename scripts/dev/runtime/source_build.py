@@ -61,6 +61,8 @@ def command(args: list[str], *, cwd: Path | None = None, env: dict | None = None
 
 
 def load_lock(path: Path) -> dict:
+    if path.is_symlink():
+        raise Rejected('source lock may not be symlinked')
     try:
         obj = json.loads(path.read_text(encoding='utf-8'))
         nf, bc = obj['newfuture'], obj['bclone']
@@ -76,6 +78,19 @@ def load_lock(path: Path) -> dict:
         raise Rejected('BLOCKED: independently reviewed bclone full commit pin is missing/invalid')
     if bc.get('ndk_revision') != PIN_NDK or bc.get('go_version') not in (PIN_GO, 'go'+PIN_GO):
         raise Rejected('BLOCKED: reviewed Go 1.27.2 and NDK 28.2.13676358 pins required')
+    if path.absolute() == DEFAULT_LOCK.absolute():
+        # Only the live repository lock needs this second, explicit selection boundary;
+        # synthetic/custom fixture locks still test the immutable build machinery.
+        selection_path = ROOT/'scripts/dev/runtime/source.selection.json'
+        spec = importlib.util.spec_from_file_location('skybind_pin_selection',Path(__file__).with_name('pin_selection.py'))
+        if spec is None or spec.loader is None:
+            raise Rejected('BLOCKED: selected-pin verifier unavailable')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        try:
+            module.verify(path,selection_path)
+        except (module.Rejected,OSError,TypeError,KeyError) as exc:
+            raise Rejected('BLOCKED: source selection inconsistent: '+str(exc)) from exc
     return obj
 
 

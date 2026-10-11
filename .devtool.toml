@@ -74,6 +74,7 @@ native = ["job:foundation-go"]
 q02-provider-source-contract = ["job:q02-provider-source-contract"]
 q03-upstream-provenance-contract = ["job:q03-upstream-provenance-contract"]
 q04p1-build-binding-contract = ["job:q04p1-build-binding-contract"]
+q04p2-pin-selection-contract = ["job:q04p2-pin-selection-contract"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
@@ -618,4 +619,17 @@ metadata = { read_only = true, qualification = "source-contract-only", independe
 [wrapper.commands.q04p1-build-binding-contract]
 description = "SB-Q04P1 source-only exact build artifact packaging; G01 still BLOCKED"
 workflow = "q04p1-build-binding-contract"
+target = "skybind"
+
+
+# SB-Q04P2: selected external inputs, prebuilt custody exception for UNATTESTED CI ONLY.
+[targets.skybind.jobs.q04p2-pin-selection-contract]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q04p2_pin_selection.sh"]
+inputs = ["scripts/dev/runtime/source.lock.json", "scripts/dev/runtime/source.selection.json", "scripts/dev/runtime/pin_selection.py", "scripts/dev/runtime/source_build.py", "scripts/devtool/check_q04p2_pin_selection.sh", "tests/qualification/test_q04p2_pin_selection.py", ".github/workflows/skybind-provider-reproducibility.yml"]
+metadata = { read_only = true, qualification = "selected-inputs-only", independent_attestation = false, independent_builds = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q04p2-pin-selection-contract]
+description = "SB-Q04P2 exact prebuilt + bclone CI input selection, no attestation or G01 pass"
+workflow = "q04p2-pin-selection-contract"
 target = "skybind"

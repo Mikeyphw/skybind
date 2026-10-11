@@ -4,12 +4,12 @@
     "repository": "NewFuture/rclone-fuse3-magisk",
     "tag": "v1.75.0",
     "asset": "magisk-rclone_arm64-v8a.zip",
-    "archive_sha256": null
+    "archive_sha256": "04ebfcc8c21c9583b7d4c723e2e69c1d3bbbd24432f6728ffbc2947e5282aa43"
   },
   "bclone": {
     "repository": "BenjiThatFoxGuy/bclone",
-    "commit": null,
-    "ndk_revision": null,
-    "go_version": null
+    "commit": "7b63b1a4cc9d13465721ebbfc96f2f9bd810f600",
+    "ndk_revision": "28.2.13676358",
+    "go_version": "1.27.2"
   }
 }
