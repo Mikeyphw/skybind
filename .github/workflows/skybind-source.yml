@@ -25,5 +25,7 @@ jobs:
         run: bash scripts/devtool/check_q03r1_pin_review.sh
       - name: SB-Q04P2 selected upstream pins (NOT independent attestation)
         run: bash scripts/devtool/check_q04p2_pin_selection.sh
+      - name: SB-Q04P3 pinned NDK installer exit-status and provenance contract
+        run: bash scripts/devtool/check_q04p3_ndk_install.sh
       - name: SB-Q04P1 exact source-build to package binding (source-only)
         run: bash scripts/devtool/check_q04p1_build_binding.sh

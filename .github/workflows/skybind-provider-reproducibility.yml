@@ -37,8 +37,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358' >/dev/null
-          test -f "$ANDROID_HOME/ndk/28.2.13676358/source.properties"
+          : "${ANDROID_HOME:?ANDROID_HOME must be configured by the GitHub runner}"
+          # sdkmanager is the authoritative command.  When it closes stdin after
+          # accepting licenses, yes gets SIGPIPE; under pipefail that is a false
+          # failure even when sdkmanager succeeded.  Disable pipefail ONLY for
+          # this pipeline.  set -e still rejects a failed sdkmanager (last cmd).
+          set +o pipefail
+          yes 2>/dev/null | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358'
+          set -o pipefail
+          ndk="$ANDROID_HOME/ndk/28.2.13676358"
+          test -f "$ndk/source.properties"
+          grep -Eq '^Pkg\.Revision[[:space:]]*=[[:space:]]*28\.2\.13676358[[:space:]]*$' "$ndk/source.properties"
+          test -x "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang"
       - name: Fetch exact pinned upstream Git commit into disposable checkout
         shell: bash
         run: |

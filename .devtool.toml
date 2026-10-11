@@ -75,6 +75,7 @@ q02-provider-source-contract = ["job:q02-provider-source-contract"]
 q03-upstream-provenance-contract = ["job:q03-upstream-provenance-contract"]
 q04p1-build-binding-contract = ["job:q04p1-build-binding-contract"]
 q04p2-pin-selection-contract = ["job:q04p2-pin-selection-contract"]
+q04p3-ndk-install-contract = ["job:q04p3-ndk-install-contract"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
@@ -632,4 +633,18 @@ metadata = { read_only = true, qualification = "selected-inputs-only", independe
 [wrapper.commands.q04p2-pin-selection-contract]
 description = "SB-Q04P2 exact prebuilt + bclone CI input selection, no attestation or G01 pass"
 workflow = "q04p2-pin-selection-contract"
+target = "skybind"
+
+
+# SB-Q04P3: repair sdkmanager broken-pipe false failure without suppressing
+# sdkmanager errors or weakening the pinned NDK check. SOURCE CONTRACT ONLY.
+[targets.skybind.jobs.q04p3-ndk-install-contract]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q04p3_ndk_install.sh"]
+inputs = [".github/workflows/skybind-provider-reproducibility.yml", "scripts/devtool/check_q04p3_ndk_install.sh", "tests/qualification/test_q04p3_ndk_install.py", "scripts/dev/runtime/source.lock.json"]
+metadata = { read_only = true, qualification = "source-contract-only", independent_builds = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q04p3-ndk-install-contract]
+description = "SB-Q04P3 sdkmanager exit-status fix, pinned NDK integrity checks, NO independent attestation"
+workflow = "q04p3-ndk-install-contract"
 target = "skybind"
