@@ -1,6 +1,9 @@
 """SB-Q05P7 local wrappers: no unpinned provider / no accidental seal."""
 import importlib.util
 import json
+import io
+import contextlib
+import time
 from pathlib import Path
 import subprocess
 import sys
@@ -89,6 +92,53 @@ class LocalWrappers(unittest.TestCase):
         self.assertNotIn('sdkmanager', text)
         self.assertNotIn('force-push', text)
         self.assertIn('CANDIDATE_ONLY_NOT_SEALED', text)
+
+    def test_wrong_go_fails_before_remote_evidence_is_fetched(self):
+        """Regression for the reported ~108-second silent download then failure."""
+        with patch.object(local, 'selected_go', side_effect=local.LocalBuildError('wrong Go')):
+            with patch.object(local, 'evidence_root') as evidence:
+                with self.assertRaisesRegex(local.LocalBuildError, 'wrong Go'):
+                    local.build(provider='bclone')
+                evidence.assert_not_called()
+
+    def test_readable_missing_go_error(self):
+        with patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess(
+                ['go', 'version'], 0, stdout=b'go version go1.26.5 android/arm64\n')):
+            with contextlib.redirect_stdout(io.StringIO()) as messages:
+                with self.assertRaisesRegex(local.LocalBuildError, 'found go1.26.5') as error:
+                    local.selected_go('go')
+            self.assertIn('Toolchain preflight', messages.getvalue())
+            self.assertIn('SKYBIND_LOCAL_GO_BIN', str(error.exception))
+
+    def test_long_command_heartbeat_and_no_provider_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(local, 'LOG_INTERVAL_SECONDS', 0.05):
+                with contextlib.redirect_stdout(io.StringIO()) as messages:
+                    result=local.checked_command([sys.executable, '-c',
+                        'import time;print("SENSITIVE_PROVIDER_CONTENT");time.sleep(0.21)'],
+                        label='Q04 download fixture', cwd=Path(tmp))
+                self.assertEqual(result.returncode,0)
+                output=messages.getvalue()
+                self.assertIn('Q04 download fixture: still running', output)
+                self.assertNotIn('SENSITIVE_PROVIDER_CONTENT', output)
+
+    def test_failing_command_keeps_safe_stage_and_exit_code(self):
+        with self.assertRaisesRegex(local.LocalBuildError, r'Go unit tests failed \(exit 9\)'):
+            local.checked_command([sys.executable, '-c', 'import sys;sys.exit(9)'],
+                                  label='Go unit tests')
+
+    def test_evidence_only_never_requires_go(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            evidence, policy, lock, native = fixture.staged_fixture(root)
+            with patch.object(local,'selected_go') as toolchain, \
+                 patch.object(local.q05, 'evidence_inventory',
+                              return_value={'selection': {'run_id': local.RUN_ID}}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result=local.build(provider='bclone', existing_evidence=evidence,
+                                       verify_only=True)
+                toolchain.assert_not_called()
+                self.assertEqual(result['final_seal'],'NOT_ISSUED')
 
     def test_webui_syntax_is_compilation_gate(self):
         local.verify_webui()

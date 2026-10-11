@@ -45,3 +45,29 @@ its recorded custody exception. Local candidate construction is never
 independent build attestation, device qualification, signing, or release
 sealing. All eight canonical gates stay BLOCKED, seal `NOT_ISSUED`. Do not
 flash a local build as a production release without device qualification.
+
+### Local build feedback and missing toolchain (SB-Q05P7 V3)
+
+The wrapper checks the exact selected compiler version before requesting any Q04
+artifacts from GitHub. A mismatch exits promptly and reports the detected Go
+version and selected `SKYBIND_LOCAL_GO_BIN` executable. To inspect what your
+current Termux environment offers:
+
+```sh
+command -v go || true
+go version
+```
+
+The selected compiler remains **Go 1.27.2**; this repair never substitutes an
+unreviewed version. Set `SKYBIND_LOCAL_GO_BIN` to an executable that reports
+that exact version. `pkg install golang` may provide a different version,
+so check `go version` rather than assuming its compatibility. A Linux Go
+binary for glibc cannot be assumed executable in native Termux.
+
+During successful builds, stages are reported as they begin and complete:
+compiler preflight, immutable Q04 evidence acquisition and validation, WebUI
+syntax and regressions, Go tests, Android cross-compilation, ELF verification,
+module assembly, and final ZIP verification. Long-running steps emit a liveness
+line every 15 seconds. Local **Go** test and compiler output is streamed to
+Devtool. Provider/`gh` stdout and stderr remain suppressed to avoid leaking
+remote details or credentials. No artifact is marked qualified or sealed.
