@@ -25,6 +25,18 @@ jobs:
           python3 scripts/dev/runtime/pin_selection.py verify
           python3 -m unittest discover -s tests/qualification -p 'test_q05_candidate_integration.py' -v
           python3 -m unittest discover -s tests/qualification -p 'test_q05p3_kernelsu_install.py' -v
+      # An ES module must be parsed in module mode. Plain `node --check file.js`
+      # can parse as a script and miss module-only syntax failures.
+      - name: Validate packaged WebUI ES module syntax (fail CLOSED)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v node >/dev/null
+          for source in module/webroot/*.js; do
+            test -f "$source"
+            node --input-type=module --check < "$source"
+          done
+          python3 -m unittest discover -s tests/qualification -p 'test_q05p4_webui_esm.py' -v
       - name: Download selected successful Q04 run and two independent lanes
         shell: bash
         env:
