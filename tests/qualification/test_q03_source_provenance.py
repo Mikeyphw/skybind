@@ -142,7 +142,7 @@ class ProvenanceTests(unittest.TestCase):
         tool = p.inspect_toolchain(ndk)
         self.assertEqual(tool['observed_ndk_revision'],p.q02.PIN_NDK)
         self.assertFalse(tool['toolchain_pins_reviewed'])
-        self.assertIn('1.27.2',tool['security_review_required'])
+        self.assertIn('Go 1.27.2 is selected',tool['security_review_required'])
         (ndk/'source.properties').write_text('Pkg.Revision = unrecognizable\nPkg.Revision = repeated\n')
         with self.assertRaisesRegex(p.Rejected,'ambiguous'):p.inspect_toolchain(ndk)
 

@@ -65,3 +65,8 @@ or the final seal can be considered. A green source-only test is not a gate pass
 **Termux note:** The pinned recipe requires the Linux x86_64 NDK prebuilt host.
 Do not pretend that Android/Termux-native clang is identical or that a device-local
 Go build satisfies the independent Ubuntu CI lane requirement.
+
+
+## SB-Q03R1 subsequent policy update (2026-10-10)
+
+The **future bclone build** compiler version is now **Go 1.27.2** (security revision), while the NDK remains `28.2.13676358`. Any earlier Go 1.27.1 reference on this page is historical to the original SB-Q02 implementation. See `docs/gates/SB-Q03R1_TRUST_PIN_REVIEW.md`. No upstream trust pin has been populated, and no device or G01 evidence has been attested.

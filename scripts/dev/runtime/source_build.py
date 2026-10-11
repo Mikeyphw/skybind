@@ -20,7 +20,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LOCK = ROOT / 'scripts/dev/runtime/source.lock.json'
-PIN_GO = '1.27.1'
+PIN_GO = '1.27.2'
 PIN_NDK = '28.2.13676358'
 API_LEVEL = 21
 BCLONE_REPO = 'BenjiThatFoxGuy/bclone'
@@ -75,7 +75,7 @@ def load_lock(path: Path) -> dict:
     if not COMMIT.fullmatch(bc.get('commit') or ''):
         raise Rejected('BLOCKED: independently reviewed bclone full commit pin is missing/invalid')
     if bc.get('ndk_revision') != PIN_NDK or bc.get('go_version') not in (PIN_GO, 'go'+PIN_GO):
-        raise Rejected('BLOCKED: reviewed Go 1.27.1 and NDK 28.2.13676358 pins required')
+        raise Rejected('BLOCKED: reviewed Go 1.27.2 and NDK 28.2.13676358 pins required')
     return obj
 
 
