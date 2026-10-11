@@ -74,8 +74,24 @@ def verify_installed_runtime(files: dict[str, bytes]) -> dict:
         if provenance.get('provider') not in ('newfuture', 'bclone') or provenance.get('engine_path') != 'system/bin/rclone' or provenance.get('helper_path') != 'system/vendor/bin/fusermount3':
             raise Reject('invalid runtime authority identity')
         required = provenance.get('files')
-        if not isinstance(required, dict) or not 3 <= len(required) <= 66:
+        if not isinstance(required, dict) or not 2 <= len(required) <= 66:
             raise Reject('invalid runtime provenance inventory')
+        # Q04's reviewed static fusermount3 layout legitimately has only two
+        # runtime ELF files. Never invent a libfuse dependency or accept an
+        # untracked system file merely to satisfy an arbitrary file count.
+        actual_system = {name for name in files if name.startswith('system/')}
+        if set(required) != (actual_system - {'system/bin/skybind'}):
+            raise Reject('unrecorded or missing installed system payload')
+        delivery = provenance.get('fuse_delivery')
+        fuse_libs = {name for name in required if name.startswith('system/vendor/lib64/libfuse') and name.endswith('.so')}
+        if delivery == 'reviewed_static_helper_layout':
+            if fuse_libs or len(required) != 2:
+                raise Reject('static helper layout must contain only two ELF executables')
+        elif delivery == 'shared_libfuse':
+            if not fuse_libs:
+                raise Reject('shared libfuse layout missing required libraries')
+        else:
+            raise Reject('unknown FUSE delivery layout')
         for name, record in required.items():
             if not isinstance(name, str) or not safe_path(name) or not name.startswith('system/') or not isinstance(record, dict):
                 raise Reject('invalid runtime member name')

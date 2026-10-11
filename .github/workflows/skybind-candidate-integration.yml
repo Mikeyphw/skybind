@@ -1,0 +1,84 @@
+# SB-Q05P1: unqualified candidate integration; never install, sign or seal.
+name: Skybind complete Android candidates (UNQUALIFIED)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  assemble-candidates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout current Skybind candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify exact Q04 input policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.ref }}" = 'refs/heads/main'
+          python3 scripts/dev/runtime/pin_selection.py verify
+          python3 -m unittest discover -s tests/qualification -p 'test_q05_candidate_integration.py' -v
+      - name: Download selected successful Q04 run and two independent lanes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/artifacts
+          gh run view 38110749243 --repo Mikeyphw/skybind \
+            --json headSha,headBranch,status,conclusion,workflowName,url,jobs > evidence/run.json
+          gh run download 38110749243 --repo Mikeyphw/skybind -D evidence/artifacts
+          python3 scripts/dev/integration/q05_candidate.py --evidence-root evidence
+      - name: Install selected Go for native Skybind build (no cache)
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.2'
+          check-latest: false
+          cache: false
+      - name: Compile static Go Android/arm64 Skybind native executable
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          CGO_ENABLED: '0'
+          GOOS: android
+          GOARCH: arm64
+          GOWORK: off
+        run: |
+          set -euo pipefail
+          test "$(go version)" = 'go version go1.27.2 linux/amd64'
+          go test ./...
+          mkdir -p dist/native
+          go build -trimpath -buildvcs=false -ldflags='-buildid= -s -w' \
+            -o dist/native/skybind ./cmd/skybind
+          go version -m dist/native/skybind | tee dist/native/go-build-info.txt
+          grep -Fq 'go1.27.2' dist/native/go-build-info.txt
+          grep -Eq 'GOOS=android' dist/native/go-build-info.txt
+          grep -Eq 'GOARCH=arm64' dist/native/go-build-info.txt
+          grep -Eq 'CGO_ENABLED=0' dist/native/go-build-info.txt
+      - name: Build and independently verify both complete source-only candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/dev/integration/q05_candidate.py --evidence-root evidence \
+            --native dist/native/skybind --output dist/candidates | tee dist/candidate-summary.json
+          for p in newfuture bclone; do
+            python3 scripts/dev/release/skybind_release.py verify \
+              "dist/candidates/skybind-${p}-CANDIDATE-UNQUALIFIED.zip"
+          done
+          echo 'CANDIDATES_UNQUALIFIED: no device install or gate/seal attestation issued'
+      - name: Upload exact candidate bytes and unqualified reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skybind-q05-full-candidates-UNQUALIFIED
+          path: |
+            dist/candidates/
+            dist/native/go-build-info.txt
+            dist/candidate-summary.json
+          retention-days: 30
+          if-no-files-found: error

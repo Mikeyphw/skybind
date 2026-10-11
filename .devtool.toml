@@ -76,6 +76,7 @@ q03-upstream-provenance-contract = ["job:q03-upstream-provenance-contract"]
 q04p1-build-binding-contract = ["job:q04p1-build-binding-contract"]
 q04p2-pin-selection-contract = ["job:q04p2-pin-selection-contract"]
 q04p3-ndk-install-contract = ["job:q04p3-ndk-install-contract"]
+q05-candidate-integration = ["job:q05-candidate-integration"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
@@ -647,4 +648,18 @@ metadata = { read_only = true, qualification = "source-contract-only", independe
 [wrapper.commands.q04p3-ndk-install-contract]
 description = "SB-Q04P3 sdkmanager exit-status fix, pinned NDK integrity checks, NO independent attestation"
 workflow = "q04p3-ndk-install-contract"
+target = "skybind"
+
+
+# SB-Q05P1: real Q04 raw outputs => complete module candidate source integration.
+# Not a device gate; two candidate ZIPs are explicitly unqualified.
+[targets.skybind.jobs.q05-candidate-integration]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q05_candidate_integration.sh"]
+inputs = ["scripts/dev/integration/**", "scripts/dev/release/skybind_release.py", "module/**", "tests/qualification/test_q05_candidate_integration.py", "scripts/devtool/check_q05_candidate_integration.sh", ".github/workflows/skybind-candidate-integration.yml"]
+metadata = { read_only = true, qualification = "candidate-source-only", independent_attestation = false, physical_device = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q05-candidate-integration]
+description = "SB-Q05P1 binds real Q04 CI receipts to complete source-only Android candidates; no seal"
+workflow = "q05-candidate-integration"
 target = "skybind"
