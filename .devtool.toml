@@ -72,6 +72,7 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 [targets.skybind.workflows]
 native = ["job:foundation-go"]
 q02-provider-source-contract = ["job:q02-provider-source-contract"]
+q03-upstream-provenance-contract = ["job:q03-upstream-provenance-contract"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
@@ -591,3 +592,15 @@ description = "SB-Q02 fail-closed reproducible provider source contract; NOT ind
 workflow = "q02-provider-source-contract"
 target = "skybind"
 
+
+# SB-Q03: source-only upstream provenance intake; all external gates remain blocked.
+[targets.skybind.jobs.q03-upstream-provenance-contract]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q03_source_provenance.sh"]
+inputs = ["scripts/dev/runtime/source_provenance.py", "scripts/dev/runtime/source.lock.json", "scripts/devtool/check_q03_source_provenance.sh", "tests/qualification/test_q03_source_provenance.py", ".github/workflows/skybind-upstream-provenance.yml"]
+metadata = { read_only = true, qualification = "raw-intake-only", pin_approval = false, independent_attestation = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q03-upstream-provenance-contract]
+description = "SB-Q03 source-only upstream provenance intake; never authorizes pins or release seals"
+workflow = "q03-upstream-provenance-contract"
+target = "skybind"

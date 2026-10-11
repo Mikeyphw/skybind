@@ -1,0 +1,78 @@
+# SB-Q03: reviewer-invoked collection of untrusted but inspectable upstream bytes.
+# Separate from SB-Q02 reproducibility lanes and from all G01-G08 attestations.
+name: Skybind upstream provenance intake (RAW_UNATTESTED)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bclone_commit:
+        description: 'Candidate 40-hex commit reviewed for inspection (not auto-approved)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  raw-upstream-intake:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Source checkout, no persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate candidate SHA before any Git request
+        shell: bash
+        env:
+          CANDIDATE: ${{ inputs.bclone_commit }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE" =~ ^[a-f0-9]{40}$ ]] || { echo 'Candidate not full lowercase commit'; exit 3; }
+      - name: Fetch official release API metadata and asset bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs outputs
+          gh api repos/NewFuture/rclone-fuse3-magisk/releases/tags/v1.75.0 > inputs/newfuture-release.json
+          gh release download v1.75.0 --repo NewFuture/rclone-fuse3-magisk \
+            --pattern magisk-rclone_arm64-v8a.zip --dir inputs
+      - name: Fetch exact official bclone object plus GitHub API snapshot
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ inputs.bclone_commit }}
+        run: |
+          set -euo pipefail
+          gh api "repos/BenjiThatFoxGuy/bclone/commits/$CANDIDATE" > inputs/bclone-commit.json
+          mkdir upstream
+          git -C upstream init -q
+          git -C upstream remote add origin https://github.com/BenjiThatFoxGuy/bclone.git
+          git -C upstream fetch --no-tags --depth=1 origin "$CANDIDATE"
+          git -C upstream checkout --detach -q FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "$CANDIDATE"
+      - name: Inspect raw provenance (NEVER approve/attest/pin)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/dev/runtime/source_provenance.py collect \
+            --newfuture-archive inputs/magisk-rclone_arm64-v8a.zip \
+            --bclone-checkout upstream \
+            --release-json inputs/newfuture-release.json \
+            --commit-json inputs/bclone-commit.json \
+            --output outputs/skybind-upstream-raw-unattested.json
+          sha256sum inputs/magisk-rclone_arm64-v8a.zip inputs/*.json outputs/*.json > outputs/SHA256SUMS
+          echo 'RAW_UNATTESTED ONLY — source.lock unchanged; G01 BLOCKED; seal NOT_ISSUED'
+      - name: Preserve review snapshots (NOT signed provenance)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sb-q03-raw-upstream-review
+          path: |
+            inputs/*.json
+            inputs/magisk-rclone_arm64-v8a.zip
+            outputs/*.json
+            outputs/SHA256SUMS
+          retention-days: 30
+          if-no-files-found: error

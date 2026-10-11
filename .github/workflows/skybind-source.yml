@@ -19,3 +19,5 @@ jobs:
         run: bash scripts/devtool/check_c06_integration_release.sh
       - name: SB-Q02 source-build contract (no external gates)
         run: bash scripts/devtool/check_q02_source_build.sh
+      - name: SB-Q03 raw provenance intake contract (no external gates)
+        run: bash scripts/devtool/check_q03_source_provenance.sh
