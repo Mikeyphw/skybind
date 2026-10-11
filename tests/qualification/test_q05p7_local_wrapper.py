@@ -45,15 +45,68 @@ class LocalWrappers(unittest.TestCase):
             self.assertEqual(cmd[:2], ['python3', 'scripts/dev/integration/local_build.py'])
             self.assertNotIn('release', cmd)
 
-    def test_selected_go_version_is_strict(self):
+    def test_selected_go_accepts_exact_local_1271_compatibility_only(self):
         with patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([], 0, stdout=b'go version go1.27.1 android/arm64\n')):
-            with self.assertRaisesRegex(local.LocalBuildError, 'Go 1.27.2'):
-                local.selected_go('go')
+            with contextlib.redirect_stdout(io.StringIO()) as messages:
+                version, env = local.selected_go('go')
+            self.assertEqual(version, '1.27.1')
+            self.assertIn('LOCAL, UNQUALIFIED', messages.getvalue())
+            self.assertIn('CI source pin remains Go 1.27.2', messages.getvalue())
+            self.assertEqual(env['GOTOOLCHAIN'], 'local')
+            self.assertEqual(env['CGO_ENABLED'], '0')
         with patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([], 0, stdout=b'go version go1.27.2 android/arm64\n')):
             version, env = local.selected_go('go')
             self.assertEqual(version, '1.27.2')
             self.assertEqual(env['GOTOOLCHAIN'], 'local')
-            self.assertEqual(env['CGO_ENABLED'], '0')
+
+    def test_other_compilers_remain_rejected_before_evidence_download(self):
+        for version in ('1.27.0','1.27.3','1.26.5','1.28.0'):
+            with self.subTest(version=version), patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([], 0, stdout=f'go version go{version} android/arm64\n'.encode())):
+                with self.assertRaisesRegex(local.LocalBuildError, 'No provider download'):
+                    local.selected_go('go')
+        with patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([], 0, stdout=b'garbled untrusted version\n')):
+            with self.assertRaises(local.LocalBuildError):
+                local.selected_go('go')
+
+    def test_mismatched_ci_lock_does_not_authorize_fallback(self):
+        with patch.object(local.q05, 'json_input', return_value={'bclone': {'go_version': '1.27.3'}}), \
+                patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([], 0, stdout=b'go version go1.27.1 android/arm64\n')):
+            with self.assertRaisesRegex(local.LocalBuildError, 'CI pin is 1.27.2'):
+                local.selected_go('go')
+
+    def test_local_candidate_receipt_records_actual_not_selected_compiler(self):
+        for version, matches in (('1.27.1', False), ('1.27.2', True)):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
+                report = {'final_seal':'NOT_ISSUED','gate_g01':'BLOCKED',
+                          'independent_attestation':False,'physical_device_tested':False}
+                local.record_local_toolchain(Path(tmp),report,version,'1.27.2')
+                disk = json.loads((Path(tmp)/'candidate-evidence.json').read_text())
+                self.assertEqual(disk['toolchain'],'go'+version)
+                self.assertEqual(disk['selected_ci_toolchain'],'go1.27.2')
+                self.assertEqual(disk['local_go_matches_ci_pin'], matches)
+                self.assertEqual(disk['final_seal'],'NOT_ISSUED')
+                self.assertFalse(disk['independent_attestation'])
+                self.assertEqual(disk['build_kind'],'LOCAL_DEVELOPMENT_UNQUALIFIED')
+        with tempfile.TemporaryDirectory() as tmp:
+            good={'final_seal':'NOT_ISSUED','gate_g01':'BLOCKED',
+                  'independent_attestation':False,'physical_device_tested':False}
+            for altered in (dict(good,final_seal='ISSUED'), dict(good,independent_attestation=True)):
+                with self.assertRaises(local.LocalBuildError):
+                    local.record_local_toolchain(Path(tmp),altered,'1.27.1','1.27.2')
+            with self.assertRaises(local.LocalBuildError):
+                local.record_local_toolchain(Path(tmp),good,'1.27.3','1.27.2')
+
+    def test_native_metadata_rejects_wrong_local_compiler(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            elf=Path(tmp)/'skybind'
+            elf.write_bytes(b'fixture')
+            env={'GOTOOLCHAIN':'local'}
+            good = b'file: go1.27.1\n  build GOOS=android\n  build GOARCH=arm64\n  build CGO_ENABLED=0\n'
+            with patch.object(local.q05.release, 'is_arm64_elf', return_value=True), \
+                 patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([],0,stdout=good)):
+                local.verify_native(elf,'1.27.1','go',env)
+                with self.assertRaisesRegex(local.LocalBuildError,'metadata mismatches'):
+                    local.verify_native(elf,'1.27.2','go',env)
 
     def test_invalid_source_cannot_reach_local_compile(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -139,6 +192,48 @@ class LocalWrappers(unittest.TestCase):
                                        verify_only=True)
                 toolchain.assert_not_called()
                 self.assertEqual(result['final_seal'],'NOT_ISSUED')
+
+    def test_local_1271_full_candidate_receipt_matches_built_binary(self):
+        """End-to-end local candidate uses verified Q04 provider and records 1.27.1."""
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence, policy, lock, fixture_native = fixture.staged_fixture(root)
+            artifact_dir = root/'local-candidates'
+
+            def fake_command(argv, **kwargs):
+                if len(argv) > 1 and argv[1] == 'build':
+                    shutil.copyfile(fixture_native, argv[argv.index('-o') + 1])
+                if len(argv) > 2 and argv[1:3] == ['version', '-m']:
+                    return subprocess.CompletedProcess(argv, 0, stdout=(
+                        b'file: go1.27.1\n  build GOOS=android\n'
+                        b'  build GOARCH=arm64\n  build CGO_ENABLED=0\n'))
+                return subprocess.CompletedProcess(argv, 0, stdout=b'')
+
+            actual_inventory = q05.evidence_inventory
+            actual_assemble = q05.assemble
+            with patch.object(local.q05, 'LOCK', lock), \
+                 patch.object(local, 'evidence_root', return_value=evidence), \
+                 patch.object(q05, 'evidence_inventory', side_effect=lambda source, *args, **kwargs: actual_inventory(source, policy, lock)), \
+                 patch.object(q05, 'assemble', side_effect=lambda source, native, output, *, providers: actual_assemble(source,native,output,policy,lock,providers=providers)), \
+                 patch.object(local, 'selected_go', return_value=('1.27.1', {
+                      'GOTOOLCHAIN':'local','GOWORK':'off','CGO_ENABLED':'0'})), \
+                 patch.object(local, 'checked_command', side_effect=fake_command), \
+                 patch.object(local, 'verify_webui'):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    report = local.build(provider='bclone', existing_evidence=evidence,
+                                         output_parent=artifact_dir)
+            out=Path(report['local_output'])
+            sidecar=json.loads((out/'candidate-evidence.json').read_bytes())
+            self.assertEqual(sidecar['toolchain'],'go1.27.1')
+            self.assertEqual(sidecar['selected_ci_toolchain'],'go1.27.2')
+            self.assertFalse(sidecar['local_go_matches_ci_pin'])
+            self.assertEqual(sidecar['build_kind'],'LOCAL_DEVELOPMENT_UNQUALIFIED')
+            self.assertEqual(sidecar['final_seal'],'NOT_ISSUED')
+            self.assertFalse(sidecar['independent_attestation'])
+            self.assertEqual(len(list(out.glob('*.zip'))),1)
+            self.assertEqual(q05.release.verify_release(next(out.glob('*.zip')))['qualification'],
+                             'CANDIDATE_ONLY_NOT_SEALED')
 
     def test_webui_syntax_is_compilation_gate(self):
         local.verify_webui()

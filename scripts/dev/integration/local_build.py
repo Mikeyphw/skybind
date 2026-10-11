@@ -28,6 +28,9 @@ REPOSITORY = 'Mikeyphw/skybind'
 CACHE = ROOT / 'build/local-q04-evidence'
 OUTPUT_BASE = ROOT / 'dist/local-candidates'
 GO_VERSION = re.compile(r'^go version go(\d+\.\d+\.\d+)\s+(\S+)/(\S+)(?:\s|$)')
+# The only reviewed local compatibility exception. Never changes source.lock.json,
+# Q04 provider provenance, GitHub CI compiler selection or release qualification.
+LOCAL_COMPATIBILITY = {('1.27.2', '1.27.1')}
 
 class LocalBuildError(RuntimeError):
     pass
@@ -144,18 +147,24 @@ def selected_go(go_bin: str) -> tuple[str, dict[str, str]]:
     selected = lock['bclone']['go_version']
     env = os.environ.copy()
     env.update({'GOTOOLCHAIN': 'local', 'GOWORK': 'off', 'CGO_ENABLED': '0'})
-    progress(f'Toolchain preflight: checking selected Go {selected} before any evidence download')
+    progress(f'Toolchain preflight: checking local Go against CI pin {selected} before any evidence download')
     p = checked_command([go_bin, 'version'], env=env, capture=True, label='Go version probe')
     detected = p.stdout.decode('utf-8', errors='replace').strip()
     match = GO_VERSION.fullmatch(detected)
-    if not match or match.group(1) != selected:
-        found = ('go' + match.group(1)) if match else 'unrecognized version output'
+    detected_version = match.group(1) if match else None
+    if detected_version != selected and (selected, detected_version) not in LOCAL_COMPATIBILITY:
+        found = ('go' + detected_version) if detected_version else 'unrecognized version output'
         raise LocalBuildError(
-            f'pinned Go {selected} required, found {found} ({go_bin}); '
-            'install the selected compiler or set SKYBIND_LOCAL_GO_BIN=/absolute/path/to/go. '
+            f'Go {selected} (selected CI pin) or explicitly reviewed local Go 1.27.1 '
+            f'(only when CI pin is 1.27.2) required, found {found} ({go_bin}); '
+            'set SKYBIND_LOCAL_GO_BIN=/absolute/path/to/go for a supported compiler. '
             'No provider download or compilation was attempted')
-    progress(f'Toolchain preflight: Go {selected} selected ({go_bin})')
-    return selected, env
+    if detected_version != selected:
+        progress(f'Toolchain preflight: Go {detected_version} accepted for LOCAL, UNQUALIFIED '
+                 f'build only ({go_bin}); CI source pin remains Go {selected}')
+    else:
+        progress(f'Toolchain preflight: Go {selected} matches CI pin ({go_bin})')
+    return detected_version, env
 
 
 def verify_webui() -> None:
@@ -181,6 +190,26 @@ def verify_native(binary: Path, expected_go: str, go_bin: str, env: dict[str, st
         raise LocalBuildError('native Go build metadata mismatches selected Android toolchain')
 
 
+def record_local_toolchain(output: Path, report: dict, actual_go: str, ci_pin: str) -> None:
+    """Persist actual compiler identity beside the candidate, never a qualification claim.
+
+    This is deliberately not a modification to Q04 receipts or the provider lock.
+    The native ELF is independently checked against *actual_go* before entry.
+    """
+    if (report.get('final_seal'), report.get('gate_g01'),
+            report.get('independent_attestation'), report.get('physical_device_tested')) != (
+                'NOT_ISSUED', 'BLOCKED', False, False):
+        raise LocalBuildError('local evidence cannot claim independent qualification')
+    if actual_go != ci_pin and (ci_pin, actual_go) not in LOCAL_COMPATIBILITY:
+        raise LocalBuildError('unreviewed local compiler cannot be recorded')
+    report['build_kind'] = 'LOCAL_DEVELOPMENT_UNQUALIFIED'
+    report['toolchain'] = 'go' + actual_go
+    report['selected_ci_toolchain'] = 'go' + ci_pin
+    report['local_go_matches_ci_pin'] = actual_go == ci_pin
+    report['local_toolchain_qualification'] = 'NOT_ATTESTED_NOT_CI_EQUIVALENT'
+    (output / 'candidate-evidence.json').write_bytes(q05.rt.canonical(report))
+
+
 def build(*, provider: str, existing_evidence: Path | None = None, go_bin: str = 'go',
           verify_only: bool = False, output_parent: Path = OUTPUT_BASE) -> dict:
     if provider not in ('newfuture', 'bclone', 'both'):
@@ -202,6 +231,7 @@ def build(*, provider: str, existing_evidence: Path | None = None, go_bin: str =
 
     # Fail immediately on missing/wrong Go before the potentially long gh fetch.
     version, env = selected_go(go_bin)
+    ci_pin = q05.json_input(q05.LOCK)['bclone']['go_version']
     if q04 is None:
         q04 = evidence_root()
     progress('Q04 evidence: checking canonical provider inventory')
@@ -242,8 +272,9 @@ def build(*, provider: str, existing_evidence: Path | None = None, go_bin: str =
                     if q05.release.verify_release(out / item['file'])['qualification'] != 'CANDIDATE_ONLY_NOT_SEALED':
                         raise LocalBuildError('local candidate qualification mismatch')
             report['local_output'] = str(out)
-            report['toolchain'] = 'go' + version
-            progress('SUCCESS: verified unqualified modules at ' + str(out))
+            record_local_toolchain(out, report, version, ci_pin)
+            progress('SUCCESS: local, unqualified module(s) built with Go ' + version +
+                     ' (CI pin remains Go ' + ci_pin + ') at ' + str(out))
             print(json.dumps(report, sort_keys=True), flush=True)
             return report
         except BaseException:

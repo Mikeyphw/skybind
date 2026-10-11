@@ -12,11 +12,15 @@ Like the earlier Rclone Nexus workflow, Skybind supports native Devtool wrappers
 ```
 
 `build*` runs locally through `devtool wrapper exec`, **not GitHub Actions**. The
-selected `go1.27.2` must exist on the local host and be visible as `go` or be
-selected with `SKYBIND_LOCAL_GO_BIN=/absolute/path/to/go`. Required commands:
+selected CI compiler remains `go1.27.2`. For **local unqualified module
+assembly only**, the exact Termux compiler `go1.27.1` is additionally accepted,
+without changing the source lock or the two independent provider build lanes.
+The local compiler must be visible as `go` or be selected with
+`SKYBIND_LOCAL_GO_BIN=/absolute/path/to/go`. Required commands:
 `python3`, `node`, `go`, and `gh` (only for the initial Q04 evidence download).
 On Termux, the pinned Go toolchain must execute for `android/arm64` natively.
-The builder refuses ambient compiler substitutions or arbitrary runtime inputs.
+Every other Go version, including `go1.27.0` and `go1.27.3`, fails closed.
+The builder refuses arbitrary compiler substitutions or runtime inputs.
 
 The first invocation retrieves the **already successful Q04 run 38110749243**
 through authenticated `gh`, binds its exact repository, run identity, source
@@ -30,14 +34,19 @@ retrieval by setting `SKYBIND_Q04_EVIDENCE_ROOT=/absolute/path/to/the/unpacked/e
 (the directory must contain `run.json` and `artifacts/`). A damaged cache is
 an error, **never an invitation to try a different build or use mutable tags**.
 
-Skybind's own native daemon is compiled from the current checkout with pinned
-Go, `CGO_ENABLED=0`, `GOOS=android`, and `GOARCH=arm64`, after native host Go
+Skybind's own native daemon is compiled from the current checkout with the
+**accepted actual local compiler**, `CGO_ENABLED=0`, `GOOS=android`, and
+`GOARCH=arm64`, after native host Go
 tests and WebUI ES-module checks. The existing deterministic Q05 packager
 consumes the selected Q04 NewFuture or bclone ZIPs *unchanged*. The builder
 never attempts an NDK/source rebuild of bclone on the phone. Each invocation
 writes a distinct output folder at `dist/local-candidates/candidate-*/`
 containing `skybind-<provider>-CANDIDATE-UNQUALIFIED.zip` and
-`candidate-evidence.json`. This avoids overwriting earlier outputs.
+`candidate-evidence.json`. The on-disk evidence always records the **actual**
+compiler (`toolchain`, e.g. `go1.27.1`), selected CI pin (`selected_ci_toolchain`,
+`go1.27.2`), and `local_go_matches_ci_pin=false` when different; it remains
+`LOCAL_DEVELOPMENT_UNQUALIFIED` with all gates blocked. This avoids overwriting
+earlier outputs or misrepresenting a local build as a CI-equivalent artifact.
 
 `runtime-newfuture`/`runtime-bclone` only fetch/verify evidence; **they do
 not build a new provider release**. NewFuture is the official prebuilt with
@@ -58,11 +67,13 @@ command -v go || true
 go version
 ```
 
-The selected compiler remains **Go 1.27.2**; this repair never substitutes an
-unreviewed version. Set `SKYBIND_LOCAL_GO_BIN` to an executable that reports
-that exact version. `pkg install golang` may provide a different version,
-so check `go version` rather than assuming its compatibility. A Linux Go
-binary for glibc cannot be assumed executable in native Termux.
+The **CI pin remains Go 1.27.2**. With `go1.27.1 android/arm64` already installed
+in Termux, `./devtoolw build-bclone` uses that compiler automatically, prints
+`LOCAL, UNQUALIFIED`, and verifies that the resulting ELF's Go build metadata
+identifies **Go 1.27.1**. No local builds using Go 1.27.1 may be used as
+independent CI reproducibility evidence or release qualification. No provider
+or FUSE-helper binaries are rebuilt. For a CI-pin-matching local build,
+select an actual Go 1.27.2 compiler with `SKYBIND_LOCAL_GO_BIN`.
 
 During successful builds, stages are reported as they begin and complete:
 compiler preflight, immutable Q04 evidence acquisition and validation, WebUI
