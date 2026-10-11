@@ -1,6 +1,6 @@
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
-import { runtimeFailureText } from './parity.js';
+import { runtimeFailureText, providerReadinessPresentation } from './parity.js';
 import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, suggestMountDefaults } from './model.js';
 
 const byId = (id) => document.getElementById(id);
@@ -10,7 +10,7 @@ const state = {
   caps: null, snapshot: null, activeView: 'home', timer: null, editorOriginal: '', editorDelete: false,
   preview: null, previewCandidates: null, rollbackPreview: null, refreshing: false,
   editorDirty: false, editorInitial: '', editorExisting: false, editorValidationTimer: null, editorValidationSeq: 0, editorIssues: [], editorStep: 0, editorInteracted: false,
-  editorRemotes: [], editorProfiles: [], editorRecommendation: null, editorProviderStatus: null, editorRemotePath: '', editorManualRemote: false, editorRemoteReachable: null, editorNameTouched: false, editorMountpointTouched: false, editorProfileTouched: false, editorBackendValidated: false, editorTrigger: null, editorSession: 0, previewTimer: null, operationPollToken: 0, mountActionName: '', mountActionReturnFocus: null,
+  editorRemotes: [], editorProfiles: [], editorRecommendation: null, editorProviderStatus: null, editorRuntimeStatus: null, editorRemotePath: '', editorManualRemote: false, editorRemoteReachable: null, editorNameTouched: false, editorMountpointTouched: false, editorProfileTouched: false, editorBackendValidated: false, editorTrigger: null, editorSession: 0, previewTimer: null, operationPollToken: 0, mountActionName: '', mountActionReturnFocus: null,
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
 };
@@ -70,6 +70,15 @@ function formatTime(value) { if (!value) return '—'; try { return new Date(Num
 function label(textValue, className = 'state-pill') { const node = document.createElement('span'); node.className = className; node.textContent = String(textValue); return node; }
 function paragraph(value, className = '') { const node = document.createElement('p'); if (className) node.className = className; node.textContent = String(value ?? ''); return node; }
 function button(title, handler, className = '') { const node = document.createElement('button'); node.type = 'button'; node.textContent = title; if (className) node.className = className; node.addEventListener('click', handler); return node; }
+
+function detailBlock(heading, rows) {
+  const section = document.createElement('details'); section.className = 'runtime-technical-details';
+  const summary = document.createElement('summary'); summary.textContent = String(heading); section.append(summary);
+  const list = document.createElement('div'); list.className = 'runtime-path-list';
+  for (const [name, value] of rows) metric(list, name, value);
+  section.append(list);
+  return section;
+}
 
 function announceStatus(message) { text('viewStatus', message || ''); }
 function setViewBusy(view, busy, message = '') {
@@ -201,7 +210,7 @@ async function loadHome() {
   const issues = [];
   const runtimeFailure = runtimeFailureText(runtime);
   if (runtimeFailure) issues.push(runtimeFailure);
-  if (provider?.fuse_helper_ready !== true || provider?.fuse_device_ready !== true) issues.push('FUSE needs attention before mounts can operate normally.');
+  if (runtime?.fuse_helper_ready !== true) issues.push('Bundled FUSE helper integrity is not verified.');
   if (unhealthyMounts.length) issues.push(`${unhealthyMounts.length} mount${unhealthyMounts.length === 1 ? '' : 's'} report a degraded or failed state.`);
   if (blockedPolicies.length) issues.push(`${blockedPolicies.length} mount polic${blockedPolicies.length === 1 ? 'y is' : 'ies are'} currently blocking lifecycle work.`);
 
@@ -216,9 +225,9 @@ async function loadHome() {
   text('homeRuntimeDetail', runtimeFailure || `${runtime?.source || 'skybind-bundled-static'} · ${runtime?.mode || 'managed'}`);
   text('homeMountValue', statuses.length ? `${running} running` : 'None yet');
   text('homeMountDetail', `${statuses.length} configured`);
-  const fuseReady = provider?.fuse_helper_ready === true && provider?.fuse_device_ready === true;
-  text('homeFuseValue', fuseReady ? 'Ready' : 'Needs attention');
-  text('homeFuseDetail', fuseReady ? 'Helper and /dev/fuse available' : `${provider?.fuse_helper_ready ? 'Helper ready' : 'Helper unavailable'} · ${provider?.fuse_device_ready ? '/dev/fuse ready' : '/dev/fuse unavailable'}`);
+  const fuseVerified = runtime?.fuse_helper_ready === true;
+  text('homeFuseValue', fuseVerified ? 'Helper verified' : 'Needs attention');
+  text('homeFuseDetail', fuseVerified ? 'Bundled helper integrity verified · FUSE/device access untested' : 'Bundled helper integrity not verified');
   text('homeNetworkValue', network.value); text('homeNetworkDetail', network.detail);
 
   renderHomeMountPreview(statuses); renderHomeActivityPreview(records);
@@ -569,18 +578,19 @@ function updateRemoteEndpoint({ applyDefaults = true } = {}) {
 }
 function renderProviderReadiness() {
   const root = byId('providerReadiness'); if (!root) return; clear(root);
-  const status = state.editorProviderStatus;
-  if (!status) { root.append(label('… Checking provider','validation-chip')); return; }
-  root.append(label(status.binary_ready ? '✓ rclone available' : '✕ rclone unavailable', status.binary_ready ? 'validation-chip good' : 'validation-chip bad'));
-  root.append(label(status.fuse_helper_ready ? '✓ FUSE helper ready' : '✕ FUSE helper unavailable', status.fuse_helper_ready ? 'validation-chip good' : 'validation-chip bad'));
-  root.append(label(status.config_ready ? '✓ rclone config ready' : '✕ rclone config missing', status.config_ready ? 'validation-chip good' : 'validation-chip bad'));
   const parsed = parseRemoteEndpoint(byId('field-remote')?.value || '');
+  const status = providerReadinessPresentation(state.editorProviderStatus, state.editorRuntimeStatus, state.editorRemotes, parsed.remote);
+  const chip = (message, truth) => root.append(label(`${truth === true ? '✓' : truth === false ? '✕' : '!' } ${message}`, `validation-chip ${truth === true ? 'good' : truth === false ? 'bad' : ''}`.trim()));
+  chip(status.runtime_text, status.runtime_ready);
+  chip(status.helper_text, status.helper_verified);
+  chip(status.config_text, status.config_recognized);
   if (parsed.remote) {
     const configured = state.editorRemotes.includes(parsed.remote);
-    root.append(label(configured ? `✓ ${parsed.remote}: configured` : `! ${parsed.remote}: manual/unlisted`, configured ? 'validation-chip good' : 'validation-chip'));
+    chip(configured ? `${parsed.remote}: configured` : `${parsed.remote}: not in reported remotes`, configured ? true : null);
   }
-  if (state.editorRemoteReachable === true) root.append(label('✓ Selected path reachable','validation-chip good'));
-  if (state.editorRemoteReachable === false) root.append(label('✕ Selected path not reachable','validation-chip bad'));
+  if (state.editorRemoteReachable === true) chip('Selected path reachable', true);
+  if (state.editorRemoteReachable === false) chip('Selected path not reachable', false);
+  root.append(paragraph('This checks runtime integrity and remote configuration, not live FUSE mounting or Android app visibility.', 'muted'));
 }
 function renderMountRemoteSelect() {
   const select = byId('mountRemoteSelect'); const current = parseRemoteEndpoint(byId('field-remote').value).remote; clear(select);
@@ -589,12 +599,13 @@ function renderMountRemoteSelect() {
   if (current && state.editorRemotes.includes(current)) select.value=current;
 }
 async function loadMountEditorData(existing, session = state.editorSession) {
-  const settled = await Promise.allSettled([query('provider.remotes'), query('vfs.profiles'), query('provider.status')]);
+  const settled = await Promise.allSettled([query('provider.remotes'), query('vfs.profiles'), query('provider.status'), query('runtime.status')]);
   if (session !== state.editorSession || byId('editorBackdrop').hidden) return;
   const helperErrors=[];
   try { const remotesData=settled[0].status === 'fulfilled' ? result(settled[0].value) : (()=>{throw settled[0].reason;})(); state.editorRemotes=remotesData.remotes||[];state.remoteDetails=remotesData.details||[]; } catch(error){state.editorRemotes=[];state.remoteDetails=[];helperErrors.push(`remote list: ${String(error?.message||error)}`);}
   try { const profileData=settled[1].status === 'fulfilled' ? result(settled[1].value) : (()=>{throw settled[1].reason;})(); state.editorProfiles=profileData.profiles||[];state.editorRecommendation=profileData.recommendation||null; } catch(error){state.editorProfiles=[];state.editorRecommendation=null;helperErrors.push(`profiles: ${String(error?.message||error)}`);}
   try { state.editorProviderStatus=settled[2].status === 'fulfilled' ? result(settled[2].value) : (()=>{throw settled[2].reason;})(); } catch(error){state.editorProviderStatus=null;helperErrors.push(`provider status: ${String(error?.message||error)}`);}
+  try { state.editorRuntimeStatus=settled[3].status === 'fulfilled' ? result(settled[3].value) : (()=>{throw settled[3].reason;})(); } catch(error){state.editorRuntimeStatus=null;helperErrors.push(`runtime status: ${String(error?.message||error)}`);}
   renderMountRemoteSelect(); renderProfileCards(); renderProviderReadiness();
   const currentRemote = parseRemoteEndpoint(byId('field-remote').value).remote;
   if (existing && currentRemote && !state.editorRemotes.includes(currentRemote)) setManualRemote(true);
@@ -710,7 +721,7 @@ function retreatEditorWizard() { if (state.editorStep <= 0) return; if (state.ed
 function openEditor(config = null, trigger = document.activeElement) {
   if (!state.snapshot) return;
   state.editorTrigger = trigger instanceof HTMLElement ? trigger : null; const session=++state.editorSession;
-  const existing=Boolean(config?.name); state.editorExisting=existing; state.editorOriginal=existing?config.name:''; state.editorDelete=false; state.editorManualRemote=false; state.editorRemoteReachable=null; state.editorProviderStatus=null; state.editorNameTouched=false; state.editorMountpointTouched=false; state.editorProfileTouched=false; state.editorBackendValidated=false; state.editorIssues=[]; state.editorStep=0; state.editorInteracted=false;
+  const existing=Boolean(config?.name); state.editorExisting=existing; state.editorOriginal=existing?config.name:''; state.editorDelete=false; state.editorManualRemote=false; state.editorRemoteReachable=null; state.editorProviderStatus=null; state.editorRuntimeStatus=null; state.editorNameTouched=false; state.editorMountpointTouched=false; state.editorProfileTouched=false; state.editorBackendValidated=false; state.editorIssues=[]; state.editorStep=0; state.editorInteracted=false;
   fillForm(config||DEFAULT_MOUNT,existing); renderEditorIssues([]); hideNotice(byId('remoteTestResult')); hideNotice(byId('editorError')); byId('mountRemoteBrowser').hidden=true; byId('manualRemoteWrap').hidden=true; byId('mountAdvancedDetails').open=false; renderProviderReadiness();
   text('editorTitle',existing?`Edit ${config.name}`:'Add mount'); text('editorSubtitle',existing?'Move through the focused steps, then review the backend-authoritative change before applying it.':'Choose a source, destination and behavior. Validation appears as you interact, not before.');
   byId('previewMountButton').textContent=existing?'Review changes':'Review mount'; byId('applyMountButton').textContent=existing?'Apply changes':'Create mount'; byId('editorBackdrop').hidden=false;
@@ -720,7 +731,7 @@ function openEditor(config = null, trigger = document.activeElement) {
   queueMicrotask(()=>byId('mountRemoteSelect')?.focus());
 }
 
-function forceCloseEditor() { const returnFocus=state.editorTrigger; state.editorSession+=1; byId('editorBackdrop').hidden=true; byId('discardBackdrop').hidden=true; state.editorOriginal='';state.editorDelete=false;state.editorExisting=false;state.editorDirty=false;state.editorIssues=[];state.editorProviderStatus=null;state.editorRemoteReachable=null;state.editorTrigger=null;state.editorStep=0;state.editorInteracted=false; if(state.editorValidationTimer)clearTimeout(state.editorValidationTimer);state.editorValidationTimer=null;state.editorValidationSeq+=1;clearPreviewTimer();state.operationPollToken+=1;invalidatePreview({validate:false});renderEditorIssues([]);if(returnFocus?.focus)queueMicrotask(()=>returnFocus.focus()); }
+function forceCloseEditor() { const returnFocus=state.editorTrigger; state.editorSession+=1; byId('editorBackdrop').hidden=true; byId('discardBackdrop').hidden=true; state.editorOriginal='';state.editorDelete=false;state.editorExisting=false;state.editorDirty=false;state.editorIssues=[];state.editorProviderStatus=null;state.editorRuntimeStatus=null;state.editorRemoteReachable=null;state.editorTrigger=null;state.editorStep=0;state.editorInteracted=false; if(state.editorValidationTimer)clearTimeout(state.editorValidationTimer);state.editorValidationTimer=null;state.editorValidationSeq+=1;clearPreviewTimer();state.operationPollToken+=1;invalidatePreview({validate:false});renderEditorIssues([]);if(returnFocus?.focus)queueMicrotask(()=>returnFocus.focus()); }
 function closeEditor() { markEditorDirty(); if(state.editorDirty && !byId('editorBackdrop').hidden){byId('discardBackdrop').hidden=false;queueMicrotask(()=>byId('keepEditingButton')?.focus());return;} forceCloseEditor(); }
 
 function candidateRegistry(deleteMode = false) {
@@ -738,10 +749,10 @@ function renderPreviewCountdown() {
 }
 function renderPreview(value) {
   const root=byId('previewChanges');clear(root);const review=byId('reviewSummary');clear(review);const safety=byId('reviewSafety');const cfg=formValue();const profile=profilePresentation(cfg.vfs_profile,state.editorProfiles,state.editorRecommendation);const parsed=parseRemoteEndpoint(cfg.remote);
-  byId('reviewTitle').textContent=state.editorDelete?`Delete mount “${state.editorOriginal}”?`:(state.editorExisting?`Ready to update “${cfg.name}”`:`Ready to create “${cfg.name}”`);
+  byId('reviewTitle').textContent=state.editorDelete?`Delete mount “${state.editorOriginal}”?`:(state.editorExisting?`Ready to save changes to “${cfg.name}”`:`Ready to save configuration for “${cfg.name}”`);
   if(state.editorDelete){renderReviewCell(review,'Configuration',state.editorOriginal);renderReviewCell(review,'Running mount','Will be stopped if required');renderReviewCell(review,'Cache','Preserved unless a separate cache action is approved');}
   else{renderReviewCell(review,'Source',`${parsed.remote||'—'}:${parsed.path||''}`);renderReviewCell(review,'Mount location',cfg.mountpoint);renderReviewCell(review,'Performance',`${cfg.vfs_profile}${profile.recommended?' · recommended':''}`);renderReviewCell(review,'Auto start',cfg.enabled?'Enabled':'Disabled');renderReviewCell(review,'Android visibility',cfg.allow_other?'Requested':'Owner only');renderReviewCell(review,'Access',cfg.read_only?'Read only':'Read/write');renderReviewCell(review,'Remote check',cfg.probe_remote?'Before start':'Not required');renderReviewCell(review,'Policy',`${cfg.network_mode}${cfg.charging_only?' · charging only':''}${cfg.min_battery?` · battery ≥ ${cfg.min_battery}%`:''}`);}
-  const destructive=isDestructivePreview(value); safety.className=`notice compact ${destructive?'error':'ok'}`; safety.textContent=state.editorDelete?'Deletion removes this mount configuration and stops its lifecycle if needed. Skybind cache files are preserved by this action.':destructive?'This review includes a destructive or mount-location-sensitive change. Check the consequences below before applying.':'No destructive actions detected in this configuration review.';
+  const destructive=isDestructivePreview(value); safety.className=`notice compact ${destructive?'error':'ok'}`; safety.textContent=(state.editorDelete?'Deletion removes this mount configuration and stops its lifecycle if needed. Skybind cache files are preserved by this action.':destructive?'This review includes a destructive or mount-location-sensitive change. Check the consequences below before applying.':'No destructive actions detected in this configuration review.') + ' Configuration approval does not prove FUSE mount operation, Android app visibility or boot persistence.';
   for(const change of value.changes||[]){const card=document.createElement('div');card.className='change-card';const title=document.createElement('strong');title.textContent=state.editorDelete?'What will happen':`${change.name}: ${change.kind}`;card.append(title);if(change.consequences?.length)card.append(paragraph(change.consequences.map((x)=>`✓ ${consequenceLabel(x)}`).join(' · '),'muted'));if(change.reasons?.length&&!state.editorDelete)card.append(paragraph(`Changed: ${change.reasons.join(', ')}`,'muted'));root.append(card);}
   if(!(value.changes||[]).length)root.append(paragraph('No configuration changes.','muted'));
   text('previewMeta',`Revision ${value.current_revision} · digest ${String(value.candidate_digest||'').slice(0,16)}… · proof expires ${formatTime(value.preview_expires_unix_ms)}${destructive?' · destructive change':''}`);byId('previewPanel').hidden=false;clearPreviewTimer();renderPreviewCountdown();state.previewTimer=setInterval(renderPreviewCountdown,1000);
@@ -750,7 +761,7 @@ function renderPreview(value) {
 
 async function previewEditor(deleteMode = false) {
   const errorNode=byId('editorError');hideNotice(errorNode);state.editorDelete=deleteMode;state.editorInteracted=true;
-  if(!deleteMode){const form=byId('mountForm');if(!form.checkValidity()){form.reportValidity();return;}const validation=await validateEditorNow();if(!validation?.valid||editorHasBlockingIssues(validation.issues||state.editorIssues)){showNotice(errorNode,'Fix the highlighted fields before reviewing this mount.','error');return;}}
+  if(!deleteMode){const readiness=providerReadinessPresentation(state.editorProviderStatus,state.editorRuntimeStatus,state.editorRemotes,parseRemoteEndpoint(byId('field-remote').value).remote); if(byId('field-enabled')?.checked && !readiness.can_start){showNotice(errorNode,'Cannot approve an enabled mount until runtime and FUSE helper integrity are verified. Disable auto start to save a configuration-only draft, or inspect Runtime.','error');return;} const form=byId('mountForm');if(!form.checkValidity()){form.reportValidity();return;}const validation=await validateEditorNow();if(!validation?.valid||editorHasBlockingIssues(validation.issues||state.editorIssues)){showNotice(errorNode,'Fix the highlighted fields before reviewing this mount.','error');return;}}
   try{const candidates=candidateRegistry(deleteMode);const value=result(await preview('config.preview',{mounts:candidates}));state.preview=value;state.previewCandidates=candidates;renderPreview(value);byId('applyMountButton').disabled=!previewIsUsable(value,state.snapshot)||!(value.changes||[]).length;byId('previewMountButton').textContent=deleteMode?'Refresh delete review':'Refresh review';}
   catch(error){invalidatePreview({validate:false});const issues=error?.issues?.length?error.issues:[];if(issues.length)renderEditorIssues(issues);showNotice(errorNode,`${error?.code?`${error.code}: `:''}${String(error?.message||error)}${error?.detail?` · ${error.detail}`:''}`,'error');}
 }

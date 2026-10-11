@@ -105,3 +105,24 @@ export function doctorPresentation(v) {
   const overall=checks.some(c=>c.status==='FAIL')?'FAIL':'WARN';
   return {...v,checks,overall,device_qualified:false};
 }
+
+// provider.status exposes only {ready, remote_count, config_path_redacted}.
+// Never interpret absent old-UI boolean fields as failed readiness checks.
+export function providerReadinessPresentation(provider, runtime, remotes, selectedRemote) {
+  const hasRuntime = runtime && typeof runtime.operational === 'boolean';
+  const runtimeReady = hasRuntime ? runtime.operational === true && runtime.provenance_valid === true : null;
+  const helperVerified = runtimeReady === true ? runtime.fuse_helper_ready === true : runtimeReady === false ? false : null;
+  const remotesKnown = Array.isArray(remotes);
+  const configRecognized = provider?.ready === true && remotesKnown && selectedRemote
+    ? remotes.includes(selectedRemote)
+    : provider?.ready === false ? false : null;
+  return {
+    runtime_ready: runtimeReady,
+    helper_verified: helperVerified,
+    config_recognized: configRecognized,
+    can_start: runtimeReady === true && helperVerified === true && configRecognized === true,
+    runtime_text: runtimeReady === true ? 'Bundled runtime integrity verified' : runtimeReady === false ? 'Runtime integrity not verified' : 'Runtime integrity not reported',
+    helper_text: helperVerified === true ? 'Bundled FUSE helper integrity verified' : helperVerified === false ? 'FUSE helper integrity not verified' : 'FUSE helper integrity not reported',
+    config_text: configRecognized === true ? 'Selected remote recognized by provider' : configRecognized === false ? 'Selected remote not recognized by provider' : 'Selected remote configuration not confirmed',
+  };
+}
