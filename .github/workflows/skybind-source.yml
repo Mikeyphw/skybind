@@ -23,3 +23,5 @@ jobs:
         run: bash scripts/devtool/check_q03_source_provenance.sh
       - name: SB-Q03R1 trust-pin review contract (no external gates)
         run: bash scripts/devtool/check_q03r1_pin_review.sh
+      - name: SB-Q04P1 exact source-build to package binding (source-only)
+        run: bash scripts/devtool/check_q04p1_build_binding.sh

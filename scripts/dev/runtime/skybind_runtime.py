@@ -150,6 +150,48 @@ def build_bclone(checkout:Path,commit:str,ndk:Path,ndk_revision:str,go_version:s
             raise Reject('SB-Q02 immutable bclone builder rejected input: '+str(exc)) from exc
         return (output/'rclone').read_bytes()
 
+def packaged_verified_bclone(build_dir:Path, lock_path:Path=LOCK)->bytes:
+    """Reuse exact separately verified build bytes; do not compile inside the packaging lane.
+
+    A successful receipt is tied to the CURRENT source lock and one canonical ELF.
+    Artifact comparison later confirms the package contains this exact binary.
+    """
+    if build_dir.is_symlink() or not build_dir.is_dir():
+        raise Reject('bclone build directory missing or symlinked')
+    lock=lock_load(lock_path)
+    b=lock['bclone']
+    if (not COMMIT.fullmatch(b.get('commit') or '') or
+        b.get('ndk_revision') != '28.2.13676358' or
+        b.get('go_version') not in ('1.27.2','go1.27.2')):
+        raise Reject('reviewed bclone source/toolchain pins required for packaging')
+    # source_build.verify validates the exact output inventory, SHA256SUMS,
+    # provenance canonical form and Android/arm64 ELF header.
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('skybind_q04_source_build',
+        ROOT/'scripts/dev/runtime/source_build.py')
+    if spec is None or spec.loader is None:
+        raise Reject('pinned source builder unavailable')
+    sb=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sb)
+    try:
+        proof=sb.verify(build_dir)
+    except (sb.Rejected,OSError,ValueError,KeyError,TypeError) as exc:
+        raise Reject('bclone build receipt rejected: '+str(exc)) from exc
+    if (proof.get('repository') != BCLONE or
+        proof.get('source_commit') != b['commit'] or
+        proof.get('lock_sha256') != filehash(lock_path) or
+        proof.get('ndk_revision') != b['ndk_revision'] or
+        proof.get('go_version') != b['go_version'].removeprefix('go')):
+        raise Reject('bclone build receipt mismatches current reviewed source lock')
+    binary=build_dir/'rclone'
+    if binary.is_symlink() or not binary.is_file():
+        raise Reject('bclone source-build binary not regular')
+    result=binary.read_bytes()
+    if digest(result)!=proof['binary_sha256'] or len(result)!=proof['binary_size']:
+        raise Reject('bclone build changed during packaging')
+    return result
+
+
 def provenance(provider:str,payload:dict[str,bytes],lock:dict, archive_sha:str) -> dict:
     return {
       'schema_version':1,'product':'Skybind','provider':provider,'arch':'arm64',
@@ -163,7 +205,7 @@ def provenance(provider:str,payload:dict[str,bytes],lock:dict, archive_sha:str) 
 def canonical(obj)->bytes:
     return (json.dumps(obj,sort_keys=True,separators=(',',':'),ensure_ascii=True)+'\n').encode()
 
-def assemble(provider:str,archive:Path,out:Path,bclone_source:Path|None=None,ndk:Path|None=None,lock_path:Path=LOCK)->bytes:
+def assemble(provider:str,archive:Path,out:Path,bclone_source:Path|None=None,ndk:Path|None=None,lock_path:Path=LOCK,bclone_build_dir:Path|None=None)->bytes:
     lock=lock_load(lock_path)
     if provider not in ('newfuture','bclone'):raise Reject('unknown build-time provider')
     src=lock['newfuture']; expected=src['archive_sha256']
@@ -172,9 +214,16 @@ def assemble(provider:str,archive:Path,out:Path,bclone_source:Path|None=None,ndk
     if archive.name != src['asset']:raise Reject('NewFuture archive name does not match pinned asset')
     files=extract_newfuture(archive,expected,src['tag'])
     if provider=='bclone':
-        if bclone_source is None or ndk is None:raise Reject('bclone source and NDK required')
-        b=lock['bclone']
-        files['system/bin/rclone']=build_bclone(bclone_source,b['commit'],ndk,b['ndk_revision'],b['go_version'],lock_path)
+        if bclone_build_dir is not None:
+            if bclone_source is not None or ndk is not None:
+                raise Reject('cannot mix independently verified build input with rebuild inputs')
+            files['system/bin/rclone']=packaged_verified_bclone(bclone_build_dir,lock_path)
+        else:
+            if bclone_source is None or ndk is None:raise Reject('bclone source and NDK required')
+            b=lock['bclone']
+            files['system/bin/rclone']=build_bclone(bclone_source,b['commit'],ndk,b['ndk_revision'],b['go_version'],lock_path)
+    elif bclone_build_dir is not None or bclone_source is not None or ndk is not None:
+        raise Reject('NewFuture package must not consume bclone build/source inputs')
     pro=provenance(provider,files,lock,expected)
     files['runtime.provenance.json']=canonical(pro)
     files['module.prop']=(f'id=skybind\nname=Skybind\nversion=0.0.0-dev\nversionCode=1\nauthor=Skybind\ndescription=Skybind build-time {provider} runtime fixture; not an installable full application\n').encode()
@@ -226,12 +275,12 @@ def verify_package(archive:Path)->dict:
 def main()->int:
     p=argparse.ArgumentParser()
     sub=p.add_subparsers(dest='cmd',required=True)
-    a=sub.add_parser('package');a.add_argument('--provider',choices=['newfuture','bclone'],required=True);a.add_argument('--newfuture-archive',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--bclone-checkout',type=Path);a.add_argument('--ndk',type=Path);a.add_argument('--lock',type=Path,default=LOCK)
+    a=sub.add_parser('package');a.add_argument('--provider',choices=['newfuture','bclone'],required=True);a.add_argument('--newfuture-archive',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--bclone-checkout',type=Path);a.add_argument('--ndk',type=Path);a.add_argument('--bclone-build-dir',type=Path);a.add_argument('--lock',type=Path,default=LOCK)
     b=sub.add_parser('verify');b.add_argument('archive',type=Path)
     args=p.parse_args()
     try:
         if args.cmd=='package':
-            assemble(args.provider,args.newfuture_archive,args.output,args.bclone_checkout,args.ndk,args.lock)
+            assemble(args.provider,args.newfuture_archive,args.output,args.bclone_checkout,args.ndk,args.lock,args.bclone_build_dir)
             print('PACKAGED source-input verified: '+str(args.output))
         else:
             print(json.dumps(verify_package(args.archive),sort_keys=True))
