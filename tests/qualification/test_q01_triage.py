@@ -30,7 +30,7 @@ class Triage(unittest.TestCase):
             self.assertFalse(result['pin_matches'])
             self.assertEqual(result['source_authenticity'],'UNVERIFIED_BY_LOCAL_INSPECTION')
             self.assertEqual(result['qualification'],'RAW_UNATTESTED')
-            self.assertIsNone(lock['newfuture']['archive_sha256'])
+            self.assertEqual(len(lock['newfuture']['archive_sha256']),64)
 
     def test_zip_path_traversal_and_symlink_denied(self):
         with tempfile.TemporaryDirectory() as t:

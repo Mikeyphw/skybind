@@ -1,0 +1,46 @@
+{
+  "android_device_tested": false,
+  "authorization_scope": "UNATTESTED_CI_BUILDS_ONLY",
+  "bclone": {
+    "build_strategy": "PINNED_SOURCE_INDEPENDENT_LANES",
+    "commit": "7b63b1a4cc9d13465721ebbfc96f2f9bd810f600",
+    "github_signature": "UNSIGNED",
+    "repository": "BenjiThatFoxGuy/bclone",
+    "source_dependency_review": "PENDING_EXTERNAL_REVIEW"
+  },
+  "evidence_reference": {
+    "class": "RAW_UNATTESTED",
+    "reconciliation": "CONSISTENT_UNATTESTED",
+    "evidence_manifest_sha256": "7fc44a839a5272f346b246f944326e31e340acd08592ea0f3e188ddd48f969eb",
+    "workflow_run_id": 38099529777
+  },
+  "final_seal": "NOT_ISSUED",
+  "gate_g01": "BLOCKED",
+  "independent_attestation": false,
+  "kind": "SB_Q04P2_OPERATOR_SELECTED_BUILD_INPUTS",
+  "newfuture": {
+    "asset": "magisk-rclone_arm64-v8a.zip",
+    "binary_custody": "UNATTESTED_PROVENANCE_LIMITATION_ACCEPTED_FOR_TEST_BUILDS_ONLY",
+    "github_asset_id": 499099249,
+    "prebuilt_only": true,
+    "rebuild_permitted": false,
+    "release_immutable_at_intake": false,
+    "reported_vcs_modified": true,
+    "repository": "NewFuture/rclone-fuse3-magisk",
+    "sha256": "04ebfcc8c21c9583b7d4c723e2e69c1d3bbbd24432f6728ffbc2947e5282aa43",
+    "tag": "v1.75.0"
+  },
+  "other_gates": "BLOCKED",
+  "real_builds_executed": false,
+  "schema_version": 1,
+  "source_lock_canonical_sha256": "4f7d380b8857e63359a0e526663fa7804d5a8b967324c74a0ab4326a515aa376",
+  "status": "INPUTS_SELECTED_UNATTESTED",
+  "toolchain": {
+    "android_api": 21,
+    "authenticated_packages": false,
+    "download_integrity": "TO_BE_RECORDED_BY_REAL_CI",
+    "go_version": "1.27.2",
+    "ndk_revision": "28.2.13676358"
+  },
+  "user_choice": "USE_OFFICIAL_NEWFUTURE_PREBUILT_NO_SOURCE_REBUILD"
+}

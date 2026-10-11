@@ -35,9 +35,9 @@ def pins() -> dict:
 
 
 class BuilderContractTests(unittest.TestCase):
-    def test_current_unattested_lock_must_not_produce_real_build(self):
-        with self.assertRaisesRegex(b.Rejected,'BLOCKED'):
-            b.load_lock(b.DEFAULT_LOCK)
+    def test_selected_lock_allows_inputs_not_gate_attestation(self):
+        data=b.load_lock(b.DEFAULT_LOCK)
+        self.assertEqual(data['newfuture']['archive_sha256'],'04ebfcc8c21c9583b7d4c723e2e69c1d3bbbd24432f6728ffbc2947e5282aa43')
         self.assertFalse((ROOT/'build/evidence/sb_g01_provider_builds.json').is_file())
 
     def test_reviewed_lock_values_required_not_invented(self):

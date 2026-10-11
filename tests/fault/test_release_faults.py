@@ -80,9 +80,9 @@ class ReleaseFaults(unittest.TestCase):
             with zipfile.ZipFile(out,'a') as z:z.writestr('../escape','x')
             with self.assertRaises(rel.Reject):rel.verify_release(out)
 
-    def test_unpinned_runtime_rejected(self):
+    def test_selected_pins_do_not_seal_runtime(self):
         lock=json.loads((ROOT/'scripts/dev/runtime/source.lock.json').read_text())
-        self.assertIsNone(lock['newfuture']['archive_sha256'])
-        self.assertIsNone(lock['bclone']['commit'])
+        self.assertEqual(len(lock['newfuture']['archive_sha256']),64)
+        self.assertEqual(len(lock['bclone']['commit']),40)
 
 if __name__=='__main__': unittest.main()

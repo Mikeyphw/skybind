@@ -54,7 +54,7 @@ class ProvenanceTests(unittest.TestCase):
                        'commit':{'verification':{'verified':True,'reason':'valid'}}}
         self.release_path = self.root/'release.json';self.commit_path = self.root/'commit.json'
         self.lock = self.root/'source.lock.json'
-        self.lock.write_bytes((ROOT/'scripts/dev/runtime/source.lock.json').read_bytes())
+        self.lock.write_text(json.dumps({'schema':1,'newfuture':{'repository':p.NF,'tag':p.TAG,'asset':p.ASSET,'archive_sha256':None},'bclone':{'repository':p.BC,'commit':None,'ndk_revision':None,'go_version':None}}))
         self.save()
 
     def save(self):
@@ -158,8 +158,8 @@ class ProvenanceTests(unittest.TestCase):
         self.assertIn('q03-upstream-provenance-contract',t['targets']['skybind']['workflows'])
         self.assertEqual(t['wrapper']['commands']['q03-upstream-provenance-contract']['target'],'skybind')
         l=json.loads((ROOT/'scripts/dev/runtime/source.lock.json').read_text())
-        self.assertIsNone(l['newfuture']['archive_sha256'])
-        self.assertTrue(all(l['bclone'][x] is None for x in ('commit','ndk_revision','go_version')))
+        self.assertEqual(l['newfuture']['archive_sha256'],'04ebfcc8c21c9583b7d4c723e2e69c1d3bbbd24432f6728ffbc2947e5282aa43')
+        self.assertEqual(l['bclone']['commit'],'7b63b1a4cc9d13465721ebbfc96f2f9bd810f600')
 
 
 if __name__=='__main__': unittest.main()

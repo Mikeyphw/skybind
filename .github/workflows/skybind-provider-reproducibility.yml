@@ -21,6 +21,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Verify selected prebuilt exception and exact CI input pins (UNATTESTED)
+        shell: bash
+        run: python3 scripts/dev/runtime/pin_selection.py verify
       - name: Validate reviewed lock or fail CLOSED
         shell: bash
         run: python3 scripts/dev/runtime/source_build.py pins
