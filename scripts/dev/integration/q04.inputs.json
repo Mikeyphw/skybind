@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "SB_Q04_RAW_BUILD_INPUT_SELECTION_NOT_ATTESTATION",
+  "repository": "Mikeyphw/skybind",
+  "run_id": 38110749243,
+  "run_head_sha": "429a7cb5ba3be3ebcaed9e0cae804065dc4a65fe",
+  "bclone_commit": "7b63b1a4cc9d13465721ebbfc96f2f9bd810f600",
+  "bclone_binary_sha256": "51374eb56803bbb1d5f38e1c15cfbc03f7ae0e5961a5c068eed85abda6c6cd25",
+  "bclone_zip_sha256": "e2687bedf87a7f43eff7285f316ecc394262f42cc1db5a4d7851947965dc4912",
+  "newfuture_zip_sha256": "36edba87cec9dbe3329b877414640557866360836106dbf06df4d69dbc07e5b7",
+  "newfuture_original_sha256": "04ebfcc8c21c9583b7d4c723e2e69c1d3bbbd24432f6728ffbc2947e5282aa43",
+  "gate_g01": "BLOCKED",
+  "final_seal": "NOT_ISSUED",
+  "independent_attestation": false,
+  "physical_device_tested": false
+}
