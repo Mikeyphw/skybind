@@ -77,6 +77,7 @@ q04p1-build-binding-contract = ["job:q04p1-build-binding-contract"]
 q04p2-pin-selection-contract = ["job:q04p2-pin-selection-contract"]
 q04p3-ndk-install-contract = ["job:q04p3-ndk-install-contract"]
 q05-candidate-integration = ["job:q05-candidate-integration"]
+q05p2-native-test-cross-compile = ["job:q05p2-native-test-cross-compile"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
@@ -662,4 +663,17 @@ metadata = { read_only = true, qualification = "candidate-source-only", independ
 [wrapper.commands.q05-candidate-integration]
 description = "SB-Q05P1 binds real Q04 CI receipts to complete source-only Android candidates; no seal"
 workflow = "q05-candidate-integration"
+target = "skybind"
+
+
+# SB-Q05P2: test on Linux host, then cross-compile only for Android arm64.
+[targets.skybind.jobs.q05p2-native-test-cross-compile]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q05p2_cross_compile_ci.sh"]
+inputs = [".github/workflows/skybind-candidate-integration.yml", "tests/qualification/test_q05p2_cross_compile_ci.py", "tests/qualification/test_q05_candidate_integration.py", "scripts/devtool/check_q05p2_cross_compile_ci.sh"]
+metadata = { read_only = true, qualification = "source-contract-only", real_ci_rerun = false, gate_g01 = "BLOCKED", final_seal = false }
+
+[wrapper.commands.q05p2-native-test-cross-compile]
+description = "SB-Q05P2 Linux/amd64 executable tests separated from Android/arm64 compile; no CI or device attestation"
+workflow = "q05p2-native-test-cross-compile"
 target = "skybind"
