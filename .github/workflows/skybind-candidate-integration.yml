@@ -24,6 +24,7 @@ jobs:
           test "${{ github.ref }}" = 'refs/heads/main'
           python3 scripts/dev/runtime/pin_selection.py verify
           python3 -m unittest discover -s tests/qualification -p 'test_q05_candidate_integration.py' -v
+          python3 -m unittest discover -s tests/qualification -p 'test_q05p3_kernelsu_install.py' -v
       - name: Download selected successful Q04 run and two independent lanes
         shell: bash
         env:

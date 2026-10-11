@@ -78,6 +78,7 @@ q04p2-pin-selection-contract = ["job:q04p2-pin-selection-contract"]
 q04p3-ndk-install-contract = ["job:q04p3-ndk-install-contract"]
 q05-candidate-integration = ["job:q05-candidate-integration"]
 q05p2-native-test-cross-compile = ["job:q05p2-native-test-cross-compile"]
+q05p3-kernelsu-install-contract = ["job:q05p3-kernelsu-install-contract"]
 repair-r01 = ["job:repair-r01-runtime-mount"]
 repair-r02 = ["job:repair-r02-operation-ui"]
 feature-parity-webui = ["job:fp01-webui-parity"]
@@ -676,4 +677,17 @@ metadata = { read_only = true, qualification = "source-contract-only", real_ci_r
 [wrapper.commands.q05p2-native-test-cross-compile]
 description = "SB-Q05P2 Linux/amd64 executable tests separated from Android/arm64 compile; no CI or device attestation"
 workflow = "q05p2-native-test-cross-compile"
+target = "skybind"
+
+
+# SB-Q05P3: KernelSU-sourced customize.sh compatibility, no device/release claim.
+[targets.skybind.jobs.q05p3-kernelsu-install-contract]
+runner = "command"
+command = ["bash", "scripts/devtool/check_q05p3_kernelsu_install.sh"]
+inputs = ["module/customize.sh", "tests/qualification/test_q05p3_kernelsu_install.py", "scripts/devtool/check_q05p3_kernelsu_install.sh", ".github/workflows/skybind-candidate-integration.yml"]
+metadata = { read_only = true, qualification = "installer-source-only", physical_device = false, final_seal = false }
+
+[wrapper.commands.q05p3-kernelsu-install-contract]
+description = "SB-Q05P3 sourced installer shell-state contract; not a physical-device test"
+workflow = "q05p3-kernelsu-install-contract"
 target = "skybind"
