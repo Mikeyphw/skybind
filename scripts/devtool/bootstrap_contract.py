@@ -7,7 +7,7 @@ import tomllib
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 DOCS=ROOT/'docs/roadmap'
-TARGETS={'skybind','skybind_webui','skybind_runtime_inputs','skybind_android_device','skybind_release'}
+TARGETS={'skybind','skybind_webui','skybind_runtime_inputs','skybind_android_device','skybind_app_probe','skybind_release'}
 def load():
  with (ROOT/'.devtool.toml').open('rb') as f: cfg=tomllib.load(f)
  data=json.loads((DOCS/'SKYBIND_DEVTOOL_OVERLAY_INDEX.json').read_text())

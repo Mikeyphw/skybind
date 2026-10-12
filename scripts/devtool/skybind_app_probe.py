@@ -13,7 +13,6 @@ from pathlib import Path
 import re
 import secrets
 import shlex
-import shutil
 import subprocess
 import sys
 import time
@@ -75,14 +74,15 @@ def checked_apk(path: Path) -> str:
 
 
 def helper_command(helper: Path) -> list[str]:
-    # This is Devtool's managed Termux/ARM Gradle+AAPT2 builder, not a release signer.
+    # Provision only missing SDK/build tools through Devtool's supported bootstrap.
+    # Bootstrap network scope is local to this debug probe; no release signer.
     return [sys.executable, str(helper), str(PROBE), '--no-chroot',
             '--task', ':app:assembleDebug', '--aapt2-provider', 'auto',
             '--android-platform', '35', '--build-tools', 'auto',
             '--arm-build-tools-provider', 'auto', '--ndk-version', 'auto',
             '--cmake-version', 'auto', '--space-min-free-mb', '2048',
             '--space-target-free-mb', '3072', '--managed-gradle-retention', '2',
-            '--toolchain-downloads', 'never', '--bootstrap-network', 'deny',
+            '--toolchain-downloads', 'missing', '--bootstrap-network', 'allow',
             '--max-workers', '2', '--system-deps', 'auto',
             '--daemon-idle-timeout-ms', '900000', '--gradle-jvm-heap-mb', '768',
             '--build-cache', '--output-dir', str(OUT / 'devtool-build'),
@@ -105,17 +105,12 @@ def build() -> Path:
     helper = Path.home() / '.local/share/devtool/runtime/android/build-apk'
     if helper.is_file() and not helper.is_symlink():
         cmd = helper_command(helper)
-        msg('Building app-debug.apk with Devtool managed Android builder (offline).')
+        msg('Building debug app using Devtool managed Android SDK 35 (missing toolchains may be downloaded).')
         result = subprocess.run(cmd, cwd=REPO, check=False)
     else:
-        gradle = shutil.which('gradle')
-        if not gradle:
-            raise ProbeError('Devtool Android build helper and Gradle unavailable; expected '+str(helper))
-        msg('Managed Android helper absent; using installed Gradle in offline mode.')
-        result = subprocess.run([gradle, '--offline', '--no-daemon', '--max-workers=2', ':app:assembleDebug'],
-                                cwd=PROBE, check=False)
+        raise ProbeError('Devtool managed Android build helper is missing: '+str(helper))
     if result.returncode:
-        raise ProbeError(f'Android debug build failed (exit {result.returncode}); SDK 35/AGP 8.7.3 or cached tools may be missing')
+        raise ProbeError(f'Android debug build failed (exit {result.returncode}); inspect Devtool Android bootstrap diagnostics for SDK 35/Gradle dependencies')
     # AGP emits the canonical APK here. The Devtool build helper may alternatively
     # export exactly one APK to the explicitly dedicated output directory.
     native = PROBE / 'app/build/outputs/apk/debug/app-debug.apk'

@@ -27,24 +27,41 @@ class Q10ProbeTests(unittest.TestCase):
     def test_devtool_workflows_and_existing_device_source(self):
         obj = tomllib.loads((ROOT/'.devtool.toml').read_text())
         wrappers = obj['wrapper']['commands']
-        jobs = obj['targets']['skybind_android_device']['jobs']
-        workflows = obj['targets']['skybind_android_device']['workflows']
-        for name, workflow in [('build-app-probe','app-probe-build'),('install-app-probe','app-probe-install'),('app-probe','app-probe-build-install')]:
-            self.assertEqual(wrappers[name]['target'],'skybind_android_device')
+        target = obj['targets']['skybind_app_probe']
+        jobs = target['jobs']
+        workflows = target['workflows']
+        self.assertEqual(target['root'], 'tests/device/probe-app')
+        self.assertEqual(target['platform'], 'android')
+        self.assertIn('skybind_app_probe', obj['workspace']['groups']['android'])
+        for name, workflow, job in [('build-app-probe','app-probe-build','build'),('install-app-probe','app-probe-install','install'),('app-probe','app-probe-build-install','build-install')]:
+            self.assertEqual(wrappers[name]['target'],'skybind_app_probe')
             self.assertEqual(wrappers[name]['workflow'],workflow)
-            self.assertEqual(workflows[workflow],['job:'+workflow])
-            self.assertIn(workflow,jobs)
-        self.assertIn('physical-app-probe',workflows)
-        self.assertEqual(obj['targets']['skybind_android_device']['root'],'tests/device')
+            self.assertEqual(workflows[workflow],['job:'+job])
+            self.assertIn(job,jobs)
+            self.assertEqual(jobs[job]['runner'], 'command')
+            self.assertEqual(jobs[job]['command'][1], '../../../scripts/devtool/skybind_app_probe.py')
+        self.assertNotIn('app-probe-build', obj['targets']['skybind_android_device']['workflows'])
+        self.assertIn('physical-app-probe',obj['targets']['skybind_android_device']['workflows'])
 
-    def test_build_command_debug_only_no_network(self):
+    def test_build_command_debug_only_bootstraps_missing_sdk(self):
         cmd = mod.helper_command(Path('/private/helper'))
         self.assertIn(':app:assembleDebug',cmd)
         self.assertNotIn('assembleRelease',cmd)
-        self.assertIn('never',cmd)
-        self.assertIn('deny',cmd)
-        self.assertIn('auto',cmd)
-        self.assertEqual(cmd[cmd.index('--android-platform')+1],'35')
+        self.assertEqual(cmd[cmd.index('--toolchain-downloads')+1], 'missing')
+        self.assertEqual(cmd[cmd.index('--bootstrap-network')+1], 'allow')
+        self.assertEqual(cmd[cmd.index('--android-platform')+1], '35')
+        self.assertIn('--no-chroot',cmd)
+        self.assertEqual(cmd[cmd.index('--aapt2-provider')+1], 'auto')
+
+    def test_target_references_exist_and_no_release_promotion(self):
+        obj=tomllib.loads((ROOT/'.devtool.toml').read_text())
+        target=obj['targets']['skybind_app_probe']
+        root=ROOT/target['root']
+        for name,job in target['jobs'].items():
+            for arg in job['command'][1:2]:
+                self.assertTrue((root/arg).resolve().is_file(), name)
+            self.assertIs(job['metadata']['device_qualification'],False)
+        self.assertEqual(obj['targets']['skybind_release']['platform'],'shared')
 
     def test_install_script_hash_staging_cleanup(self):
         s=mod.installation_script(Path('/data/data/com.termux/files/home/Code/skybind/build/app-probe/probe.apk'), 'a'*64,'b'*24)
