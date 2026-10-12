@@ -238,7 +238,8 @@ func daemonCommand() int {
 			case <-ctx.Done():
 				return
 			case <-timer.C:
-				_, _ = supervisorEngine.Reconcile(ctx)
+				health, reconcileErr := supervisorEngine.Reconcile(ctx)
+				writeSupervisorAudit(logStore, health, reconcileErr)
 				_, _ = jobStore.Tick()
 			}
 		}
