@@ -180,6 +180,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+q11-reconcile = ["job:q11-reconcile"]
 qualification-readiness = ["job:q01-gate-triage"]
 final-audit = ["job:cfs1-audit-definition"]
 cg1-definitions = ["job:cg1-gate-definitions"]
@@ -882,3 +883,16 @@ target = "skybind"
 description = "Download if necessary and verify Q04 bclone provider evidence only (no build/seal)"
 workflow = "local-runtime-bclone"
 target = "skybind"
+
+# SB-Q11: read-only raw device evidence reconciliation. NOT a release gate.
+[wrapper.commands.q11]
+description = "Reconcile Q09 raw device receipts with independent CFS1 gate status (no seal)"
+workflow = "q11-reconcile"
+target = "skybind_release"
+
+[targets.skybind_release.jobs.q11-reconcile]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../scripts/dev/release/q11_reconcile.py", "--evidence-dir", "/storage/emulated/0/Download", "--output-dir", "/storage/emulated/0/Download"]
+inputs = ["../scripts/dev/release/q11_reconcile.py", "../scripts/dev/seal/**", "../scripts/dev/gates/**", "../docs/gates/**"]
+metadata = { qualification = "raw-evidence-reconciliation-only", independent_attestation = false, release_seal = false }
