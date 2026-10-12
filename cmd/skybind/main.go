@@ -231,6 +231,7 @@ func daemonCommand() int {
 	// Periodic reconciliation is bounded and driven solely by persisted desired
 	// state; explicit stop is not undone and no unknown network is assumed safe.
 	go func() {
+		audit := newSupervisorAuditor()
 		timer := time.NewTicker(30 * time.Second)
 		defer timer.Stop()
 		for {
@@ -239,7 +240,7 @@ func daemonCommand() int {
 				return
 			case <-timer.C:
 				health, reconcileErr := supervisorEngine.Reconcile(ctx)
-				writeSupervisorAudit(logStore, health, reconcileErr)
+				audit.Write(logStore, health, reconcileErr)
 				_, _ = jobStore.Tick()
 			}
 		}

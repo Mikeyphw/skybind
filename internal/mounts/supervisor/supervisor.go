@@ -173,6 +173,15 @@ func (s *Supervisor) Reconcile(ctx context.Context) ([]Health, error) {
 			continue
 		}
 		v, startErr := s.engine.Start(name)
+		if errors.Is(startErr, lifecycle.ErrResourcePolicyDeferred) {
+			// Start returned before touching FUSE or provider processes. Delay
+			// the next policy check without exhausting the budget reserved for
+			// actual failed starts. Keep any previously spent tokens.
+			r.next = s.now().Add(30 * time.Second)
+			s.retry[name] = r
+			out = append(out, Health{Name: name, State: "RETRYING", Reason: "policy_deferred", Attempts: r.attempts, RetryAt: r.next})
+			continue
+		}
 		r.attempts++
 		backoff := time.Second * time.Duration(1<<uint(min(r.attempts, 6)))
 		if backoff > time.Minute {

@@ -29,6 +29,11 @@ import (
 
 var nameRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,62}$`)
 
+// ErrResourcePolicyDeferred marks a pre-spawn denial. The supervisor may
+// wait for fresh device facts without spending an actual start-attempt token.
+// Other start errors remain subject to the strict retry budget.
+var ErrResourcePolicyDeferred = errors.New("resource policy blocked")
+
 type Ownership struct {
 	Name        string `json:"name"`
 	PID         int    `json:"pid"`
@@ -530,7 +535,7 @@ func (e *Engine) startLocked(m config.Mount) (State, error) {
 	}
 	dec := policy.Evaluate(m, e.env.Facts(), e.env.Now())
 	if !dec.Allowed {
-		return State{}, fmt.Errorf("resource policy blocked: %s", dec.Reason)
+		return State{}, fmt.Errorf("%w: %s", ErrResourcePolicyDeferred, dec.Reason)
 	}
 	s, err := e.inspect(m)
 	if err != nil {
