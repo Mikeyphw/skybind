@@ -133,6 +133,31 @@ export async function selectTransport() {
 
 export function transportName() { return selected; }
 
+// The Android manager WebView does not reliably hand blob: anchors to a
+// DownloadManager. Delegate a fixed, validated export to Skybind's root-only
+// support-export entrypoint instead; never interpolate paths or free text.
+export async function saveSupportBundleToDownloads(id, sha256) {
+  if (selected !== 'embedded' || !embeddedAvailable()) throw new Error('Android manager download bridge is unavailable');
+  if (!/^[a-f0-9]{32}$/.test(id) || !/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Invalid support bundle export identity');
+  const expected = `/storage/emulated/0/Download/skybind-support-${id}.zip`;
+  const command = `'${EMBEDDED_BINARY}' support-export '${id}' '${sha256}'`;
+  const callback = `skybind_export_${Date.now()}_${++requestCounter}`;
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const cleanup = () => { try { delete globalThis[callback]; } catch (_) { globalThis[callback] = undefined; } };
+    const timer = setTimeout(() => { if (!finished) { finished = true; cleanup(); reject(new Error('Android Downloads export timed out')); } }, 30000);
+    globalThis[callback] = (errno, stdout, stderr) => {
+      if (finished) return;
+      finished = true; clearTimeout(timer); cleanup();
+      if (Number(errno) !== 0) { reject(new Error(bounded(stderr || `Support export failed (${errno})`, 320))); return; }
+      if (String(stdout || '').trim() !== expected) { reject(new Error('Support export returned an unexpected destination')); return; }
+      resolve(expected);
+    };
+    try { globalThis.ksu.exec(command, JSON.stringify({}), callback); }
+    catch (error) { clearTimeout(timer); cleanup(); reject(error); }
+  });
+}
+
 // Final SB-C04 returns protocol.Response for both capabilities transports.
 function unwrapCatalog(value) {
   if (value?.schema_version === 1 && value?.ok === true && value?.result?.operations) return value.result;

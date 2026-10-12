@@ -20,6 +20,7 @@
     <button class="primary" id="skybindLoginButton" type="submit">Connect</button>
   </form>
 </section>
+  <div id="toastRegion" class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
   <header class="topbar">
     <div><p class="eyebrow">Skybind</p><h1 id="pageTitle">Home</h1></div>
     <span id="transportBadge" class="badge">Connecting…</span>
@@ -202,11 +203,12 @@
     </section>
 
     <section id="view-doctor" class="view" hidden>
-      <div class="toolbar"><div><h2>Doctor</h2><p class="muted">Actionable health checks. Expected static-runtime states are informational, not warnings.</p></div><div class="button-row"><button id="runDoctorButton" type="button">Run doctor</button><button id="bundleButton" type="button">Build support bundle</button></div></div>
+      <div class="toolbar"><div><h2>Doctor</h2><p class="muted">Actionable health checks. Expected static-runtime states are informational, not warnings.</p></div><div class="button-row"><button id="runDoctorButton" type="button">Run doctor</button><button id="bundleButton" type="button">Generate & save ZIP</button></div></div>
+      <div id="bundleResult" class="notice compact bundle-result" aria-live="polite" hidden></div>
       <div id="doctorNotice" class="notice compact" aria-live="polite" hidden></div>
       <div id="doctorSummary" class="stack"></div>
       <div id="doctorCards" class="stack small"></div>
-      <div id="bundleResult" class="notice compact" hidden></div>
+
     </section>
 
     <section id="view-remotes" class="view" hidden>

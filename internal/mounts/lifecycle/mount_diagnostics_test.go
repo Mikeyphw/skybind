@@ -1,6 +1,8 @@
 package lifecycle
 
 import (
+	"path/filepath"
+	"skybind/internal/paths"
 	"strings"
 	"testing"
 )
@@ -59,5 +61,31 @@ func TestMountReadinessFailureCarriesSafeProviderCategory(t *testing.T) {
 	}
 	if !runner.stopped {
 		t.Fatal("unready child was not stopped")
+	}
+}
+
+// Regression against the functional Rclone Nexus runtime's FUSE helper PATH.
+// Runtime integrity must still be checked before process creation.
+func TestMountProcessEnvHasOnlyCanonicalFuseHelper(t *testing.T) {
+	t.Setenv("PATH", "/data/local/tmp/untrusted:/vendor/bin")
+	t.Setenv("HOME", "/sdcard/untrusted")
+	t.Setenv("LD_PRELOAD", "/data/local/tmp/untrusted.so")
+	env := mountProcessEnv()
+	want := []string{
+		"PATH=" + filepath.Dir(paths.FuseHelper) + ":/system/bin:/system/xbin",
+		"HOME=" + paths.StateRoot,
+	}
+	if len(env) != len(want) {
+		t.Fatalf("unexpected mount environment fields: %v", env)
+	}
+	for i := range want {
+		if env[i] != want[i] {
+			t.Fatalf("mount environment mismatch: got %q want %q", env[i], want[i])
+		}
+	}
+	for _, entry := range env {
+		if strings.Contains(entry, "untrusted") || strings.Contains(entry, "LD_PRELOAD") {
+			t.Fatal("untrusted inherited environment reached the provider")
+		}
 	}
 }

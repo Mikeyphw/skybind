@@ -132,13 +132,26 @@ func (canonicalEnvironment) Facts() policy.Facts {
 	return policy.SampleAndroidFacts(filepath.Join(paths.StateRoot, "cache"))
 }
 func (canonicalEnvironment) Now() time.Time { return time.Now() }
+
+// mountProcessEnv provides the fixed, hash-verified module helper authority to
+// rclone's fusermount3 lookup. The old Nexus runtime explicitly prepended its
+// bundled helper directory; Skybind must retain that behavior for FUSE while
+// refusing inherited host PATH entries or provider substitution.
+// Only a canonical runtime verified by startLocked may use this environment.
+func mountProcessEnv() []string {
+	return []string{
+		"PATH=" + filepath.Dir(paths.FuseHelper) + ":/system/bin:/system/xbin",
+		"HOME=" + paths.StateRoot,
+	}
+}
+
 func (linuxSpawner) Start(binary string, args []string) (int, error) {
 	c := exec.Command(binary, args...)
 	capture := &mountStderr{}
 	c.Stdin = nil
 	c.Stdout = nil
 	c.Stderr = capture
-	c.Env = []string{"PATH=/system/bin:/system/xbin"}
+	c.Env = mountProcessEnv()
 	if e := c.Start(); e != nil {
 		return 0, e
 	}

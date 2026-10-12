@@ -866,3 +866,74 @@ button[aria-busy="true"] { cursor: progress; }
 .skybind-auth { position:fixed;inset:0;z-index:9000;background:var(--bg, #10151d);display:flex;align-items:center;justify-content:center;padding:24px; }
 .skybind-auth-card { width:min(100%,440px);display:grid;gap:12px;padding:26px; }
 .skybind-auth-card input { width:100%; }
+
+/* SB-R03 UX refresh: flatter Android-native surfaces, purposeful separators. */
+html, body { background: var(--ui-bg); }
+body { background-image: none; }
+.topbar, .mobile-nav, .desktop-nav, .sticky-actions {
+  background: var(--ui-bg); backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.home-hero { background: var(--ui-surface-1); background-image: none; box-shadow: none; }
+.card, .mount-card, .operation-card, .change-card, .runtime-card,
+.job-card, .log-card, .doctor-card, .remote-entry, .home-hero,
+.home-status-card, .home-preview-stack, .home-empty, .home-authority-note,
+.more-card, .settings-group, .settings-apply, .review-cell,
+.profile-card, .choice-card, .editor-section, .preview-panel,
+.inline-browser, .advanced-panel, .remote-browser, .remote-folder,
+.runtime-provenance-grid > div, .runtime-fuse-card, .activity-card,
+.doctor-summary, .log-stream, .recovery-summary > div {
+  border: 0; box-shadow: none; background-image: none;
+}
+.home-hero, .home-status-card, .home-preview-stack, .settings-group,
+.settings-apply, .more-card, .doctor-summary, .runtime-card,
+.mount-card, .job-card, .doctor-card, .activity-card,
+.log-stream, .remote-browser { background: var(--ui-surface-1); }
+.profile-card, .choice-card, .review-cell, .advanced-panel,
+.editor-section, .preview-panel, .runtime-provenance-grid > div,
+.runtime-fuse-card, .recovery-summary > div { background: var(--ui-surface-2); }
+.doctor-card.PASS { border-left: 3px solid var(--ui-good); }
+.doctor-card.WARN { border-left: 3px solid var(--ui-warn); }
+.doctor-card.FAIL { border-left: 3px solid var(--ui-bad); }
+.doctor-card.INFO { border-left: 3px solid var(--ui-accent); }
+.profile-card.selected, .choice-card:has(input:checked) { outline: 2px solid var(--ui-accent); outline-offset: 0; }
+.notice { border: 0; box-shadow: none; border-left: 3px solid var(--ui-line); border-radius: .65rem; }
+.notice.error { border-left-color: var(--ui-bad); }
+.notice.warn { border-left-color: var(--ui-warn); }
+.notice.ok { border-left-color: var(--ui-good); }
+button { border-color: transparent; box-shadow: none; }
+button.primary, button.danger { border-color: transparent; }
+button:not(.primary):not(.danger):not(.nav-item):not(.nav-secondary):not(.remote-object-main):focus-visible { outline-offset: 2px; }
+.settings-list, .log-commandbar { border-top: 0; }
+.settings-row, .settings-link, .log-row, .home-preview-row, .home-activity-row { border-bottom-color: var(--ui-line); }
+/* Preserve editable field boundaries, warning rails and keyboard focus. */
+.form-grid input, .form-grid select, .source-picker input, .source-picker select,
+.settings-form input, .settings-form select, .log-filters input, .log-filters select {
+  border-color: var(--ui-line);
+}
+/* Visible feedback stays close to the viewport without covering mobile nav. */
+.toast-region {
+  position: fixed; z-index: 8500; top: calc(.65rem + var(--ui-safe-top));
+  right: max(.75rem, var(--ui-safe-right)); left: max(.75rem, var(--ui-safe-left));
+  pointer-events: none; display: flex; justify-content: center;
+}
+.app-toast {
+  pointer-events: auto; display: flex; align-items: center; gap: .8rem;
+  justify-content: space-between; width: min(100%, 490px); min-height: 50px;
+  padding: .7rem .75rem .7rem 1rem; border-radius: .8rem;
+  background: #232e3b; color: #f6f8fd; border-left: 4px solid var(--ui-accent);
+  box-shadow: 0 8px 22px rgba(0,0,0,.25); overflow-wrap: anywhere;
+  font-size: .86rem; font-weight: 600;
+}
+.app-toast.ok { border-left-color: var(--ui-good); }
+.app-toast.warn { border-left-color: var(--ui-warn); }
+.app-toast.error { border-left-color: var(--ui-bad); }
+.app-toast .toast-dismiss { min-width: 38px; min-height: 38px; padding: 0; font-size: 1.35rem; flex: none; background: transparent; color: inherit; }
+.bundle-result { margin: 0 0 1rem; padding: 1rem; background: var(--ui-surface-1); }
+.bundle-result-title { margin: 0 0 .55rem; font-weight: 750; }
+.bundle-actions { margin: .65rem 0; }
+#bundleSaveStatus { margin: .55rem 0; }
+@media (prefers-color-scheme: light) {
+  .app-toast { background: #202a38; color: #fff; }
+}
+@media (max-width: 759px) { .toast-region { top: calc(.4rem + var(--ui-safe-top)); } }

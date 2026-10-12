@@ -1,4 +1,4 @@
-import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
+import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, saveSupportBundleToDownloads, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
 import { runtimeFailureText, providerReadinessPresentation } from './parity.js';
 import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, suggestMountDefaults } from './model.js';
@@ -35,14 +35,33 @@ function result(envelope) {
   return envelope.response.result ?? {};
 }
 function countMounts(value) { return Array.isArray(value?.mounts) ? value.mounts.length : 0; }
+let toastTimer = null;
+function showToast(message, kind = 'ok', duration = 5500) {
+  const root = byId('toastRegion'); if (!root) return;
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+  clear(root);
+  const toast = document.createElement('div'); toast.className = `app-toast ${kind}`;
+  const content = document.createElement('span'); content.textContent = String(message || '');
+  const dismiss = button('×', () => { clear(root); if (toastTimer) clearTimeout(toastTimer); toastTimer = null; }, 'toast-dismiss');
+  dismiss.setAttribute('aria-label', 'Dismiss notification');
+  toast.append(content, dismiss); root.append(toast);
+  if (duration > 0) toastTimer = setTimeout(() => { clear(root); toastTimer = null; }, duration);
+}
 function showNotice(node, message, kind = '') {
   if (!node) return;
   node.hidden = false; node.className = `notice compact ${kind}`.trim(); node.textContent = String(message);
+  // Retain detailed inline outcomes; also display immediate viewport feedback
+  // for user-facing actions. Do not toast routine runtime/health refreshes.
+  if (['ok', 'error', 'warn'].includes(kind) &&
+      !['runtimeNotice','homeAttention','compatibility','remoteTestResult'].includes(node.id)) {
+    showToast(String(message), kind);
+  }
 }
 function hideNotice(node) { if (node) { node.hidden = true; node.textContent = ''; } }
 function showMountOutcome(message, kind = '', actions = []) {
   const node = byId('mountsNotice'); if (!node) return; clear(node); node.hidden = false; node.className = `notice compact ${kind}`.trim();
   node.append(paragraph(message));
+  showToast(message, kind === 'error' ? 'error' : kind === 'ok' ? 'ok' : 'warn');
   if (actions.length) { const row = document.createElement('div'); row.className = 'button-row notice-actions'; for (const action of actions) row.append(button(action.label, action.run, action.className || '')); node.append(row); }
 }
 function backendErrorText(error) {
@@ -1023,7 +1042,64 @@ function renderDoctor(report){
 }
 async function runDoctorUI(){try{renderDoctor(result(await query('doctor.report')));}catch(error){showNotice(byId('doctorNotice')||byId('settingsNotice'),String(error?.message||error),'error');}}
 function decodeBase64(data){const binary=atob(data);const bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);return bytes;}
-async function buildBundle(){const root=byId('bundleResult');try{const meta=result(await run('doctor.bundle',{}));const payload=result(await query('doctor.bundle.read',{bundle_id:meta.bundle_id}));const blob=new Blob([decodeBase64(payload.data)],{type:'application/zip'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=payload.filename;a.textContent=`Save ${payload.filename}`;const copy=button('Copy checksum',()=>void navigator.clipboard?.writeText(payload.sha256));clear(root);root.hidden=false;root.append(a,document.createTextNode(` · ${bytes(payload.size)} · `),copy);setTimeout(()=>URL.revokeObjectURL(url),60000);}catch(error){showNotice(root,String(error?.message||error),'error');}}
+// The result lives directly below the Doctor toolbar (never after all checks).
+// Embedded manager WebViews save through the root-only fixed-path native export;
+// standalone browsers retain a user-gesture browser download.
+async function saveVerifiedSupportBundle(payload) {
+  if (transportName() === 'embedded') return saveSupportBundleToDownloads(payload.id, payload.sha256);
+  const blob = new Blob([decodeBase64(payload.data)], {type:'application/zip'});
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement('a');
+    link.href = url; link.download = payload.filename;
+    document.body.append(link); link.click(); link.remove();
+    return null; // Browser initiated the download; it has not acknowledged saving.
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 30000); }
+}
+async function saveBundleAgain(payload, control) {
+  setButtonBusy(control, true, 'Saving…');
+  try {
+    const saved = await saveVerifiedSupportBundle(payload);
+    const message = saved ? `Support ZIP saved to Downloads: ${payload.filename}` : `Download requested: ${payload.filename}. Check your browser downloads.`;
+    showNotice(byId('bundleSaveStatus'), message, 'ok');
+  } catch (error) {
+    const message = `ZIP verified, but saving failed: ${String(error?.message || error)}. Retry Save to Downloads.`;
+    showNotice(byId('bundleSaveStatus'), message, 'error');
+  } finally { setButtonBusy(control, false); }
+}
+async function buildBundle() {
+  const root = byId('bundleResult'); const control = byId('bundleButton');
+  setButtonBusy(control, true, 'Generating ZIP…');
+  root.hidden = false; root.className = 'notice compact bundle-result'; clear(root);
+  root.append(paragraph('Generating and verifying a sanitized support bundle…', 'muted'));
+  showToast('Generating support ZIP…', 'info', 0);
+  try {
+    const meta = result(await run('doctor.bundle', {}));
+    const payload = result(await query('doctor.bundle.read', {bundle_id:meta.bundle_id}));
+    // The bridge has already verified the exact ID, SHA-256, and byte length.
+    if (payload.id !== meta.id || payload.sha256 !== meta.sha256 || payload.size !== meta.size) throw new Error('Support bundle metadata changed during generation');
+    clear(root);
+    root.append(paragraph(`Verified support bundle · ${bytes(payload.size)}`, 'bundle-result-title'));
+    const actions = document.createElement('div'); actions.className = 'button-row bundle-actions';
+    const saveButton = button(transportName() === 'embedded' ? 'Save to Downloads' : 'Download ZIP', () => void saveBundleAgain(payload, saveButton), 'primary');
+    const checksumButton = button('Copy SHA-256', async () => {
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(payload.sha256); showToast('SHA-256 copied.', 'ok');
+      } catch (error) { showToast(`Could not copy checksum: ${String(error?.message || error)}`, 'error'); }
+    });
+    actions.append(saveButton, checksumButton);
+    const status = document.createElement('div'); status.id = 'bundleSaveStatus'; status.hidden = true;
+    root.append(actions, status, paragraph(`File: ${payload.filename}`, 'muted'));
+    // Android embedded mode can save asynchronously without depending on a
+    // browser download gesture. Leave a retry button visible if it fails.
+    if (transportName() === 'embedded') await saveBundleAgain(payload, saveButton);
+    else showToast('Support ZIP ready. Tap Download ZIP to save it.', 'ok');
+  } catch (error) {
+    const message = `Support bundle generation failed: ${String(error?.message || error)}`;
+    showNotice(root, message, 'error');
+  } finally { setButtonBusy(control, false); }
+}
 
 function settingsValue(){return {refresh_seconds:Number(byId('setting-refresh').value),log_limit:Number(byId('setting-log-limit').value),log_max_bytes:Number(byId('setting-log-max').value),log_backups:Number(byId('setting-log-backups').value),webui_idle_seconds:Number(byId('setting-idle').value),default_view:byId('setting-default-view').value,default_mount_view:byId('setting-mount-view').value,log_follow:byId('setting-log-follow').checked,dense_mode:byId('setting-dense').checked,reduced_motion:byId('setting-reduced-motion').checked};}
 function applySettingsPresentation(){const s=state.settingsSnapshot?.settings||{};document.body.classList.toggle('dense',Boolean(s.dense_mode||s.default_mount_view==='dense'));document.body.classList.toggle('reduce-motion',Boolean(s.reduced_motion));byId('logFollow').checked=Boolean(s.log_follow);}

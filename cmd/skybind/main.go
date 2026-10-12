@@ -62,6 +62,25 @@ func run(args []string) int {
 		return namespace.RunWorker(args[1:])
 	case "webui":
 		return webuiCommand(args[1:])
+	case "support-export":
+		// Fixed, root-only export of a verified owned ZIP. No arbitrary path,
+		// shell command, unredacted data, or caller-controlled destination.
+		if len(args) != 3 || os.Geteuid() != 0 {
+			fmt.Fprintln(os.Stderr, "usage: skybind support-export <bundle-id> <sha256> (root only)")
+			return 2
+		}
+		store, err := support.Open(paths.StateRoot + "/support")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "support export:", err)
+			return 1
+		}
+		dest, err := store.ExportToDownloads(args[1], args[2])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "support export:", err)
+			return 1
+		}
+		fmt.Println(dest)
+		return 0
 	case "daemon":
 		if len(args) != 1 {
 			usage()
