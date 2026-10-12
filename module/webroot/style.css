@@ -937,3 +937,36 @@ button:not(.primary):not(.danger):not(.nav-item):not(.nav-secondary):not(.remote
   .app-toast { background: #202a38; color: #fff; }
 }
 @media (max-width: 759px) { .toast-region { top: calc(.4rem + var(--ui-safe-top)); } }
+
+
+/* SB-Q08: direct, flat mount-card controls. Isolated from other screens. */
+#view-mounts .mount-active-count { margin: -.5rem 0 1rem; font-size: .84rem; color: var(--ui-muted); }
+#view-mounts .mount-toolbar-actions { flex-wrap: wrap; }
+#view-mounts .quick-mount-card { border: 0; box-shadow: none; background: var(--ui-surface-1); padding: 1rem; border-radius: 1.25rem; }
+#view-mounts .quick-mount-card .mount-head { align-items: center; }
+#view-mounts .quick-mount-card .mount-identity { flex: 1; }
+#view-mounts .quick-mount-card .mount-destination { background: var(--ui-bg); border: 0; padding: .65rem .7rem; align-items: center; margin: 1rem 0 .5rem; }
+#view-mounts .quick-mount-card .mount-destination code { flex: 1; font-size: .8rem; }
+#view-mounts .mount-path-copy { min-width: 2.7rem; min-height: 2.7rem; flex: none; padding: 0; background: transparent; border: 0; font-size: 1.2rem; }
+#view-mounts .mount-quick-details { display: flex; gap: .4rem .7rem; align-items: center; justify-content: space-between; flex-wrap: wrap; font-size: .78rem; }
+#view-mounts .mount-quick-details p { margin: 0; }
+#view-mounts .mount-online { color: var(--ui-good); font-weight: 700; }
+#view-mounts .mount-quick-primary { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: .55rem; margin-top: 1.05rem; }
+#view-mounts .mount-quick-primary button { min-height: 48px; font-weight: 750; }
+#view-mounts .mount-stop-button { background: color-mix(in srgb, var(--ui-bad) 19%, var(--ui-surface-2)); color: var(--ui-text); }
+#view-mounts .mount-quick-primary button:disabled { opacity: .5; }
+#view-mounts .mount-quick-secondary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)) 2.6rem; gap: .25rem; margin-top: .45rem; }
+#view-mounts .mount-quick-secondary button { min-height: 43px; padding: .5rem .2rem; background: transparent; color: var(--ui-text-muted); font-size: .8rem; border: 0; }
+#view-mounts .mount-quick-secondary button:hover { background: var(--ui-surface-2); }
+#view-mounts .mount-quick-secondary button:focus-visible, #view-mounts .mount-path-copy:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+#view-mounts .quick-mount-card[aria-busy="true"] .mount-quick-secondary { opacity: .65; }
+.mount-quick-dialog-backdrop { display: flex; align-items: center; justify-content: center; padding: 1rem; }
+.mount-quick-dialog { width: min(100%, 440px); padding: 1.3rem; border-radius: 1.1rem; background: var(--ui-surface-2); }
+.mount-quick-dialog h2 { font-size: 1.17rem; margin: 0 0 .6rem; }
+.mount-quick-dialog p { line-height: 1.55; }
+.mount-quick-dialog .button-row { margin-top: 1rem; justify-content: flex-end; }
+.mount-quick-dialog input { width: 100%; padding: .75rem; border: 1px solid var(--ui-line); border-radius: .6rem; background: var(--ui-bg); color: var(--ui-text); }
+@media (max-width: 420px) {
+  #view-mounts .mount-quick-secondary { grid-template-columns: repeat(3,minmax(0,1fr)) 2.3rem; }
+  #view-mounts .mount-quick-secondary button { font-size: .76rem; }
+}

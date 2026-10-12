@@ -11,6 +11,7 @@ const state = {
   preview: null, previewCandidates: null, rollbackPreview: null, refreshing: false,
   editorDirty: false, editorInitial: '', editorExisting: false, editorValidationTimer: null, editorValidationSeq: 0, editorIssues: [], editorStep: 0, editorInteracted: false,
   editorRemotes: [], editorProfiles: [], editorRecommendation: null, editorProviderStatus: null, editorRuntimeStatus: null, editorRemotePath: '', editorManualRemote: false, editorRemoteReachable: null, editorNameTouched: false, editorMountpointTouched: false, editorProfileTouched: false, editorBackendValidated: false, editorTrigger: null, editorSession: 0, previewTimer: null, operationPollToken: 0, mountActionName: '', mountActionReturnFocus: null,
+  mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountPathReturnFocus: null,
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
 };
@@ -264,23 +265,91 @@ function healthClass(value) {
   return 'state-pill';
 }
 
-function mountStateCopy(row) {
-  const stateValue = row.health.state || row.status.state || 'unknown';
-  const running = Boolean(row.health.process_alive || row.status.state === 'running');
-  const desiredRunning = (row.health.desired || row.status.desired) === 'running';
-  const terminalFailure = Boolean(row.health.failure_code && row.health.retryable === false);
-  const retryableFailure = Boolean(row.health.failure_code && row.health.retryable === true);
-  return { stateValue, running, desiredRunning, terminalFailure, retryableFailure };
+// SB-Q08: pure mount-action presentation logic. Never infer success from UI-local state.
+function mountQuickState(row, busy = false) {
+  const observed = String(row?.status?.observed || row?.status?.state || row?.health?.state || 'UNKNOWN').toUpperCase();
+  const health = String(row?.health?.state || '').toUpperCase();
+  const desiredValue = row?.status?.desired ?? row?.health?.desired;
+  const desiredRunning = desiredValue === true || String(desiredValue).toUpperCase() === 'RUNNING';
+  // An authoritative observed RUNNING state is required if present. Health is a
+  // fallback for older backends, not a replacement for contradictory mount.status.
+  const running = observed === 'RUNNING' || (!row?.status?.observed && !row?.status?.state && (health === 'RUNNING' || row?.health?.process_alive === true));
+  const transient = ['STARTING','STOPPING','RESTARTING','RETRYING'].includes(observed) || ['STARTING','STOPPING','RESTARTING','RETRYING'].includes(health);
+  const terminalFailure = Boolean(row?.health?.failure_code && row?.health?.retryable === false);
+  const retryableFailure = Boolean(row?.health?.failure_code && row?.health?.retryable === true);
+  return {
+    stateValue: observed === 'UNKNOWN' ? (health || 'UNKNOWN') : observed,
+    running, desiredRunning, terminalFailure, retryableFailure, busy: Boolean(busy), transient,
+    canStart: !running && !terminalFailure && !busy && !transient,
+    canStop: (running || desiredRunning) && !busy && !transient,
+    canRestart: running && !terminalFailure && !busy && !transient,
+    primaryAction: running ? 'stop' : 'start',
+  };
+}
+
+function mountStateCopy(row) { return mountQuickState(row, state.mountBusyNames.has(row.config.name)); }
+
+// All lifecycle buttons, including the advanced action sheet, use the same
+// confirmation and backend-authoritative operation path.
+function requestMountAction(action, name, trigger = document.activeElement) {
+  if (state.mountBusyNames.has(name)) return;
+  if (action === 'start') { void lifecycleAction(action, name); return; }
+  if (!['stop', 'restart'].includes(action)) return;
+  state.mountConfirmAction = action; state.mountConfirmName = name;
+  state.mountConfirmReturnFocus = trigger instanceof HTMLElement ? trigger : null;
+  text('mountConfirmTitle', `${action === 'stop' ? 'Stop' : 'Restart'} ${name}?`);
+  text('mountConfirmDetail', action === 'stop'
+    ? 'Apps using this mounted folder will temporarily lose access. The remote data will not be deleted.'
+    : 'Skybind will temporarily disconnect this mount. Apps using its files may be interrupted.');
+  text('mountConfirmApply', action === 'stop' ? 'Stop mount' : 'Restart mount');
+  byId('mountConfirmApply').className = action === 'stop' ? 'danger' : 'primary';
+  byId('mountConfirmBackdrop').hidden = false;
+  queueMicrotask(() => byId('mountConfirmCancel')?.focus());
+}
+function closeMountConfirmation() {
+  byId('mountConfirmBackdrop').hidden = true;
+  const focus = state.mountConfirmReturnFocus;
+  state.mountConfirmAction = null; state.mountConfirmName = ''; state.mountConfirmReturnFocus = null;
+  if (focus?.isConnected) queueMicrotask(() => focus.focus());
+}
+function confirmMountAction() {
+  const action = state.mountConfirmAction, name = state.mountConfirmName;
+  closeMountConfirmation();
+  if (action && name) void lifecycleAction(action, name);
+}
+function openMountFolder(name, mountpoint, trigger = document.activeElement) {
+  state.mountPathReturnFocus = trigger instanceof HTMLElement ? trigger : null;
+  text('mountFolderTitle', `${name} · mount folder`);
+  const field = byId('mountFolderPath'); field.value = mountpoint || '';
+  byId('mountFolderBackdrop').hidden = false;
+  queueMicrotask(() => field?.focus());
+}
+function closeMountFolder() {
+  byId('mountFolderBackdrop').hidden = true;
+  const focus = state.mountPathReturnFocus; state.mountPathReturnFocus = null;
+  if (focus?.isConnected) queueMicrotask(() => focus.focus());
+}
+async function copyMountFolder() {
+  const field = byId('mountFolderPath'), value = field.value;
+  if (!value) return;
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+    await navigator.clipboard.writeText(value);
+    closeMountFolder(); showToast('Mount folder path copied.', 'ok');
+  } catch (_) {
+    field.focus(); field.select();
+    showToast('Copy unavailable here. Select and copy the path manually.', 'warn');
+  }
 }
 
 function openMountActions(row, trigger) {
   const sheet = byId('mountActionBackdrop'); if (!sheet) return;
   const status = mountStateCopy(row); state.mountActionName = row.config.name; state.mountActionReturnFocus = trigger || document.activeElement;
   text('mountActionTitle', row.config.name); text('mountActionSubtitle', `${row.config.remote} → ${row.config.mountpoint}`);
-  byId('mountActionStart').hidden = status.running; byId('mountActionStart').disabled = status.terminalFailure;
+  byId('mountActionStart').hidden = status.running; byId('mountActionStart').disabled = !status.canStart;
   byId('mountActionStart').querySelector('strong').textContent = status.retryableFailure ? 'Retry start' : status.terminalFailure ? 'Start blocked' : 'Start';
-  byId('mountActionStop').hidden = !status.running && !status.desiredRunning;
-  byId('mountActionRestart').hidden = !status.running; byId('mountActionRestart').disabled = status.terminalFailure;
+  byId('mountActionStop').hidden = !status.running && !status.desiredRunning; byId('mountActionStop').disabled = !status.canStop;
+  byId('mountActionRestart').hidden = !status.running; byId('mountActionRestart').disabled = !status.canRestart;
   sheet.hidden = false; queueMicrotask(() => byId('mountActionEdit')?.focus());
 }
 function closeMountActions() { const focus = state.mountActionReturnFocus; byId('mountActionBackdrop').hidden = true; state.mountActionName = ''; state.mountActionReturnFocus = null; if (focus?.focus) queueMicrotask(() => focus.focus()); }
@@ -290,38 +359,50 @@ async function deleteMountFromActions() { const cfg = selectedMountActionConfig(
 function renderMounts(snapshot, statuses, health) {
   const root = byId('mountCards'); clear(root);
   const rows = mountRows(snapshot, statuses, health);
-  if (!rows.length) { root.append(paragraph('No mounts are configured yet. Add a mount when you are ready.', 'notice empty-state')); return; }
+  const runningCount = rows.filter((row) => mountStateCopy(row).running).length;
+  text('mountCount', `${runningCount} active · ${rows.length} configured`);
+  if (!rows.length) { root.append(paragraph('No mounts are configured yet. Add a mount to get started.', 'notice empty-state')); return; }
   for (const row of rows) {
-    const status = mountStateCopy(row);
-    const card = document.createElement('article'); card.className = 'mount-card modern-mount-card'; card.dataset.mountName = row.config.name;
+    const status = mountStateCopy(row), name = row.config.name;
+    const card = document.createElement('article'); card.className = 'mount-card modern-mount-card quick-mount-card'; card.dataset.mountName = name;
+    if (status.busy) card.setAttribute('aria-busy', 'true');
     const head = document.createElement('div'); head.className = 'mount-head';
     const titles = document.createElement('div'); titles.className = 'mount-identity';
-    const title = document.createElement('h3'); title.textContent = row.config.name;
-    const remote = paragraph(row.config.remote || 'No remote configured', 'mount-remote code'); titles.append(title, remote);const security=encryptionBadgeForEndpoint(row.config.remote);if(security)titles.append(security);
-    head.append(titles, label(status.stateValue, healthClass(status.stateValue))); card.append(head);
-
-    const destination = document.createElement('div'); destination.className = 'mount-destination';
+    const title = document.createElement('h3'); title.textContent = name;
+    const remote = paragraph(row.config.remote || 'No remote configured', 'mount-remote code');
+    titles.append(title, remote); const security = encryptionBadgeForEndpoint(row.config.remote); if (security) titles.append(security);
+    head.append(titles, label(status.busy ? 'WORKING' : status.stateValue, status.busy ? 'state-pill warn' : healthClass(status.stateValue)));
+    card.append(head);
+    const destination = document.createElement('div'); destination.className = 'mount-destination mount-quick-path';
     const arrow = document.createElement('span'); arrow.setAttribute('aria-hidden','true'); arrow.textContent = '↳';
-    const path = document.createElement('code'); path.textContent = row.config.mountpoint || '—'; destination.append(arrow, path); card.append(destination);
-
-    const meta = document.createElement('div'); meta.className = 'mount-meta mount-summary-grid';
-    const values = [
-      ['Desired', row.health.desired || row.status.desired || '—'],
-      ['VFS', row.config.vfs_profile || 'custom'],
-      ['Network', row.config.network_mode || 'offline-allowed'],
-      ['PID', row.status.pid || row.health.pid || '—'],
-    ];
-    for (const [name, value] of values) { const cell = document.createElement('div'); const strong = document.createElement('strong'); strong.textContent = name; const span=document.createElement('span'); span.textContent=String(value); cell.append(strong, span); meta.append(cell); }
-    card.append(meta);
-    if (row.health.failure_code || (row.health.reason && row.health.reason !== '—')) {
+    const path = document.createElement('code'); path.textContent = row.config.mountpoint || '—'; destination.append(arrow, path);
+    const copy = button('⧉', () => openMountFolder(name, row.config.mountpoint, copy), 'mount-path-copy');
+    copy.setAttribute('aria-label', `Show and copy folder path for ${name}`); destination.append(copy); card.append(destination);
+    const details = document.createElement('div'); details.className = 'mount-quick-details';
+    const summary = paragraph(`${row.config.vfs_profile || 'custom'} VFS · ${row.config.network_mode || 'offline-allowed'}`, 'muted');
+    const current = paragraph(status.busy ? 'Operation in progress…' : status.running ? '● Mounted' : status.transient ? 'Waiting for transition' : 'Not running', status.running && !status.busy ? 'mount-online' : 'muted');
+    details.append(summary, current); card.append(details);
+    if (row.health.failure_code || (row.health.reason && !['—', 'not_running', 'owned_fuse_mount'].includes(row.health.reason))) {
       const issue = document.createElement('div'); issue.className = `mount-health-note ${row.health.retryable === false ? 'bad' : 'warn'}`;
       issue.textContent = row.health.reason || row.health.failure_code; card.append(issue);
     }
-
-    const actions = document.createElement('div'); actions.className = 'mount-actions compact-actions';
-    const edit = button(status.terminalFailure ? 'Fix mount' : 'Edit mount', () => openEditor(row.config), status.terminalFailure ? 'primary' : '');
-    const menu = button('•••', () => openMountActions(row, menu), 'icon-button mount-context-button'); menu.setAttribute('aria-label', `More actions for ${row.config.name}`); menu.setAttribute('aria-haspopup','dialog');
-    actions.append(edit, menu); card.append(actions); root.append(card);
+    const primary = document.createElement('div'); primary.className = 'mount-quick-primary';
+    const mainAction = status.primaryAction;
+    const main = button(status.busy ? 'Working…' : mainAction === 'stop' ? 'Ⅱ Stop mount' : status.retryableFailure ? '▶ Retry start' : status.terminalFailure ? 'Start blocked' : '▶ Start mount',
+      () => requestMountAction(mainAction, name, main), mainAction === 'stop' ? 'mount-stop-button' : 'primary');
+    main.disabled = mainAction === 'stop' ? !status.canStop : !status.canStart;
+    main.dataset.lifecycleAction = mainAction;
+    const restart = button('↻ Restart', () => requestMountAction('restart', name, restart));
+    restart.disabled = !status.canRestart; restart.dataset.lifecycleAction = 'restart';
+    primary.append(main, restart); card.append(primary);
+    const secondary = document.createElement('div'); secondary.className = 'mount-quick-secondary';
+    const files = button('▤ Folder', () => openMountFolder(name, row.config.mountpoint, files));
+    const logs = button('☷ Logs', () => void setView('logs'));
+    const edit = button(status.terminalFailure ? '✎ Fix mount' : '✎ Edit', () => openEditor(row.config));
+    const menu = button('⋯', () => openMountActions(row, menu), 'mount-quick-more');
+    menu.setAttribute('aria-label', `More actions for ${name}`); menu.setAttribute('aria-haspopup', 'dialog');
+    secondary.append(files, logs, edit, menu); card.append(secondary);
+    root.append(card);
   }
 }
 
@@ -334,15 +415,29 @@ async function loadMounts() {
 }
 
 async function lifecycleAction(action, name) {
+  if (state.mountBusyNames.has(name)) return;
+  state.mountBusyNames.add(name);
   const notice = byId('mountsNotice'); hideNotice(notice);
+  // Only the backend determines observed state. Disabling controls locally only
+  // prevents duplicate submissions while waiting for the operation result.
+  for (const card of byId('mountCards').querySelectorAll('.quick-mount-card')) {
+    if (card.dataset.mountName !== name) continue;
+    card.setAttribute('aria-busy','true');
+    for (const control of card.querySelectorAll('[data-lifecycle-action]')) control.disabled = true;
+  }
+  const verb = { start:'Starting', stop:'Stopping', restart:'Restarting' }[action] || 'Updating';
+  showToast(`${verb} ${name}…`, 'warn');
   try {
     const startProof = action === 'start' ? result(await preview('mount.start.preview', { name })).preview_proof : '';
     const handle = startOperation(`mount.${action}`, 'run', action === 'start' ? { name, proof: startProof } : { name });
-    showNotice(notice, `${name}: ${action} started. Track progress in Activity.`);
     const envelope = await handle.completion; result(envelope);
-    showNotice(notice, `${name}: ${action} completed.`, 'ok');
-    await loadMounts();
+    showMountOutcome(`${name}: ${action} completed.`, 'ok');
   } catch (error) { showLifecycleFailure(name, action, error); }
+  finally {
+    state.mountBusyNames.delete(name);
+    try { await loadMounts(); }
+    catch (error) { showToast(`Mount list refresh failed: ${String(error?.message || error)}`, 'error'); }
+  }
 }
 
 async function reconcileAll() {
@@ -1200,7 +1295,11 @@ async function bootstrap(){compatibility.hidden=false;compatibility.className='n
 for(const nav of document.querySelectorAll('.nav-item,.nav-secondary,.more-card,.settings-link'))nav.addEventListener('click',()=>void setView(nav.dataset.view));
 byId('retryButton')?.addEventListener('click',()=>void refreshView('home'));byId('homeAddMountButton')?.addEventListener('click',()=>void openHomeMountEditor());byId('homeAddJobButton')?.addEventListener('click',()=>void openHomeJobEditor());byId('homeSeeMountsButton')?.addEventListener('click',()=>void setView('mounts'));byId('homeSeeActivityButton')?.addEventListener('click',()=>void setView('activity'));byId('refreshMountsButton')?.addEventListener('click',()=>void refreshView('mounts'));byId('refreshOperationsButton')?.addEventListener('click',()=>void refreshView('activity'));byId('refreshJobsButton')?.addEventListener('click',()=>void refreshView('jobs'));byId('refreshRuntimeButton')?.addEventListener('click',()=>void refreshView('runtime'));byId('refreshLogsButton')?.addEventListener('click',()=>void refreshView('logs'));byId('refreshSettingsButton')?.addEventListener('click',()=>void refreshView('settings'));
 byId('reconcileButton')?.addEventListener('click',()=>void reconcileAll());byId('addMountButton')?.addEventListener('click',()=>openEditor());byId('rollbackButton')?.addEventListener('click',()=>void openRollback());byId('closeEditorButton')?.addEventListener('click',closeEditor);byId('closeRollbackButton')?.addEventListener('click',closeRollback);byId('previewMountButton')?.addEventListener('click',()=>void previewEditor(false));byId('wizardBackButton')?.addEventListener('click',retreatEditorWizard);byId('wizardNextButton')?.addEventListener('click',()=>void advanceEditorWizard());byId('deleteMountButton')?.addEventListener('click',()=>void previewEditor(true));byId('applyMountButton')?.addEventListener('click',()=>void applyEditor());byId('applyRollbackButton')?.addEventListener('click',()=>void applyRollback());
-byId('closeMountActionsButton')?.addEventListener('click',closeMountActions);byId('mountActionStart')?.addEventListener('click',()=>{const name=state.mountActionName;closeMountActions();if(name)void lifecycleAction('start',name);});byId('mountActionStop')?.addEventListener('click',()=>{const name=state.mountActionName;closeMountActions();if(name)void lifecycleAction('stop',name);});byId('mountActionRestart')?.addEventListener('click',()=>{const name=state.mountActionName;closeMountActions();if(name)void lifecycleAction('restart',name);});byId('mountActionEdit')?.addEventListener('click',()=>{const cfg=selectedMountActionConfig();const trigger=state.mountActionReturnFocus;closeMountActions();if(cfg)openEditor(cfg,trigger);});byId('mountActionActivity')?.addEventListener('click',()=>{closeMountActions();void setView('activity');});byId('mountActionLogs')?.addEventListener('click',()=>{closeMountActions();void setView('logs');});byId('mountActionDelete')?.addEventListener('click',()=>void deleteMountFromActions());
+byId('closeMountActionsButton')?.addEventListener('click',closeMountActions);byId('mountActionStart')?.addEventListener('click',()=>{const name=state.mountActionName;closeMountActions();if(name)requestMountAction('start',name);});byId('mountActionStop')?.addEventListener('click',()=>{const name=state.mountActionName;closeMountActions();if(name)requestMountAction('stop',name);});byId('mountActionRestart')?.addEventListener('click',()=>{const name=state.mountActionName;closeMountActions();if(name)requestMountAction('restart',name);});byId('mountActionEdit')?.addEventListener('click',()=>{const cfg=selectedMountActionConfig();const trigger=state.mountActionReturnFocus;closeMountActions();if(cfg)openEditor(cfg,trigger);});byId('mountActionActivity')?.addEventListener('click',()=>{closeMountActions();void setView('activity');});byId('mountActionLogs')?.addEventListener('click',()=>{closeMountActions();void setView('logs');});byId('mountActionDelete')?.addEventListener('click',()=>void deleteMountFromActions());
+byId('mountConfirmCancel')?.addEventListener('click',closeMountConfirmation);
+byId('mountConfirmApply')?.addEventListener('click',confirmMountAction);
+byId('mountFolderClose')?.addEventListener('click',closeMountFolder);
+byId('mountFolderCopy')?.addEventListener('click',()=>void copyMountFolder());
 byId('closeRemoteActionsButton')?.addEventListener('click',closeRemoteActions);byId('remoteProtectCrypt')?.addEventListener('click',()=>{const backing=state.remoteAction?.mountEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(backing)void openCryptCreator(backing,trigger);});byId('remoteUseMount')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.mountEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForMount(endpoint,trigger);});byId('remoteUseJobSource')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.objectEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForJob(endpoint,'source',trigger);});byId('remoteUseJobDestination')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.objectEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForJob(endpoint,'destination',trigger);});byId('remoteCopyPath')?.addEventListener('click',()=>void copyRemoteActionPath());byId('remoteParentButton')?.addEventListener('click',()=>{if(!state.remote)return;const parent=state.remotePath.split('/').filter(Boolean).slice(0,-1).join('/');void browseRemote(state.remote,parent);});
 byId('addJobButton')?.addEventListener('click',()=>openJob());byId('job-source')?.addEventListener('input',renderJobEncryptionNotice);byId('job-source')?.addEventListener('change',renderJobEncryptionNotice);byId('job-destination')?.addEventListener('input',renderJobEncryptionNotice);byId('job-destination')?.addEventListener('change',renderJobEncryptionNotice);byId('closeJobButton')?.addEventListener('click',closeJob);byId('previewJobButton')?.addEventListener('click',()=>void previewJob(false));byId('deleteJobButton')?.addEventListener('click',()=>void previewJob(true));byId('applyJobButton')?.addEventListener('click',()=>void applyJob());byId('jobForm')?.addEventListener('input',invalidateJobPreview);byId('jobForm')?.addEventListener('change',invalidateJobPreview);
 byId('createCryptRemoteButton')?.addEventListener('click',()=>void openCryptCreator());byId('closeCryptButton')?.addEventListener('click',closeCryptCreator);byId('previewCryptButton')?.addEventListener('click',()=>void previewCryptCreation());byId('createCryptButton')?.addEventListener('click',()=>void createCryptRemote());byId('cryptForm')?.addEventListener('input',invalidateCryptPreview);byId('cryptForm')?.addEventListener('change',invalidateCryptPreview);byId('setInlineCryptPasswordButton')?.addEventListener('click',()=>void setSkybindCryptPassword('crypt-inline-password','setInlineCryptPasswordButton','cryptError'));byId('setCryptPasswordButton')?.addEventListener('click',()=>void setSkybindCryptPassword('setting-crypt-password','setCryptPasswordButton','cryptPasswordNotice'));
@@ -1218,4 +1317,4 @@ byId('useMountRemoteFolderButton')?.addEventListener('click',chooseCurrentRemote
 for(const node of document.querySelectorAll('[data-mountpoint-template]'))node.addEventListener('click',()=>applyMountpointSuggestion(node.dataset.mountpointTemplate));
 byId('keepEditingButton')?.addEventListener('click',()=>{byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();});
 byId('discardChangesButton')?.addEventListener('click',forceCloseEditor);
-byId('editorBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('editorBackdrop'))closeEditor();});byId('discardBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('discardBackdrop')){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();}});byId('mountActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountActionBackdrop'))closeMountActions();});byId('remoteActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('remoteActionBackdrop'))closeRemoteActions();});byId('cryptBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('cryptBackdrop'))closeCryptCreator();});byId('jobBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('jobBackdrop'))closeJob();});byId('rollbackBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('rollbackBackdrop'))closeRollback();});document.addEventListener('keydown',(event)=>{if(!byId('discardBackdrop').hidden&&trapModalTab(event,byId('discardBackdrop')))return;if(!byId('mountActionBackdrop').hidden&&trapModalTab(event,byId('mountActionBackdrop')))return;if(!byId('remoteActionBackdrop').hidden&&trapModalTab(event,byId('remoteActionBackdrop')))return;if(!byId('cryptBackdrop').hidden&&trapModalTab(event,byId('cryptBackdrop')))return;if(!byId('editorBackdrop').hidden&&trapModalTab(event,byId('editorBackdrop')))return;if(!byId('jobBackdrop').hidden&&trapModalTab(event,byId('jobBackdrop')))return;if(!byId('rollbackBackdrop').hidden&&trapModalTab(event,byId('rollbackBackdrop')))return;if(event.key!=='Escape')return;if(!byId('discardBackdrop').hidden){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();return;}if(!byId('mountActionBackdrop').hidden){closeMountActions();return;}if(!byId('remoteActionBackdrop').hidden){closeRemoteActions();return;}if(!byId('cryptBackdrop').hidden){closeCryptCreator();return;}if(!byId('jobBackdrop').hidden){closeJob();return;}if(!byId('editorBackdrop').hidden){closeEditor();return;}if(!byId('rollbackBackdrop').hidden)closeRollback();});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void setView(state.activeView);else stopTimer();});void bootstrap();
+byId('editorBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('editorBackdrop'))closeEditor();});byId('discardBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('discardBackdrop')){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();}});byId('mountConfirmBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountConfirmBackdrop'))closeMountConfirmation();});byId('mountFolderBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountFolderBackdrop'))closeMountFolder();});byId('mountActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountActionBackdrop'))closeMountActions();});byId('remoteActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('remoteActionBackdrop'))closeRemoteActions();});byId('cryptBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('cryptBackdrop'))closeCryptCreator();});byId('jobBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('jobBackdrop'))closeJob();});byId('rollbackBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('rollbackBackdrop'))closeRollback();});document.addEventListener('keydown',(event)=>{if(!byId('discardBackdrop').hidden&&trapModalTab(event,byId('discardBackdrop')))return;if(!byId('mountConfirmBackdrop').hidden&&trapModalTab(event,byId('mountConfirmBackdrop')))return;if(!byId('mountFolderBackdrop').hidden&&trapModalTab(event,byId('mountFolderBackdrop')))return;if(!byId('mountActionBackdrop').hidden&&trapModalTab(event,byId('mountActionBackdrop')))return;if(!byId('remoteActionBackdrop').hidden&&trapModalTab(event,byId('remoteActionBackdrop')))return;if(!byId('cryptBackdrop').hidden&&trapModalTab(event,byId('cryptBackdrop')))return;if(!byId('editorBackdrop').hidden&&trapModalTab(event,byId('editorBackdrop')))return;if(!byId('jobBackdrop').hidden&&trapModalTab(event,byId('jobBackdrop')))return;if(!byId('rollbackBackdrop').hidden&&trapModalTab(event,byId('rollbackBackdrop')))return;if(event.key!=='Escape')return;if(!byId('discardBackdrop').hidden){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();return;}if(!byId('mountConfirmBackdrop').hidden){closeMountConfirmation();return;}if(!byId('mountFolderBackdrop').hidden){closeMountFolder();return;}if(!byId('mountActionBackdrop').hidden){closeMountActions();return;}if(!byId('remoteActionBackdrop').hidden){closeRemoteActions();return;}if(!byId('cryptBackdrop').hidden){closeCryptCreator();return;}if(!byId('jobBackdrop').hidden){closeJob();return;}if(!byId('editorBackdrop').hidden){closeEditor();return;}if(!byId('rollbackBackdrop').hidden)closeRollback();});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void setView(state.activeView);else stopTimer();});void bootstrap();

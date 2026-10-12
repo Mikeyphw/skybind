@@ -104,9 +104,10 @@
 
     <section id="view-mounts" class="view" hidden>
       <div class="toolbar">
-        <div><h2>Managed mounts</h2><p class="muted">See what is running, then use contextual actions only when you need them.</p></div>
+        <div><h2>Managed mounts</h2><p class="muted">Start, stop and manage each mount directly.</p></div>
         <div class="button-row mount-toolbar-actions"><button id="addMountButton" class="primary" type="button">＋ Add mount</button><button id="reconcileButton" type="button">Reconcile all</button><button id="refreshMountsButton" type="button">Refresh</button><button id="rollbackButton" class="secondary-technical-action" type="button">Rollback config</button></div>
       </div>
+      <p id="mountCount" class="mount-active-count" aria-live="polite">Checking mounts…</p>
       <div id="mountsNotice" class="notice compact" aria-live="polite" hidden></div>
       <div id="mountCards" class="stack"></div>
     </section>
@@ -333,6 +334,21 @@
     </section>
   </div>
 
+  <div id="mountConfirmBackdrop" class="modal-backdrop mount-quick-dialog-backdrop" hidden>
+    <section class="mount-quick-dialog" role="dialog" aria-modal="true" aria-labelledby="mountConfirmTitle" aria-describedby="mountConfirmDetail">
+      <h2 id="mountConfirmTitle">Stop mount?</h2>
+      <p id="mountConfirmDetail" class="muted"></p>
+      <div class="button-row"><button id="mountConfirmCancel" type="button">Cancel</button><button id="mountConfirmApply" class="danger" type="button">Stop mount</button></div>
+    </section>
+  </div>
+  <div id="mountFolderBackdrop" class="modal-backdrop mount-quick-dialog-backdrop" hidden>
+    <section class="mount-quick-dialog" role="dialog" aria-modal="true" aria-labelledby="mountFolderTitle">
+      <h2 id="mountFolderTitle">Mount folder</h2>
+      <p class="muted">Open this location in your Android file manager. You can copy the path below.</p>
+      <input id="mountFolderPath" type="text" readonly aria-label="Mount folder path" spellcheck="false" />
+      <div class="button-row"><button id="mountFolderClose" type="button">Close</button><button id="mountFolderCopy" class="primary" type="button">Copy path</button></div>
+    </section>
+  </div>
   <div id="mountActionBackdrop" class="modal-backdrop action-sheet-backdrop" hidden>
     <section class="action-sheet" role="dialog" aria-modal="true" aria-labelledby="mountActionTitle">
       <div class="sheet-grabber" aria-hidden="true"></div>
