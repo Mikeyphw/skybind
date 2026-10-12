@@ -162,6 +162,9 @@ metadata = { read_only = true, device_qualification = false, qualification = "pl
 [targets.skybind_android_device.workflows]
 device-matrix-source = ["job:device-matrix-source"]
 physical-app-probe = ["job:physical-app-probe"]
+app-probe-build = ["job:app-probe-build"]
+app-probe-install = ["job:app-probe-install"]
+app-probe-build-install = ["job:app-probe-build-install"]
 bootstrap = ["job:bootstrap-device-plan"]
 validate = ["job:bootstrap-device-plan"]
 
@@ -446,6 +449,42 @@ target = "skybind"
 description = "SB-C06 reproducible candidate and blocked release gates; NOT release qualification"
 workflow = "release-candidate-source"
 target = "skybind_release"
+
+# SB-Q10: Debug-signed unprivileged application probe. Not a module build or release gate.
+[targets.skybind_android_device.jobs.app-probe-build]
+runner = "command"
+command = ["python3", "../../scripts/devtool/skybind_app_probe.py", "build"]
+inputs = ["../../scripts/devtool/skybind_app_probe.py", "../../tests/device/probe-app/**"]
+outputs = ["../../build/app-probe/**"]
+metadata = { read_only = false, device_qualification = false, qualification = "debug-probe-build-not-device-proof" }
+
+[targets.skybind_android_device.jobs.app-probe-install]
+runner = "command"
+command = ["python3", "../../scripts/devtool/skybind_app_probe.py", "install"]
+inputs = ["../../scripts/devtool/skybind_app_probe.py", "../../tests/device/probe-app/**", "../../build/app-probe/**"]
+metadata = { read_only = false, device_qualification = false, qualification = "debug-probe-install-not-device-proof" }
+
+[targets.skybind_android_device.jobs.app-probe-build-install]
+runner = "command"
+command = ["python3", "../../scripts/devtool/skybind_app_probe.py", "build-install"]
+inputs = ["../../scripts/devtool/skybind_app_probe.py", "../../tests/device/probe-app/**"]
+outputs = ["../../build/app-probe/**"]
+metadata = { read_only = false, device_qualification = false, qualification = "debug-probe-build-install-not-device-proof" }
+
+[wrapper.commands.build-app-probe]
+description = "Build Q09 ordinary UID probe APK using Termux Devtool Android builder; does not install"
+workflow = "app-probe-build"
+target = "skybind_android_device"
+
+[wrapper.commands.install-app-probe]
+description = "Install verified debug Q09 probe APK on THIS Android device using root pm; does not run probe"
+workflow = "app-probe-install"
+target = "skybind_android_device"
+
+[wrapper.commands.app-probe]
+description = "Build, verify and install ordinary Android UID probe (debug APK only, no release qualification)"
+workflow = "app-probe-build-install"
+target = "skybind_android_device"
 
 [targets.skybind_android_device.jobs.physical-app-probe]
 runner = "command"
