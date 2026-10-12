@@ -1,7 +1,18 @@
 plugins { id 'com.android.application' }
 android {
-  namespace 'org.skybind.probe'
-  compileSdk 35
-  defaultConfig { applicationId 'org.skybind.probe'; minSdk 26; targetSdk 35; versionCode 1; versionName '1.0' }
-  buildTypes { release { minifyEnabled false } }
+    namespace 'org.skybind.probe'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId 'org.skybind.probe'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    buildTypes { release { minifyEnabled false } }
 }

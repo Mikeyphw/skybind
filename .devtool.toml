@@ -447,59 +447,87 @@ description = "SB-C06 reproducible candidate and blocked release gates; NOT rele
 workflow = "release-candidate-source"
 target = "skybind_release"
 
-# SB-Q10R1: first-class Android project target; separate from the
-# physical-device gate. Toolchain bootstrap is scoped to its builder.
+# SB-Q10R2: native Devtool Android project (same executor/toolchain as android_hud).
+# Gradle and Android SDK provisioning are Devtool-owned, not invoked through a Python build helper.
 [targets.skybind_app_probe]
-runner = "command"
+runner = "android"
 platform = "android"
 root = "tests/device/probe-app"
+execution_environment = "chroot"
+chroot_name = "androidos"
 inputs = ["**/*", "../../../scripts/devtool/skybind_app_probe.py", "../../../scripts/dev/runtime/source.selection.json"]
-outputs = ["../../../build/app-probe/**", "app/build/outputs/apk/debug/**"]
+outputs = ["app/build/outputs/apk/debug/**", "../../../build/app-probe/**"]
 
-[targets.skybind_app_probe.jobs.build]
+[targets.skybind_app_probe.android]
+variant = "debug"
+aapt2_provider = "auto"
+instrumentation = "never"
+prefer_native_termux = false
+
+[targets.skybind_app_probe.bootstrap]
+downloads = "missing"
+network = "allow"
+
+[targets.skybind_app_probe.gradle]
+max_workers = 2
+parallel = true
+no_daemon = false
+daemon_idle_timeout_ms = 900000
+build_cache = true
+offline = false
+args = ["-Dorg.gradle.parallel=true", "-Dorg.gradle.vfs.watch=false"]
+
+[targets.skybind_app_probe.tasks]
+build = [":app:assembleDebug"]
+test = [":app:assembleDebug"]
+clean = [":app:clean"]
+
+[targets.skybind_app_probe.artifacts]
+required = true
+external_verification = "auto"
+
+# Build is a native Android runner action. Staging and installation are scoped
+# native-Termux jobs, executed only after successful compilation.
+[targets.skybind_app_probe.jobs.stage]
 runner = "command"
-command = ["python3", "../../../scripts/devtool/skybind_app_probe.py", "build"]
+execution_environment = "native-termux"
+command = ["python3", "../../../scripts/devtool/skybind_app_probe.py", "stage"]
 inputs = ["**/*", "../../../scripts/devtool/skybind_app_probe.py"]
 outputs = ["../../../build/app-probe/**"]
-metadata = { read_only = false, device_qualification = false, qualification = "debug-app-build-not-device-proof" }
+metadata = { device_qualification = false, qualification = "debug-app-build-only" }
 
 [targets.skybind_app_probe.jobs.install]
 runner = "command"
+execution_environment = "native-termux"
 command = ["python3", "../../../scripts/devtool/skybind_app_probe.py", "install"]
 inputs = ["**/*", "../../../scripts/devtool/skybind_app_probe.py", "../../../build/app-probe/**"]
-metadata = { read_only = false, device_qualification = false, qualification = "debug-app-install-not-device-proof" }
-
-[targets.skybind_app_probe.jobs.build-install]
-runner = "command"
-command = ["python3", "../../../scripts/devtool/skybind_app_probe.py", "build-install"]
-inputs = ["**/*", "../../../scripts/devtool/skybind_app_probe.py"]
-outputs = ["../../../build/app-probe/**"]
-metadata = { read_only = false, device_qualification = false, qualification = "debug-build-install-not-release-proof" }
+metadata = { device_qualification = false, qualification = "ordinary-app-install-only" }
 
 [targets.skybind_app_probe.jobs.bootstrap-probe-contract]
 runner = "command"
+execution_environment = "native-termux"
 command = ["python3", "../../../scripts/devtool/check_bootstrap.py", "android"]
 inputs = ["../../../scripts/devtool/bootstrap_contract.py", "../../../scripts/devtool/check_bootstrap.py", "**/*"]
 metadata = { read_only = true, qualification = "bootstrap-planning-only", device_qualification = false }
 
 [targets.skybind_app_probe.workflows]
 bootstrap = ["job:bootstrap-probe-contract"]
-app-probe-build = ["job:build"]
+app-probe-build = ["runner:android#build", "job:stage"]
 app-probe-install = ["job:install"]
-app-probe-build-install = ["job:build-install"]
+app-probe-build-install = ["runner:android#build", "job:stage", "job:install"]
 
 [wrapper.commands.build-app-probe]
-description = "Build ordinary Android app probe with managed Android 35 SDK bootstrap (missing tools only)"
+description = "Build ordinary debug probe with native Devtool Android target, SDK 36/Java 21"
 workflow = "app-probe-build"
 target = "skybind_app_probe"
 
 [wrapper.commands.install-app-probe]
-description = "Install source-bound debug probe using root pm; no device attestation"
+description = "Install checked debug APK from native Devtool Android build"
 workflow = "app-probe-install"
 target = "skybind_app_probe"
 
 [wrapper.commands.app-probe]
-description = "Build and install ordinary Android UID debug probe (not a release seal)"
+description = "Build and install unprivileged Android UID probe (no release seal)"
 workflow = "app-probe-build-install"
 target = "skybind_app_probe"
 
