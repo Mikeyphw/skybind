@@ -180,6 +180,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+q15-readiness = ["job:q15-readiness"]
 q14-attestation = ["job:q14-attestation"]
 q13-reproducibility = ["job:q13-reproducibility"]
 q12-provenance = ["job:q12-provenance"]
@@ -940,3 +941,17 @@ execution_environment = "native-termux"
 command = ["python3", "../scripts/dev/release/q14_attestation.py", "--run-id", "38328621356", "--repo", "Mikeyphw/skybind", "--output-dir", "/storage/emulated/0/Download"]
 inputs = ["../scripts/dev/release/q14_attestation.py", "../scripts/dev/release/q13_reproducibility.py", "../scripts/dev/release/q12_provenance.py", "../scripts/dev/seal/**", "../scripts/dev/gates/**"]
 metadata = { qualification = "ci-artifact-and-signature-inventory-only", independent_gate_attestation = false, release_seal = false, installed_module_mutation = false }
+
+
+# SB-Q15: original CFS1 G01/G02 evidence readiness only, no receipt minting.
+[wrapper.commands.q15]
+description = "Reverify owner-signed Q14 original CI bytes and audit original G01/G02 blockers (no seal)"
+workflow = "q15-readiness"
+target = "skybind_release"
+
+[targets.skybind_release.jobs.q15-readiness]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../scripts/dev/release/q15_gate_bridge.py", "--output-dir", "/storage/emulated/0/Download"]
+inputs = ["../scripts/dev/release/q15_gate_bridge.py", "../scripts/dev/release/q14_private_signing.py", "../scripts/dev/release/q13_reproducibility.py", "../scripts/dev/release/q12_provenance.py", "../scripts/dev/gates/**", "../scripts/dev/seal/**", "../scripts/dev/runtime/source.lock.json"]
+metadata = { qualification = "owner-signed-raw-evidence-audit-only", independent_attestation = false, gate_receipt_issued = false, release_seal = false, read_only = true }
