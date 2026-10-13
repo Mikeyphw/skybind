@@ -56,6 +56,10 @@ func (e *m04Engine) Start(string) (lifecycle.State, error) {
 	e.calls <- struct{}{}
 	return lifecycle.State{Observed: "STOPPED"}, e.err
 }
+
+// The event test uses a long fallback interval so that only the network hint
+// can cause the second Start; a loaded Android/Termux Go test process may take
+// substantially longer than 200ms to schedule its first goroutine.
 func TestM04EventWakeAndCancel(t *testing.T) {
 	engine := &m04Engine{calls: make(chan struct{}, 3), desired: true, err: lifecycle.ErrResourcePolicyDeferred}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -65,27 +69,27 @@ func TestM04EventWakeAndCancel(t *testing.T) {
 	go func() {
 		defer close(done)
 		runRecoveryLoopWithTiming(ctx, sup, nil, nil, changes, recoveryTiming{
-			initial: 3 * time.Millisecond, pending: 400 * time.Millisecond, healthy: 500 * time.Millisecond,
+			initial: 3 * time.Millisecond, pending: time.Hour, healthy: time.Hour,
 			eventDelay: 6 * time.Millisecond, eventThrottle: 25 * time.Millisecond, jobInterval: 250 * time.Millisecond,
 		})
 	}()
 	defer cancel()
 	select {
 	case <-engine.calls:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("initial recovery missing")
+	case <-time.After(3 * time.Second):
+		t.Fatal("initial recovery did not start within 3s")
 	}
 	changes <- struct{}{}
 	select {
 	case <-engine.calls:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("event did not expedite a policy-deferred mount")
+	case <-time.After(3 * time.Second):
+		t.Fatal("network event did not expedite a policy-deferred mount within 3s")
 	}
 	cancel()
 	select {
 	case <-done:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("recovery loop did not stop")
+	case <-time.After(3 * time.Second):
+		t.Fatal("recovery loop did not stop within 3s after cancellation")
 	}
 }
 
@@ -104,14 +108,14 @@ func TestM04PeriodicFallbackWithoutNetlink(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		select {
 		case <-engine.statusCalls:
-		case <-time.After(150 * time.Millisecond):
-			t.Fatal("timer fallback did not run")
+		case <-time.After(3 * time.Second):
+			t.Fatal("periodic fallback did not reconcile within 3s")
 		}
 	}
 	cancel()
 	select {
 	case <-done:
-	case <-time.After(150 * time.Millisecond):
-		t.Fatal("fallback did not terminate")
+	case <-time.After(3 * time.Second):
+		t.Fatal("periodic fallback did not stop within 3s")
 	}
 }
