@@ -6,6 +6,10 @@ import "skybind/internal/protocol"
 // catalog is immutable; these are separately allowlisted, NOT silently added
 // to the historical catalog or represented as CFS1-qualified operations.
 var offlineExtension = map[string]protocol.Class{
+	"backup.export":             protocol.Query,
+	"backup.save":               protocol.Run,
+	"backup.preview":            protocol.Preview,
+	"backup.restore":            protocol.Run,
 	"offline.list":              protocol.Query,
 	"offline.status":            protocol.Query,
 	"offline.tasks":             protocol.Query,
@@ -32,7 +36,7 @@ func lookupOfflineExtension(name string) (CatalogItem, bool) {
 	}
 	return CatalogItem{
 		Name: name, OperationClass: class,
-		Description:         "Optional narrowly scoped M5 snapshot or M6 experimental separate-copy offline edit operation",
+		Description:         "Optional allowlisted offline or M7 personal configuration backup operation",
 		ImplementingOverlay: "SKYBIND-M5-UI", WebUIConsumers: "Mounts / Offline",
 		Cancellation: "operation_specific", ArgumentsSchema: `{"type":"object"}`,
 	}, true

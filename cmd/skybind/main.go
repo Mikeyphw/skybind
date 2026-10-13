@@ -231,6 +231,10 @@ func daemonCommand() int {
 		fmt.Fprintln(os.Stderr, "offline RPC registry:", err)
 		return 1
 	}
+	if err = daemon.RegisterBackup(engine, cfg, uiStore, offlineStore, mountEngine.ApplyConfig); err != nil {
+		fmt.Fprintln(os.Stderr, "backup RPC registry:", err)
+		return 1
+	}
 
 	srv := daemon.New(paths.DaemonSocket, engine)
 	if err = srv.Start(); err != nil {

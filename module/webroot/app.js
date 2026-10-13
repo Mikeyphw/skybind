@@ -1586,6 +1586,65 @@ async function browseRemote(remote,path=''){
 async function useRemoteForJob(endpoint,field,trigger=null){if(!state.jobSnapshot){state.jobSnapshot=result(await query('jobs.snapshot'));}openJob(null,trigger||document.activeElement);byId(field==='source'?'job-source':'job-destination').value=endpoint;invalidateJobPreview();renderJobEncryptionNotice();}
 async function loadRemotes(){const value=result(await query('provider.remotes'));state.remoteDetails=value.details||[];const root=byId('remoteButtons');clear(root);for(const name of value.remotes||[]){const detail=remoteDetail(name);const encrypted=detail?.encryption==='rclone-crypt';const chip=button(`${encrypted?'🔒':'△'} ${name}:`,()=>void browseRemote(name,''),'remote-choice');if(encrypted){const provenance=detail.managed_by_skybind?` · Skybind generation ${detail.password_revision||'?'}${detail.password_current?' current':' older'}`:' · external crypt';chip.title=`Encrypted via rclone crypt → ${detail.backing_remote||'backing remote'}${provenance}`;if(detail.managed_by_skybind&&!detail.password_current)chip.classList.add('provenance-old');}else chip.title='Not protected by rclone crypt';chip.setAttribute('aria-pressed',String(state.remote===name));root.append(chip);}if(!(value.remotes||[]).length){root.append(paragraph('No configured remotes were returned.','muted'));byId('remoteBreadcrumb').textContent='No remotes configured';}else if(!state.remote){byId('remoteBreadcrumb').textContent='Choose a remote';}}
 
+// M7 portable personal backup. All imported data is untrusted until the
+// authenticated daemon validates schema, digest and current registry revision.
+let backupImportDoc = null;
+let backupRestorePlan = null;
+function resetBackupPreview(){
+  backupRestorePlan=null;
+  const a=byId('backupRestoreButton'),b=byId('backupPrefsButton');
+  if(a)a.disabled=true;if(b)b.disabled=true;
+  text('backupPreviewDetails','');
+}
+async function savePersonalBackup(){
+  if(!confirm('Export a configuration backup to Android Downloads? Mount paths and offline pin filenames will be visible to other apps. Credentials and file content are excluded.'))return;
+  const buttonNode=byId('backupExportButton');setButtonBusy(buttonNode,true,'Exporting…');
+  try{
+    const out=result(await run('backup.save',{acknowledge_public:true}));
+    showNotice(byId('backupNotice'),`Saved ${out.path} · SHA-256 ${out.sha256}. Keep the file private.`, 'ok');
+  }catch(error){showNotice(byId('backupNotice'),String(error?.message||error),'error');}
+  finally{setButtonBusy(buttonNode,false);}
+}
+async function previewPersonalBackup(){
+  resetBackupPreview();backupImportDoc=null;
+  const file=byId('backupImportFile')?.files?.[0];
+  if(!file){showNotice(byId('backupNotice'),'Select a JSON backup file first.','error');return;}
+  if(file.size>48*1024){showNotice(byId('backupNotice'),'Backup exceeds the 48 KiB import limit.','error');return;}
+  const buttonNode=byId('backupPreviewButton');setButtonBusy(buttonNode,true,'Checking…');
+  try{
+    const content=await file.text();const doc=JSON.parse(content);
+    const info=result(await preview('backup.preview',{document:doc}));
+    backupImportDoc=doc;backupRestorePlan=info.plan;
+    const changes=(info.plan?.effects||[]).map(x=>`${x.name}: ${x.change}${x.restart?' (restart required)':''}`).slice(0,25);
+    text('backupPreviewDetails',`Mounts: ${info.mounts_restored} · offline pin references: ${info.pin_references_only} (not restored) · all mounts disabled on import.\n${changes.join('\n')}`);
+    byId('backupRestoreButton').disabled=!info.plan?.proof;
+    byId('backupPrefsButton').disabled=false;
+    showNotice(byId('backupNotice'),'Backup checked. Review the changes before confirming either restore.','ok');
+  }catch(error){resetBackupPreview();showNotice(byId('backupNotice'),String(error?.message||error),'error');}
+  finally{setButtonBusy(buttonNode,false);}
+}
+async function restorePersonalMounts(){
+  if(!backupImportDoc || !backupRestorePlan?.proof)return;
+  if(!confirm('Restore these mount definitions as DISABLED? Existing owned mounts may be safely stopped by the configuration transaction. Credentials and offline snapshots are not restored.'))return;
+  const buttonNode=byId('backupRestoreButton');setButtonBusy(buttonNode,true,'Restoring…');
+  try{
+    const v=result(await run('backup.restore',{document:backupImportDoc,proof:backupRestorePlan.proof,acknowledge_disabled:true}));
+    backupRestorePlan=null;buttonNode.disabled=true;
+    showNotice(byId('backupNotice'),`Mount registry restored at revision ${v.revision}. All imported mounts are disabled; inspect remotes before starting.`, 'ok');
+  }catch(error){backupRestorePlan=null;buttonNode.disabled=true;showNotice(byId('backupNotice'),`Restore did not complete: ${String(error?.message||error)}. Refresh the registry and preview again.`, 'error');}
+  finally{setButtonBusy(buttonNode,false);}
+}
+async function restorePersonalPreferences(){
+  if(!backupImportDoc || !confirm('Apply the backed-up WebUI preferences? This is an independent settings transaction and does not affect mount credentials.'))return;
+  const buttonNode=byId('backupPrefsButton');setButtonBusy(buttonNode,true,'Restoring…');
+  try{
+    const p=result(await preview('ui.settings.preview',{settings:backupImportDoc.payload.preferences}));
+    state.settingsSnapshot=result(await run('ui.settings.apply',{expected_revision:p.current_revision,candidate_digest:p.candidate_digest,preview_proof:p.preview_proof,settings:p.settings}));
+    fillSettings(state.settingsSnapshot.settings);applySettingsPresentation();
+    showNotice(byId('backupNotice'),'WebUI preferences restored independently.','ok');
+  }catch(error){showNotice(byId('backupNotice'),`Preferences not restored: ${String(error?.message||error)}`,'error');}
+  finally{setButtonBusy(buttonNode,false);}
+}
 async function loadSettings(){const [settings,platform,cryptPassword,recovery]=await Promise.all([query('ui.settings'),query('platform.status'),query('provider.crypt.password.status'),query('provider.crypt.recovery.status')]);state.settingsSnapshot=result(settings);fillSettings(state.settingsSnapshot.settings);applySettingsPresentation();renderPlatform(result(platform));renderCryptPasswordStatus(result(cryptPassword));renderCryptRecoveryStatus(result(recovery),[]);}
 async function loadDoctor(){await runDoctorUI();}
 async function loadRemoteBrowser(){await loadRemotes();}
@@ -1646,6 +1705,7 @@ byId('mountFolderCopy')?.addEventListener('click',()=>void copyMountFolder());
 byId('closeRemoteActionsButton')?.addEventListener('click',closeRemoteActions);byId('remoteProtectCrypt')?.addEventListener('click',()=>{const backing=state.remoteAction?.mountEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(backing)void openCryptCreator(backing,trigger);});byId('remoteUseMount')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.mountEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForMount(endpoint,trigger);});byId('remoteUseJobSource')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.objectEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForJob(endpoint,'source',trigger);});byId('remoteUseJobDestination')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.objectEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForJob(endpoint,'destination',trigger);});byId('remoteCopyPath')?.addEventListener('click',()=>void copyRemoteActionPath());byId('remoteParentButton')?.addEventListener('click',()=>{if(!state.remote)return;const parent=state.remotePath.split('/').filter(Boolean).slice(0,-1).join('/');void browseRemote(state.remote,parent);});
 byId('addJobButton')?.addEventListener('click',()=>openJob());byId('job-source')?.addEventListener('input',renderJobEncryptionNotice);byId('job-source')?.addEventListener('change',renderJobEncryptionNotice);byId('job-destination')?.addEventListener('input',renderJobEncryptionNotice);byId('job-destination')?.addEventListener('change',renderJobEncryptionNotice);byId('closeJobButton')?.addEventListener('click',closeJob);byId('previewJobButton')?.addEventListener('click',()=>void previewJob(false));byId('deleteJobButton')?.addEventListener('click',()=>void previewJob(true));byId('applyJobButton')?.addEventListener('click',()=>void applyJob());byId('jobForm')?.addEventListener('input',invalidateJobPreview);byId('jobForm')?.addEventListener('change',invalidateJobPreview);
 byId('createCryptRemoteButton')?.addEventListener('click',()=>void openCryptCreator());byId('closeCryptButton')?.addEventListener('click',closeCryptCreator);byId('previewCryptButton')?.addEventListener('click',()=>void previewCryptCreation());byId('createCryptButton')?.addEventListener('click',()=>void createCryptRemote());byId('cryptForm')?.addEventListener('input',invalidateCryptPreview);byId('cryptForm')?.addEventListener('change',invalidateCryptPreview);byId('setInlineCryptPasswordButton')?.addEventListener('click',()=>void setSkybindCryptPassword('crypt-inline-password','setInlineCryptPasswordButton','cryptError'));byId('setCryptPasswordButton')?.addEventListener('click',()=>void setSkybindCryptPassword('setting-crypt-password','setCryptPasswordButton','cryptPasswordNotice'));
+byId('backupExportButton')?.addEventListener('click',()=>void savePersonalBackup());byId('backupPreviewButton')?.addEventListener('click',()=>void previewPersonalBackup());byId('backupRestoreButton')?.addEventListener('click',()=>void restorePersonalMounts());byId('backupPrefsButton')?.addEventListener('click',()=>void restorePersonalPreferences());byId('backupImportFile')?.addEventListener('change',()=>{backupImportDoc=null;resetBackupPreview();});
 byId('runDoctorButton')?.addEventListener('click',()=>void refreshView('doctor'));byId('bundleButton')?.addEventListener('click',()=>void buildBundle());byId('refreshRemotesButton')?.addEventListener('click',()=>void refreshView('remotes'));byId('previewSettingsButton')?.addEventListener('click',()=>void previewSettings());byId('applySettingsButton')?.addEventListener('click',()=>void applySettings());byId('settingsForm')?.addEventListener('input',(event)=>{if(event.target?.id!=='setting-crypt-password')invalidateSettingsPreview();});byId('settingsForm')?.addEventListener('change',(event)=>{if(event.target?.id!=='setting-crypt-password')invalidateSettingsPreview();});byId('logFollow')?.addEventListener('change',()=>{if(state.settingsSnapshot?.settings){state.settingsSnapshot.settings.log_follow=byId('logFollow').checked;scheduleRefresh();}});byId('logPauseButton')?.addEventListener('click',()=>setLogPaused(!state.logPaused));byId('logCopyButton')?.addEventListener('click',()=>void copyVisibleLogs());byId('logExportButton')?.addEventListener('click',exportVisibleLogs);byId('logClearButton')?.addEventListener('click',clearLogView);
 for(const id of ['logSeverityFilter','logSourceFilter','logSearch'])byId(id)?.addEventListener(id==='logSearch'?'input':'change',()=>renderLogs());
 byId('mountForm')?.addEventListener('submit',(event)=>{event.preventDefault();void previewEditor(false);});

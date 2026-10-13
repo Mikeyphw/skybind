@@ -201,6 +201,18 @@
           <div class="button-row"><button id="previewSettingsButton" type="button">Preview changes</button><button id="applySettingsButton" class="primary" type="button" disabled>Apply preview</button></div>
         </section>
       </form>
+      <section class="settings-group skybind-backup-group" aria-labelledby="backupHeading">
+        <div class="settings-group-head"><h3 id="backupHeading">Personal backup &amp; restore</h3><p class="muted">Portable configuration only. No rclone credentials, offline file content, or queued offline edits.</p></div>
+        <div class="settings-list">
+          <div class="settings-row settings-action-row"><span><strong>Export configuration</strong><small>Saves a checksummed JSON file into Android Downloads. Remote paths and pinned filenames may be visible to other apps.</small></span><button id="backupExportButton" type="button">Export backup</button></div>
+          <label class="settings-row"><span><strong>Import from JSON file</strong><small>Choose a previously exported Skybind personal backup. Nothing changes until restore is confirmed.</small></span><input id="backupImportFile" type="file" accept=".json,application/json"></label>
+          <div class="settings-row settings-action-row"><span><strong>Preview imported configuration</strong><small>Restored mounts are disabled by default; offline pin references are informational only.</small></span><button id="backupPreviewButton" type="button">Preview restore</button></div>
+          <p id="backupPreviewDetails" class="settings-preview" aria-live="polite"></p>
+          <div class="settings-row settings-action-row"><span><strong>Restore mount configuration</strong><small>Uses the existing proof-bound atomic registry transaction and preserves the previous known-good revision.</small></span><button id="backupRestoreButton" type="button" disabled>Restore disabled mounts</button></div>
+          <div class="settings-row settings-action-row"><span><strong>Restore WebUI preferences</strong><small>Independent atomic settings transaction. This does not restore passwords or remote credentials.</small></span><button id="backupPrefsButton" type="button" disabled>Restore preferences</button></div>
+          <div id="backupNotice" class="notice compact wide" aria-live="polite" hidden></div>
+        </div>
+      </section>
     </section>
 
     <section id="view-doctor" class="view" hidden>
