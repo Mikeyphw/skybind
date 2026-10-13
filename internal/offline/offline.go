@@ -664,6 +664,12 @@ func (s *Store) ExportContext(ctx context.Context, mount, rel string) (string, e
 		if p.Mount != mount || p.Path != rel {
 			continue
 		}
+		// The selected name may have been repointed to a different remote.
+		// Status and whole-mount offline views already enforce this identity.
+		configured, identityErr := s.mount(mount)
+		if identityErr != nil || identity(configured) != p.RemoteIdentity {
+			return "", errors.New("offline pin is stale: configured remote identity changed")
+		}
 		h, n, e := hashFile(s.dir + "/objects/" + p.SHA256)
 		if e != nil || h != p.SHA256 || n != p.Size {
 			return "", errors.New("offline file not verified")
@@ -696,7 +702,9 @@ func (s *Store) ExportContext(ctx context.Context, mount, rel string) (string, e
 		if e != nil {
 			return "", e
 		}
-		copied, e := io.Copy(out, cancelableReader{ctx: ctx, r: src})
+		// Hash bytes actually written, not just the earlier private read.
+		exportHash := sha256.New()
+		copied, e := io.Copy(io.MultiWriter(out, exportHash), cancelableReader{ctx: ctx, r: src})
 		if e == nil {
 			e = out.Sync()
 		}
@@ -704,9 +712,9 @@ func (s *Store) ExportContext(ctx context.Context, mount, rel string) (string, e
 		if e == nil {
 			e = ce
 		}
-		if e != nil || copied != p.Size {
+		if e != nil || copied != p.Size || hex.EncodeToString(exportHash.Sum(nil)) != p.SHA256 {
 			_ = os.Remove(dst)
-			return "", errors.New("offline export copy failed")
+			return "", errors.New("offline export copy failed integrity verification")
 		}
 		return dst, nil
 	}

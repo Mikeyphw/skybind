@@ -217,3 +217,26 @@ func TestOfflineQuotaProtectsRetainedOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The single-file Downloads export must have the same identity protection as
+// Status and M5C PublishView. This check precedes public path creation.
+func TestExportRefusesStaleRemoteIdentityBeforePublicCopy(t *testing.T) {
+	s, _ := fixture(t)
+	if _, err := s.Pin(context.Background(), "drive", "report.txt", false); err != nil {
+		t.Fatal(err)
+	}
+	s.cfg = func() (config.Registry, error) {
+		return config.Registry{SchemaVersion: 2, Mounts: []config.Mount{{Name: "drive", Remote: "another:bucket"}}}, nil
+	}
+	st, err := s.Status(context.Background(), "drive", "report.txt", false)
+	if err != nil || st.State != "STALE" {
+		t.Fatalf("expected stale local pin: %+v %v", st, err)
+	}
+	if _, err := s.ExportContext(context.Background(), "drive", "report.txt"); err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("stale pin export was not rejected before publication: %v", err)
+	}
+	s.cfg = func() (config.Registry, error) { return config.Registry{SchemaVersion: 2}, nil }
+	if _, err := s.ExportContext(context.Background(), "drive", "report.txt"); err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("removed mount export was not rejected: %v", err)
+	}
+}

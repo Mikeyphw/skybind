@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "scope": "skybind source archive October 13, 2026 with M8",
+  "method": "checked source and tests, Go suite, vet, WebUI regressions, device untested",
+  "statuses": {
+    "implemented": "Source present and source tests pass; actual device unverified",
+    "hotfixed": "Source gap repaired by this overlay",
+    "not_implemented": "Original or follow-on promise not delivered",
+    "device_pending": "Cannot establish without installed-device observation"
+  },
+  "items": [
+    {
+      "milestone": "M0",
+      "requirement": "Authenticated VFS upload telemetry",
+      "status": "implemented",
+      "evidence_path": "internal/mounts/writeback/writeback.go",
+      "notes": "Counters, null/unknown and redacted status; real-device RC shape unverified"
+    },
+    {
+      "milestone": "M0",
+      "requirement": "Stop/Restart display unknown/errored state",
+      "status": "implemented",
+      "evidence_path": "module/webroot/app.js",
+      "notes": "Backend authority still rechecks writeback"
+    },
+    {
+      "milestone": "M1",
+      "requirement": "Writeback-aware Stop/Restart bounded 20s",
+      "status": "implemented",
+      "evidence_path": "internal/mounts/lifecycle/engine.go",
+      "notes": "Timeout/refusal preserves mount and cache; real upload device test pending"
+    },
+    {
+      "milestone": "M1",
+      "requirement": "Cancellation after WebUI confirmation during wait",
+      "status": "not_implemented",
+      "evidence_path": "docs/development/M0_M1_WRITEBACK_SAFE_LIFECYCLE.md",
+      "notes": "WebUI only cancels the confirmation; backend supports context cancellation"
+    },
+    {
+      "milestone": "M1",
+      "requirement": "Durable proof of clean stopped VFS cache",
+      "status": "not_implemented",
+      "evidence_path": "internal/mounts/cache/cache.go",
+      "notes": "Conservative fail-closed retention implemented; cleanup functionality reduced"
+    },
+    {
+      "milestone": "M2",
+      "requirement": "Per-mount performance, cache, transfer, upload status",
+      "status": "implemented",
+      "evidence_path": "internal/rc/performance_m02.go",
+      "notes": "Aggregate speed only, no invented per-direction rate"
+    },
+    {
+      "milestone": "M2",
+      "requirement": "Bounded history, hidden-page pause and PID change reset",
+      "status": "implemented",
+      "evidence_path": "module/webroot/app.js",
+      "notes": "History in WebUI RAM only; Android WebView test pending"
+    },
+    {
+      "milestone": "M3",
+      "requirement": "Existing and new performance profiles including documents/read-only/offline-ready",
+      "status": "implemented",
+      "evidence_path": "internal/mounts/policy/policy.go",
+      "notes": "Profile activation and application require device test"
+    },
+    {
+      "milestone": "M3",
+      "requirement": "Read-only enforced in actual rclone command",
+      "status": "implemented",
+      "evidence_path": "internal/mounts/lifecycle/engine.go",
+      "notes": "Device app write rejection pending"
+    },
+    {
+      "milestone": "M3",
+      "requirement": "Native min cache free-space, cache pressure advisory",
+      "status": "implemented",
+      "evidence_path": "internal/mounts/policy/policy.go",
+      "notes": "Rclone eviction limits soft, not hard quota"
+    },
+    {
+      "milestone": "M3",
+      "requirement": "Stopped cache will not delete unverified files",
+      "status": "implemented",
+      "evidence_path": "internal/mounts/cache/cache.go",
+      "notes": "Intentional blocking may accumulate storage until clean manifest exists"
+    },
+    {
+      "milestone": "M4",
+      "requirement": "Network change notifications and recovery timing",
+      "status": "implemented",
+      "evidence_path": "internal/mounts/networkwatch/watch_linux.go",
+      "notes": "Netlink hint + periodic fallback; actual Android netlink permissions pending"
+    },
+    {
+      "milestone": "M4",
+      "requirement": "Respect policy-deferred and real-failure backoff",
+      "status": "implemented",
+      "evidence_path": "internal/mounts/supervisor/supervisor.go",
+      "notes": "Source tests; device Wi-Fi/reboot still pending"
+    },
+    {
+      "milestone": "M5",
+      "requirement": "Individual and directory pinning verified full files",
+      "status": "implemented",
+      "evidence_path": "internal/offline/offline.go",
+      "notes": "Remote hash checked if available; local SHA-256 always verified"
+    },
+    {
+      "milestone": "M5",
+      "requirement": "Quota, manifests, offline verification and export",
+      "status": "implemented",
+      "evidence_path": "internal/offline/offline.go",
+      "notes": "Does not create same-path offline FUSE mount"
+    },
+    {
+      "milestone": "M5",
+      "requirement": "WebUI pin/export/unpin/quota and background tasks",
+      "status": "implemented",
+      "evidence_path": "internal/control/offline_extension_m05ui.go",
+      "notes": "Task execution status is ephemeral after crash"
+    },
+    {
+      "milestone": "M5C",
+      "requirement": "Verified separate offline views",
+      "status": "implemented",
+      "evidence_path": "internal/offline/view_m05c.go",
+      "notes": "Android Downloads copies are not synchronized and consume more storage"
+    },
+    {
+      "milestone": "M5",
+      "requirement": "Transparent same-path fallback to pinned files within rclone FUSE",
+      "status": "not_implemented",
+      "evidence_path": "docs/development/M5C_VERIFIED_OFFLINE_VIEWS.md",
+      "notes": "Cannot intercept rclone reads safely without deeper provider/FUSE integration"
+    },
+    {
+      "milestone": "M5",
+      "requirement": "Refuse public export for stale remote identity",
+      "status": "hotfixed",
+      "evidence_path": "internal/offline/offline.go",
+      "notes": "Audit found missing identity check in single-file export; fixed and regression-tested"
+    },
+    {
+      "milestone": "M5",
+      "requirement": "Rehash bytes actually exported",
+      "status": "hotfixed",
+      "evidence_path": "internal/offline/offline.go",
+      "notes": "Audit strengthened public copy integrity check"
+    },
+    {
+      "milestone": "M6",
+      "requirement": "Editable offline draft and persistent staged queue",
+      "status": "implemented",
+      "evidence_path": "internal/offline/writes_m06.go",
+      "notes": "Drafts are plaintext in public Downloads and should be used only for disposable sensitive-safe files"
+    },
+    {
+      "milestone": "M6",
+      "requirement": "Remote conflict check and explicit separate-copy upload",
+      "status": "implemented",
+      "evidence_path": "internal/offline/writes_m06.go",
+      "notes": "Original path never overwritten automatically"
+    },
+    {
+      "milestone": "M6B",
+      "requirement": "Opt-in reconnect review and uncertain-upload inspection",
+      "status": "implemented",
+      "evidence_path": "internal/offline/reconcile_m06b.go",
+      "notes": "Metadata review only; no automatic upload/retry/merge"
+    },
+    {
+      "milestone": "M6",
+      "requirement": "Automatic reconnect upload and in-place reconciliation",
+      "status": "not_implemented",
+      "evidence_path": "docs/development/M6B_RECONNECT_REVIEW.md",
+      "notes": "Deliberately withheld; requires conflict-safe design and user consent"
+    },
+    {
+      "milestone": "M7",
+      "requirement": "Checksummed portable backup excluding credentials and file content",
+      "status": "implemented",
+      "evidence_path": "internal/backup/backup.go",
+      "notes": "SHA-256 integrity, not independent authentication or encryption"
+    },
+    {
+      "milestone": "M7",
+      "requirement": "Preview / proof-bound disabled-mount restore",
+      "status": "implemented",
+      "evidence_path": "internal/daemon/backup_m07.go",
+      "notes": "Preferences restored in separate transaction"
+    },
+    {
+      "milestone": "M7",
+      "requirement": "Encrypted credential and offline-file migration",
+      "status": "not_implemented",
+      "evidence_path": "docs/development/M7_PERSONAL_BACKUP_RESTORE.md",
+      "notes": "Explicitly deferred; keep passwords outside exported evidence"
+    },
+    {
+      "milestone": "M8",
+      "requirement": "Consolidated mount controls and lower idle WebUI polling",
+      "status": "implemented",
+      "evidence_path": "module/webroot/app.js",
+      "notes": "Savings unmeasured on phone"
+    },
+    {
+      "milestone": "M8",
+      "requirement": "Prevent stale metrics across mount restart",
+      "status": "implemented",
+      "evidence_path": "module/webroot/app.js",
+      "notes": "PID-bound race test exists, device pending"
+    },
+    {
+      "milestone": "M8",
+      "requirement": "Personal Release integrated UI/regression checks",
+      "status": "implemented",
+      "evidence_path": "scripts/dev/integration/local_build.py",
+      "notes": "Build/run personal ZIP on Termux, then validate installed version"
+    },
+    {
+      "milestone": "M8",
+      "requirement": "Physical device battery/performance benchmarks",
+      "status": "device_pending",
+      "evidence_path": "docs/development/M8_PERSONAL_INTEGRATION.md",
+      "notes": "No benchmarks were supplied; use personal device test kit"
+    }
+  ],
+  "formal_cfs1": "not part of personal release; no promotion claimed",
+  "device_result": "NOT_TESTED",
+  "hotfix_changes": [
+    "Single-file export now refuses stale/removed remotes before public output",
+    "Public Downloads export hashes bytes copied and discards integrity failures"
+  ],
+  "intentionally_not_in_hotfix": [
+    "No transparent same-path FUSE fallback",
+    "No post-confirm WebUI cancellation",
+    "No stopped-cache clean certificate",
+    "No automatic original-file overwrite or conflict merge",
+    "No encrypted credential migration"
+  ]
+}
