@@ -173,3 +173,33 @@ export function profilePresentation(profile, profiles = [], recommendation = nul
     recommended,
   };
 }
+
+// M2: normalize the deliberately narrow, authenticated rclone aggregate RC
+// counters. Missing counters remain null; never invent upload/download rates.
+export function performanceSample(payload, now = Date.now()) {
+  const raw = payload?.performance;
+  const absent = {status:'unavailable', sampledAt:0, speed:null, bytes:null, errors:null, cacheBytes:null, cacheFiles:null, writeback:'unknown', queued:null, active:null, failed:null};
+  if (!raw || raw.source !== 'authenticated_rclone_rc_aggregate' || !['available','partial'].includes(raw.state)) return absent;
+  const numeric = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1e15 ? value : null;
+  const timestamp = numeric(raw.sampled_at_unix_ms);
+  if (timestamp === null || timestamp > now + 30000 || now - timestamp > 30000) return absent;
+  const wb = payload?.writeback || {};
+  const validWB = ['idle','busy','errored'].includes(wb.state) && wb.source === 'authenticated_vfs_stats';
+  return {
+    status: raw.state, sampledAt:timestamp,
+    speed:numeric(raw.total_speed_bytes_per_second),
+    bytes:numeric(raw.transferred_bytes), errors:numeric(raw.rc_errors),
+    cacheBytes:numeric(raw.vfs_cache_bytes), cacheFiles:numeric(raw.vfs_cache_files),
+    writeback:validWB ? wb.state : 'unknown',
+    queued:validWB ? numeric(wb.uploads_queued) : null,
+    active:validWB ? numeric(wb.uploads_in_progress) : null,
+    failed:validWB ? numeric(wb.errored_files) : null,
+  };
+}
+
+export function boundedPerformanceHistory(history, sample, max = 60) {
+  const previous = Array.isArray(history) ? history : [];
+  if (sample?.speed === null || !Number.isFinite(sample?.speed) || !Number.isFinite(sample?.sampledAt)) return previous.slice(-max);
+  const next = previous.length && previous[previous.length-1].at === sample.sampledAt ? previous.slice(0,-1) : previous;
+  return [...next,{at:sample.sampledAt,speed:sample.speed}].slice(-Math.min(60,Math.max(1,max)));
+}

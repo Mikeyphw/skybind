@@ -103,6 +103,8 @@ func (m *Manager) Metrics(ctx context.Context, name string) (any, error) {
 		return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp4", "127.0.0.1:"+s.port)
 	}}
 	output := map[string]any{"mount": name, "authenticated": true}
+	var coreStats, vfsStats map[string]any
+	defer client.Transport.(*http.Transport).CloseIdleConnections()
 	for _, endpoint := range []string{"core/stats", "vfs/stats"} {
 		req, e := http.NewRequestWithContext(ctx, "POST", "http://127.0.0.1:"+s.port+"/"+endpoint, strings.NewReader("{}"))
 		if e != nil {
@@ -135,8 +137,10 @@ func (m *Manager) Metrics(ctx context.Context, name string) (any, error) {
 			}
 		}
 		if endpoint == "core/stats" {
+			coreStats = stats
 			output["transfers"] = safeStats
 		} else {
+			vfsStats = stats
 			output["vfs"] = safeStats
 			snapshot, parseErr := writeback.ParseVFS(name, body)
 			if parseErr != nil {
@@ -145,6 +149,7 @@ func (m *Manager) Metrics(ctx context.Context, name string) (any, error) {
 			output["writeback"] = snapshot
 		}
 	}
+	output["performance"] = summarizePerformance(coreStats, vfsStats)
 	return output, nil
 }
 

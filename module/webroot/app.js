@@ -1,7 +1,7 @@
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, saveSupportBundleToDownloads, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
 import { runtimeFailureText, providerReadinessPresentation } from './parity.js';
-import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, suggestMountDefaults } from './model.js';
+import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, performanceSample, boundedPerformanceHistory, suggestMountDefaults } from './model.js';
 
 const byId = (id) => document.getElementById(id);
 const compatibility = byId('compatibility');
@@ -11,6 +11,7 @@ const state = {
   preview: null, previewCandidates: null, rollbackPreview: null, refreshing: false,
   editorDirty: false, editorInitial: '', editorExisting: false, editorValidationTimer: null, editorValidationSeq: 0, editorIssues: [], editorStep: 0, editorInteracted: false,
   editorRemotes: [], editorProfiles: [], editorRecommendation: null, editorProviderStatus: null, editorRuntimeStatus: null, editorRemotePath: '', editorManualRemote: false, editorRemoteReachable: null, editorNameTouched: false, editorMountpointTouched: false, editorProfileTouched: false, editorBackendValidated: false, editorTrigger: null, editorSession: 0, previewTimer: null, operationPollToken: 0, mountActionName: '', mountActionReturnFocus: null,
+  perfOpen: new Set(), perfCache: new Map(), perfHistory: new Map(), perfPid: new Map(), perfPending: new Set(), perfEpoch: 0,
   mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountConfirmRequest: 0, mountPathReturnFocus: null,
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
@@ -381,6 +382,73 @@ function closeMountActions() { const focus = state.mountActionReturnFocus; byId(
 function selectedMountActionConfig() { return mountConfigByName(state.mountActionName); }
 async function deleteMountFromActions() { const cfg = selectedMountActionConfig(); const trigger=state.mountActionReturnFocus; closeMountActions(); if (!cfg) return; openEditor(cfg,trigger); state.editorDelete = true; await previewEditor(true); if (state.preview) setEditorStep(3); }
 
+// M2: at most three explicitly expanded panels query RC; no background daemon,
+// timers or persistent browser storage. The existing visible-view refresh drives
+// sampling and stops in the background via scheduleRefresh().
+const PERF_PANEL_LIMIT = 3;
+function perfNumber(value, formatter = String) { return value === null || value === undefined ? '—' : formatter(value); }
+function drawPerformanceTrend(container, history, name) {
+  if (history.length < 2) {container.append(paragraph('Collecting samples…', 'muted')); return;}
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox','0 0 240 64');svg.setAttribute('preserveAspectRatio','none');
+  svg.setAttribute('role','img');svg.setAttribute('aria-label',`${name}: aggregate transfer rate across ${history.length} samples, latest ${bytes(history.at(-1).speed)} per second`);
+  svg.classList.add('perf-trend');
+  const line=document.createElementNS('http://www.w3.org/2000/svg','polyline');
+  const max=Math.max(1,...history.map(row=>row.speed));
+  line.setAttribute('points',history.map((row,i)=>`${(i*240/(history.length-1)).toFixed(2)},${(60-54*row.speed/max).toFixed(2)}`).join(' '));
+  line.setAttribute('fill','none');line.setAttribute('stroke','currentColor');line.setAttribute('stroke-width','2');line.setAttribute('vector-effect','non-scaling-stroke');
+  svg.append(line);container.append(svg);
+}
+function updatePerformancePanel(name) {
+  const card=[...byId('mountCards').querySelectorAll('.quick-mount-card')].find(el=>el.dataset.mountName===name);
+  const body=card?.querySelector('.perf-body');if(!body || !state.perfOpen.has(name))return;
+  clear(body);
+  const sample=state.perfCache.get(name),history=state.perfHistory.get(name)||[];
+  if (!sample || sample.status==='unavailable') {body.append(paragraph('Telemetry unavailable. Verify the mount is running and authenticated RC is responsive. No zero values are assumed.','muted'));return;}
+  const grid=document.createElement('div');grid.className='perf-grid';
+  metric(grid,'Total rate',perfNumber(sample.speed,x=>`${bytes(x)}/s`));
+  metric(grid,'Transferred',perfNumber(sample.bytes,bytes));
+  metric(grid,'VFS disk cache',perfNumber(sample.cacheBytes,bytes));
+  metric(grid,'Cached files',perfNumber(sample.cacheFiles));
+  metric(grid,'RC errors',perfNumber(sample.errors));
+  metric(grid,'Writeback',sample.writeback);
+  metric(grid,'Queued / uploading',`${perfNumber(sample.queued)} / ${perfNumber(sample.active)}`);
+  metric(grid,'Failed uploads',perfNumber(sample.failed));body.append(grid);
+  const heading=paragraph(`Aggregate transfer rate · last ${history.length} samples`, 'perf-caption');body.append(heading);
+  drawPerformanceTrend(body,history,name);
+  body.append(paragraph(`RC totals combine directions; upload/download speeds are not individually available. Sample age ${Math.max(0,Math.floor((Date.now()-sample.sampledAt)/1000))}s. History is session-only.`, 'muted perf-footnote'));
+}
+async function pollPerformance(name, running, pid) {
+  if (!state.perfOpen.has(name) || state.activeView!=='mounts' || document.visibilityState!=='visible')return;
+  if (!running) {state.perfCache.delete(name);state.perfHistory.delete(name);updatePerformancePanel(name);return;}
+  if (state.perfPending.has(name))return;
+  state.perfPending.add(name);
+  const epoch=state.perfEpoch;
+  try {
+    const payload=result(await query('rc.metrics',{name}));
+    if (epoch!==state.perfEpoch || !state.perfOpen.has(name) || state.activeView!=='mounts' || document.visibilityState!=='visible')return;
+    const sample=performanceSample(payload);
+    state.perfCache.set(name,sample);
+    if (sample.status!=='unavailable')state.perfHistory.set(name,boundedPerformanceHistory(state.perfHistory.get(name),sample));
+  }catch(_) {if(epoch===state.perfEpoch)state.perfCache.set(name,null);}
+  finally {state.perfPending.delete(name);if(epoch===state.perfEpoch)updatePerformancePanel(name);}
+}
+function mountPerformancePanel(card,name,running) {
+  const wrap=document.createElement('section');wrap.className='perf-section';
+  const trigger=button(state.perfOpen.has(name)?'▴ Hide performance':'▾ Performance',()=>{
+    if (state.perfOpen.has(name)){state.perfEpoch++;state.perfOpen.delete(name);state.perfCache.delete(name);state.perfHistory.delete(name);}
+    else if(state.perfOpen.size>=PERF_PANEL_LIMIT){showToast(`Open at most ${PERF_PANEL_LIMIT} live panels to conserve battery.`,'warn');return;}
+    else {state.perfEpoch++;state.perfOpen.add(name);}
+    const opened=state.perfOpen.has(name);trigger.textContent=opened?'▴ Hide performance':'▾ Performance';trigger.setAttribute('aria-expanded',String(opened));body.hidden=!opened;
+    if(opened){updatePerformancePanel(name);void pollPerformance(name,running);}
+  },'perf-toggle');
+  trigger.setAttribute('aria-expanded',String(state.perfOpen.has(name)));
+  trigger.setAttribute('aria-controls',`perf-${name}`);
+  const body=document.createElement('div');body.className='perf-body';body.id=`perf-${name}`;body.hidden=!state.perfOpen.has(name);body.setAttribute('role','region');body.setAttribute('aria-label',`Performance of ${name}`);
+  wrap.append(trigger,body);card.append(wrap);
+  if(state.perfOpen.has(name))updatePerformancePanel(name);
+}
+
 function renderMounts(snapshot, statuses, health) {
   const root = byId('mountCards'); clear(root);
   const rows = mountRows(snapshot, statuses, health);
@@ -427,8 +495,10 @@ function renderMounts(snapshot, statuses, health) {
     const menu = button('⋯', () => openMountActions(row, menu), 'mount-quick-more');
     menu.setAttribute('aria-label', `More actions for ${name}`); menu.setAttribute('aria-haspopup', 'dialog');
     secondary.append(files, logs, edit, menu); card.append(secondary);
+    mountPerformancePanel(card,name,status.running);
     root.append(card);
   }
+  for (const name of state.perfOpen)updatePerformancePanel(name);
 }
 
 async function loadMounts() {
@@ -436,7 +506,18 @@ async function loadMounts() {
     query('config.snapshot'), query('mount.status'), query('mount.health'), query('provider.remotes'),
   ]);
   const snapshot = result(snapshotEnvelope); state.snapshot = snapshot;state.remoteDetails=result(remotesEnvelope).details||[];
-  renderMounts(snapshot, result(statusesEnvelope).mounts || [], result(healthEnvelope).health || []);
+  const statuses=result(statusesEnvelope).mounts || [];
+  // Clear metrics if a mount is removed, stopped, or replaced with a new PID.
+  const known=new Set((snapshot.mounts||[]).map(m=>m.name));
+  for (const name of state.perfOpen)if(!known.has(name)){state.perfOpen.delete(name);state.perfCache.delete(name);state.perfHistory.delete(name);state.perfPid.delete(name);}
+  const statusMap=new Map(statuses.map(row=>[row.name,row]));
+  const rows=mountRows(snapshot,statuses,result(healthEnvelope).health || []);
+  for(const row of rows){const name=row.config.name,s=mountStateCopy(row),pid=statusMap.get(name)?.pid||0;
+    if(!s.running || (state.perfPid.has(name)&&state.perfPid.get(name)!==pid)) {state.perfCache.delete(name);state.perfHistory.delete(name);}
+    state.perfPid.set(name,pid);
+  }
+  renderMounts(snapshot,statuses,result(healthEnvelope).health || []);
+  if(state.activeView==='mounts' && document.visibilityState==='visible')await Promise.all(rows.filter(row=>state.perfOpen.has(row.config.name)).slice(0,PERF_PANEL_LIMIT).map(row=>pollPerformance(row.config.name,mountStateCopy(row).running,row.status.pid)));
 }
 
 async function lifecycleAction(action, name) {
@@ -1294,7 +1375,7 @@ async function setView(view) {
   const names=['home','mounts','jobs','activity','more','runtime','remotes','doctor','logs','settings'];
   const secondary=new Set(['runtime','remotes','doctor','logs','settings']);
   const titles={home:'Home',mounts:'Mounts',jobs:'Jobs',activity:'Activity',more:'More',runtime:'Runtime',remotes:'Remote browser',doctor:'Doctor',logs:'Logs',settings:'Settings'};
-  if(!names.includes(view))view='home';state.activeView=view;stopTimer();
+  if(!names.includes(view))view='home';if(state.activeView!==view)state.perfEpoch++;state.activeView=view;stopTimer();
   const primary=secondary.has(view)?'more':view;
   for(const name of names)byId(`view-${name}`).hidden=name!==view;
   for(const nav of document.querySelectorAll('.nav-item')){const active=nav.dataset.view===primary;nav.classList.toggle('active',active);if(active)nav.setAttribute('aria-current','page');else nav.removeAttribute('aria-current');}
@@ -1342,4 +1423,4 @@ byId('useMountRemoteFolderButton')?.addEventListener('click',chooseCurrentRemote
 for(const node of document.querySelectorAll('[data-mountpoint-template]'))node.addEventListener('click',()=>applyMountpointSuggestion(node.dataset.mountpointTemplate));
 byId('keepEditingButton')?.addEventListener('click',()=>{byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();});
 byId('discardChangesButton')?.addEventListener('click',forceCloseEditor);
-byId('editorBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('editorBackdrop'))closeEditor();});byId('discardBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('discardBackdrop')){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();}});byId('mountConfirmBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountConfirmBackdrop'))closeMountConfirmation();});byId('mountFolderBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountFolderBackdrop'))closeMountFolder();});byId('mountActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountActionBackdrop'))closeMountActions();});byId('remoteActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('remoteActionBackdrop'))closeRemoteActions();});byId('cryptBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('cryptBackdrop'))closeCryptCreator();});byId('jobBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('jobBackdrop'))closeJob();});byId('rollbackBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('rollbackBackdrop'))closeRollback();});document.addEventListener('keydown',(event)=>{if(!byId('discardBackdrop').hidden&&trapModalTab(event,byId('discardBackdrop')))return;if(!byId('mountConfirmBackdrop').hidden&&trapModalTab(event,byId('mountConfirmBackdrop')))return;if(!byId('mountFolderBackdrop').hidden&&trapModalTab(event,byId('mountFolderBackdrop')))return;if(!byId('mountActionBackdrop').hidden&&trapModalTab(event,byId('mountActionBackdrop')))return;if(!byId('remoteActionBackdrop').hidden&&trapModalTab(event,byId('remoteActionBackdrop')))return;if(!byId('cryptBackdrop').hidden&&trapModalTab(event,byId('cryptBackdrop')))return;if(!byId('editorBackdrop').hidden&&trapModalTab(event,byId('editorBackdrop')))return;if(!byId('jobBackdrop').hidden&&trapModalTab(event,byId('jobBackdrop')))return;if(!byId('rollbackBackdrop').hidden&&trapModalTab(event,byId('rollbackBackdrop')))return;if(event.key!=='Escape')return;if(!byId('discardBackdrop').hidden){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();return;}if(!byId('mountConfirmBackdrop').hidden){closeMountConfirmation();return;}if(!byId('mountFolderBackdrop').hidden){closeMountFolder();return;}if(!byId('mountActionBackdrop').hidden){closeMountActions();return;}if(!byId('remoteActionBackdrop').hidden){closeRemoteActions();return;}if(!byId('cryptBackdrop').hidden){closeCryptCreator();return;}if(!byId('jobBackdrop').hidden){closeJob();return;}if(!byId('editorBackdrop').hidden){closeEditor();return;}if(!byId('rollbackBackdrop').hidden)closeRollback();});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void setView(state.activeView);else stopTimer();});void bootstrap();
+byId('editorBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('editorBackdrop'))closeEditor();});byId('discardBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('discardBackdrop')){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();}});byId('mountConfirmBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountConfirmBackdrop'))closeMountConfirmation();});byId('mountFolderBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountFolderBackdrop'))closeMountFolder();});byId('mountActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountActionBackdrop'))closeMountActions();});byId('remoteActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('remoteActionBackdrop'))closeRemoteActions();});byId('cryptBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('cryptBackdrop'))closeCryptCreator();});byId('jobBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('jobBackdrop'))closeJob();});byId('rollbackBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('rollbackBackdrop'))closeRollback();});document.addEventListener('keydown',(event)=>{if(!byId('discardBackdrop').hidden&&trapModalTab(event,byId('discardBackdrop')))return;if(!byId('mountConfirmBackdrop').hidden&&trapModalTab(event,byId('mountConfirmBackdrop')))return;if(!byId('mountFolderBackdrop').hidden&&trapModalTab(event,byId('mountFolderBackdrop')))return;if(!byId('mountActionBackdrop').hidden&&trapModalTab(event,byId('mountActionBackdrop')))return;if(!byId('remoteActionBackdrop').hidden&&trapModalTab(event,byId('remoteActionBackdrop')))return;if(!byId('cryptBackdrop').hidden&&trapModalTab(event,byId('cryptBackdrop')))return;if(!byId('editorBackdrop').hidden&&trapModalTab(event,byId('editorBackdrop')))return;if(!byId('jobBackdrop').hidden&&trapModalTab(event,byId('jobBackdrop')))return;if(!byId('rollbackBackdrop').hidden&&trapModalTab(event,byId('rollbackBackdrop')))return;if(event.key!=='Escape')return;if(!byId('discardBackdrop').hidden){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();return;}if(!byId('mountConfirmBackdrop').hidden){closeMountConfirmation();return;}if(!byId('mountFolderBackdrop').hidden){closeMountFolder();return;}if(!byId('mountActionBackdrop').hidden){closeMountActions();return;}if(!byId('remoteActionBackdrop').hidden){closeRemoteActions();return;}if(!byId('cryptBackdrop').hidden){closeCryptCreator();return;}if(!byId('jobBackdrop').hidden){closeJob();return;}if(!byId('editorBackdrop').hidden){closeEditor();return;}if(!byId('rollbackBackdrop').hidden)closeRollback();});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void setView(state.activeView);else {state.perfEpoch++;stopTimer();}});void bootstrap();
