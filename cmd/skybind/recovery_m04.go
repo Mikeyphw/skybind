@@ -7,6 +7,7 @@ import (
 	"skybind/internal/diagnostics"
 	"skybind/internal/jobs"
 	"skybind/internal/mounts/supervisor"
+	"skybind/internal/offline"
 )
 
 // Healthy mounts do not need 30-second FUSE/process inspections. Still check
@@ -49,7 +50,18 @@ type recoveryTiming struct {
 	initial, pending, healthy, eventDelay, eventThrottle, jobInterval time.Duration
 }
 
+// Integration with the M6B read-only reconciliation queue uses the SAME
+// supervisor timer/netlink hints, not another polling daemon or root service.
+func runRecoveryLoopWithOffline(ctx context.Context, sup *supervisor.Supervisor, logs *diagnostics.Store, store *jobs.Store, changes <-chan struct{}, tasks *offline.TaskManager) {
+	runRecoveryLoopWithReviewTiming(ctx, sup, logs, store, changes, recoveryTiming{
+		initial: recoveryInitial, pending: recoveryPending, healthy: recoveryHealthy,
+		eventDelay: recoveryEventDelay, eventThrottle: recoveryEventThrottle, jobInterval: recoveryJobInterval,
+	}, func() { tasks.OnReconnectHint() })
+}
 func runRecoveryLoopWithTiming(ctx context.Context, sup *supervisor.Supervisor, logs *diagnostics.Store, store *jobs.Store, changes <-chan struct{}, timing recoveryTiming) {
+	runRecoveryLoopWithReviewTiming(ctx, sup, logs, store, changes, timing, nil)
+}
+func runRecoveryLoopWithReviewTiming(ctx context.Context, sup *supervisor.Supervisor, logs *diagnostics.Store, store *jobs.Store, changes <-chan struct{}, timing recoveryTiming, reviewHint func()) {
 	audit := newSupervisorAuditor()
 	timer := time.NewTimer(timing.initial)
 	defer timer.Stop()
@@ -91,6 +103,11 @@ func runRecoveryLoopWithTiming(ctx context.Context, sup *supervisor.Supervisor, 
 		case <-timer.C:
 			health, err := sup.Reconcile(ctx)
 			audit.Write(logs, health, err)
+			// Reconnect events and timer fallback only trigger metadata inspection.
+			// A disabled option, busy journal or throttle suppresses the work.
+			if reviewHint != nil {
+				reviewHint()
+			}
 			interval := recoveryInterval(health, err)
 			if interval == recoveryHealthy {
 				interval = timing.healthy

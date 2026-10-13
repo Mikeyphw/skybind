@@ -12,7 +12,7 @@ const state = {
   editorDirty: false, editorInitial: '', editorExisting: false, editorValidationTimer: null, editorValidationSeq: 0, editorIssues: [], editorStep: 0, editorInteracted: false,
   editorRemotes: [], editorProfiles: [], editorRecommendation: null, editorProviderStatus: null, editorRuntimeStatus: null, editorRemotePath: '', editorManualRemote: false, editorRemoteReachable: null, editorNameTouched: false, editorMountpointTouched: false, editorProfileTouched: false, editorBackendValidated: false, editorTrigger: null, editorSession: 0, previewTimer: null, operationPollToken: 0, mountActionName: '', mountActionReturnFocus: null,
   perfOpen: new Set(), perfCache: new Map(), perfHistory: new Map(), perfPid: new Map(), perfPending: new Set(), perfEpoch: 0,
-  offlineOpen: new Set(), offlineInput: new Map(), offlineManifest: null, offlineTasks: [], offlinePending: false, offlineUnsupported: false, offlineConfirm: '', offlinePollId: null, offlineEdits: [],
+  offlineOpen: new Set(), offlineInput: new Map(), offlineManifest: null, offlineTasks: [], offlinePending: false, offlineUnsupported: false, offlineConfirm: '', offlinePollId: null, offlineEdits: [], offlineReview: null,
   mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountConfirmRequest: 0, mountPathReturnFocus: null,
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
@@ -466,7 +466,7 @@ async function offlineLoad(name) {
   try {
     const tasks=result(await query('offline.tasks',{}));state.offlineTasks=tasks.tasks||[];
     const running=state.offlineTasks.some(t=>t.state==='RUNNING');
-    if(!running){state.offlineManifest=result(await query('offline.list',{}));const edits=result(await query('offline.write.list',{}));state.offlineEdits=edits.edits||[];}
+    if(!running){state.offlineManifest=result(await query('offline.list',{}));const edits=result(await query('offline.write.list',{}));state.offlineEdits=edits.edits||[];state.offlineReview=result(await query('offline.write.review',{}));}
     state.offlineUnsupported=false;
   } catch (error) {
     if(state.offlineManifest===null)state.offlineUnsupported=true;
@@ -512,6 +512,24 @@ async function offlineWriteTask(kind,name,path){
     showToast(kind==='draft'?'Creating PUBLIC editable draft. It will not sync automatically.':'Importing edited public draft into protected private write queue.');
     renderOfflinePanels();offlineSchedulePoll();
   }catch(error){showToast(`Offline write refused: ${error?.message||'backend unavailable'}`,'error');}
+}
+// M6B reviews are metadata-only. A reconnect hint never uploads anything;
+// only the existing confirmed separate-copy action may produce remote writes.
+async function offlineStartReview(mount){
+  try{
+    const task=result(await run('offline.write.reconcile',{mount}));
+    state.offlineTasks=[...state.offlineTasks,task];
+    showToast('Reviewing queued edits and uncertain remote copies. No uploads will be started.');
+    renderOfflinePanels();offlineSchedulePoll();
+  }catch(error){showToast(`Review unavailable: ${error?.message||'backend unavailable'}`,'warn');}
+}
+async function offlineSetAutoReview(enabled){
+  try{
+    const resultSettings=result(await run('offline.write.auto-review',{enabled}));
+    state.offlineReview={...(state.offlineReview||{}),settings:resultSettings};
+    showToast(enabled?'Reconnect review enabled (remote metadata reads only; no automatic uploads).':'Automatic reconnect review disabled.');
+    renderOfflinePanels();
+  }catch(error){showToast(`Reconnect preference not saved: ${error?.message||'backend unavailable'}`,'warn');}
 }
 async function offlineWriteCheck(id){
   try {const r=result(await query('offline.write.check',{id}));showToast(`${r.state||'UNKNOWN'}: ${r.detail||'Review the remote before any reconciliation.'}`,r.state==='MATCH'?'ok':'warn');}
@@ -597,9 +615,25 @@ function renderOfflineBody(body,name) {
   const edits=(state.offlineEdits||[]).filter(e=>e.mount===name);
   if(edits.length){
     body.append(paragraph(`Offline write queue: ${edits.length} private, immutable edit${edits.length===1?'':'s'}. No automatic sync or overwrite.`,'offline-caption'));
+    const review=state.offlineReview;
+    const reviewRow=document.createElement('div');reviewRow.className='offline-actions';
+    const reviewButton=button('Review edits after reconnect',()=>void offlineStartReview(name));reviewButton.disabled=busy;reviewRow.append(reviewButton);
+    const auto=Boolean(review?.settings?.auto_on_reconnect);
+    const autoButton=button(auto?'Disable automatic review':'Enable automatic reconnect review',()=>void offlineSetAutoReview(!auto));autoButton.disabled=busy;reviewRow.append(autoButton);
+    body.append(reviewRow);
+    offlineNotice(body,`Automatic review ${auto?'ON':'OFF'} · metadata-only, at most once per five minutes. It never retries uploads or overwrites remote files.`);
+    const currentReview=review?.report;
+    if(currentReview&&(!currentReview.mount||currentReview.mount===name)){
+      const date=Number(currentReview.checked_unix);
+      offlineNotice(body,`Latest review ${Number.isFinite(date)&&date>0?new Date(date*1000).toLocaleString():'unknown'} · informational snapshot, not a remote write lock.`);
+    }
+
     for(const e of edits){
       const wrap=document.createElement('div');wrap.className='offline-pin-row';
       wrap.append(paragraph(`${e.path} · ${offlineBytes(e.size)} · ${e.state} · ID ${e.id}`,'offline-pin-name'));
+      const evidence=(state.offlineReview?.report?.items||[]).find(r=>r.id===e.id);
+      if(evidence)wrap.append(paragraph(`Review: ${evidence.state} · ${evidence.detail}`,'muted'));
+
       const actions=document.createElement('div');actions.className='offline-actions';
       const checkButton=button('Compare remote revision',()=>void offlineWriteCheck(e.id));checkButton.disabled=busy;actions.append(checkButton);
       if(e.state==='QUEUED'){

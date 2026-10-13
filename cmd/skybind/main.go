@@ -226,7 +226,8 @@ func daemonCommand() int {
 		return 1
 	}
 	offlineStore := offline.Canonical()
-	if err = daemon.RegisterOffline(engine, offline.NewTaskManager(offlineStore), offlineStore); err != nil {
+	offlineTasks := offline.NewTaskManager(offlineStore)
+	if err = daemon.RegisterOffline(engine, offlineTasks, offlineStore); err != nil {
 		fmt.Fprintln(os.Stderr, "offline RPC registry:", err)
 		return 1
 	}
@@ -245,7 +246,7 @@ func daemonCommand() int {
 	if watchErr != nil {
 		_ = logStore.Write("INFO", "supervisor", "NETWORK_FALLBACK", "network_events=unavailable periodic_checks=enabled")
 	}
-	go runRecoveryLoop(ctx, supervisorEngine, logStore, jobStore, networkEvents)
+	go runRecoveryLoopWithOffline(ctx, supervisorEngine, logStore, jobStore, networkEvents, offlineTasks)
 	if err = srv.Serve(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon:", err)
 		return 1

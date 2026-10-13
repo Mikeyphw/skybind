@@ -20,6 +20,9 @@ var offlineExtension = map[string]protocol.Class{
 	"offline.write.draft":       protocol.Run,
 	"offline.write.stage":       protocol.Run,
 	"offline.write.upload-copy": protocol.Run,
+	"offline.write.review":      protocol.Query,
+	"offline.write.reconcile":   protocol.Run,
+	"offline.write.auto-review": protocol.Run,
 }
 
 func lookupOfflineExtension(name string) (CatalogItem, bool) {

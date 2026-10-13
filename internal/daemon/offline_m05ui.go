@@ -198,6 +198,50 @@ func RegisterOffline(e *control.Engine, tasks *offline.TaskManager, store *offli
 	}); err != nil {
 		return err
 	}
+	// M6B: read-only metadata review of the existing private edit journal.
+	// Auto-review only opts into bounded checks on reconnect; no uploads occur.
+	if err := register("offline.write.review", protocol.Query, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if err := emptyArgs(raw); err != nil {
+			return nil, err
+		}
+		if tasks.Busy() {
+			return nil, errors.New("offline_busy")
+		}
+		return store.ReviewStatus()
+	}); err != nil {
+		return err
+	}
+	if err := register("offline.write.auto-review", protocol.Run, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var a struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if err := protocol.StrictBytes(raw, &a); err != nil {
+			return nil, err
+		}
+		if a.Enabled == nil {
+			return nil, errors.New("offline_auto_review_confirmation_required")
+		}
+		if tasks.Busy() {
+			return nil, errors.New("offline_busy")
+		}
+		return store.SetReviewAuto(*a.Enabled)
+	}); err != nil {
+		return err
+	}
+	if err := register("offline.write.reconcile", protocol.Run, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var a struct {
+			Mount string `json:"mount"`
+		}
+		if err := protocol.StrictBytes(raw, &a); err != nil {
+			return nil, err
+		}
+		if a.Mount == "" {
+			return nil, errors.New("offline_review_mount_required")
+		}
+		return tasks.Start("write-review", a.Mount, "")
+	}); err != nil {
+		return err
+	}
 	return register("offline.cancel", protocol.Cancel, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var a struct {
 			ID string `json:"id"`
