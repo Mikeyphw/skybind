@@ -5,6 +5,7 @@ import (
 	"skybind/internal/paths"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMountStderrBoundedAndCategorized(t *testing.T) {
@@ -55,6 +56,9 @@ func TestMountReadinessFailureCarriesSafeProviderCategory(t *testing.T) {
 	e, f, _ := mountFixture(t)
 	runner := &mountNeverAppears{observer: f}
 	e.run = runner
+	// Keep this negative test fast without weakening the real startup budget.
+	e.mountReadyTimeout = 30 * time.Millisecond
+	e.mountReadyPoll = 2 * time.Millisecond
 	_, err := e.Start("cloud")
 	if err == nil || err.Error() != "FUSE readiness/mount identity not observed (provider_permission_denied)" {
 		t.Fatalf("unexpected: %v", err)

@@ -250,7 +250,16 @@ type Engine struct {
 	rcPrepare      func(string) ([]string, error)
 	rcDrop         func(string)
 	writebackProbe func(context.Context, string) (writeback.Snapshot, error)
+	// Bounded provider/FUSE startup observation. Only injected Go tests change
+	// these values; production uses the conservative defaults below.
+	mountReadyTimeout time.Duration
+	mountReadyPoll    time.Duration
 }
+
+const (
+	defaultMountReadyTimeout = 10 * time.Second
+	defaultMountReadyPoll    = 100 * time.Millisecond
+)
 
 // Canonical returns a production engine. Roots and executables cannot be
 // supplied by clients; only tests in Go can construct injected fixtures.
@@ -258,7 +267,7 @@ func Canonical(s *config.Store) *Engine {
 	return newEngine(s, filepath.Join(paths.StateRoot, "desired"), linuxObserver{}, linuxSpawner{}, canonicalEnvironment{})
 }
 func newEngine(s *config.Store, dir string, o Observer, r Spawner, env RunEnv) *Engine {
-	return &Engine{store: s, dir: dir, obs: o, run: r, env: env, state: map[string]bool{}, proofs: previewproof.New()}
+	return &Engine{store: s, dir: dir, obs: o, run: r, env: env, state: map[string]bool{}, proofs: previewproof.New(), mountReadyTimeout: defaultMountReadyTimeout, mountReadyPoll: defaultMountReadyPoll}
 }
 
 // ConfigureRC attaches a per-mount authenticated loopback endpoint provider.
@@ -652,18 +661,35 @@ func (e *Engine) startLocked(m config.Mount) (State, error) {
 		}
 		return State{}, errors.New("could not prove child process ownership")
 	}
-	// Do not assert readiness until the observed mount exists and has a stable
-	// mountinfo identity. Future namespace visibility is a separate device gate.
+	// A real Android provider can need almost two seconds even with minimal
+	// read-only flags. Wait up to ten seconds for the *same verified child* and
+	// its FUSE mountinfo ID; never accept an unowned or non-FUSE mount.
+	// Use a monotonic deadline rather than an unbounded number of sleeps.
+	deadline := time.Now().Add(e.mountReadyTimeout)
 	var observed MountObservation
 	verified := false
-	for i := 0; i < 20; i++ {
+	for {
+		currentTick, currentExe, identityErr := e.obs.Identity(pid)
+		if identityErr != nil || currentTick != tick || currentExe != paths.Engine {
+			// The child has exited or changed identity. Do not wait for an
+			// unrelated future mount and never signal a reused PID.
+			break
+		}
 		v, exists, obErr := e.obs.Mount(m.Mountpoint)
 		if obErr == nil && exists && strings.HasPrefix(v.FsType, "fuse") && v.MountID != "" {
 			observed = v
 			verified = true
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		pause := e.mountReadyPoll
+		if pause > remaining {
+			pause = remaining
+		}
+		time.Sleep(pause)
 	}
 	if !verified {
 		// Only a fixed category is surfaced. Captured raw stderr is discarded.
@@ -671,7 +697,11 @@ func (e *Engine) startLocked(m config.Mount) (State, error) {
 		if capture, ok := e.run.(interface{ MountFailureHint(int) string }); ok {
 			hint = capture.MountFailureHint(pid)
 		}
-		_ = e.run.Stop(pid)
+		// Signal only when the original process identity can *still* be
+		// established. pidfd alone does not disambiguate a reused PID.
+		if currentTick, currentExe, identityErr := e.obs.Identity(pid); identityErr == nil && currentTick == tick && currentExe == paths.Engine {
+			_ = e.run.Stop(pid)
+		}
 		if e.rcDrop != nil {
 			e.rcDrop(name)
 		}
