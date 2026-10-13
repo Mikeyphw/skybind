@@ -50,7 +50,7 @@ func supervisorAuditEvent(h supervisor.Health) (string, string) {
 }
 
 // supervisorAuditor is owned by the reconciliation goroutine; it retains only
-// hashed mount identities and sanitized output. Ordinary 30-second healthy
+// hashed mount identities and sanitized output. Ordinary healthy
 // ticks do not erase meaningful failures from the bounded diagnostic store.
 // A periodic heartbeat preserves evidence of a healthy long-running daemon.
 const supervisorAuditHeartbeat = 30 * time.Minute

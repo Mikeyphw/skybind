@@ -34,17 +34,18 @@ type Health struct {
 type retry struct {
 	attempts int
 	next     time.Time
-	since    time.Time
+	deferred bool // Only a pre-spawn policy denial may be expedited by a network hint.
 }
 type Supervisor struct {
-	mu          sync.Mutex
-	engine      Engine
-	now         func() time.Time
-	retry       map[string]retry
-	maxAttempts int
-	dir         string
-	cache       *cache.Manager
-	registry    *config.Store
+	mu              sync.Mutex
+	engine          Engine
+	now             func() time.Time
+	retry           map[string]retry
+	maxAttempts     int
+	lastNetworkWake time.Time
+	dir             string
+	cache           *cache.Manager
+	registry        *config.Store
 }
 
 func New(e Engine) *Supervisor {
@@ -69,6 +70,7 @@ func NewPersistent(e Engine, dir string) (*Supervisor, error) {
 	var v map[string]struct {
 		Attempts int       `json:"attempts"`
 		Next     time.Time `json:"next"`
+		Deferred bool      `json:"deferred,omitempty"`
 	}
 	if err = json.Unmarshal(b, &v); err != nil {
 		return nil, err
@@ -77,7 +79,7 @@ func NewPersistent(e Engine, dir string) (*Supervisor, error) {
 		if k == "" || r.Attempts < 0 || r.Attempts > s.maxAttempts {
 			return nil, errors.New("invalid persisted retry state")
 		}
-		s.retry[k] = retry{attempts: r.Attempts, next: r.Next}
+		s.retry[k] = retry{attempts: r.Attempts, next: r.Next, deferred: r.Deferred}
 	}
 	return s, nil
 }
@@ -88,18 +90,47 @@ func (s *Supervisor) persist() error {
 	v := map[string]struct {
 		Attempts int       `json:"attempts"`
 		Next     time.Time `json:"next"`
+		Deferred bool      `json:"deferred,omitempty"`
 	}{}
 	for k, r := range s.retry {
 		v[k] = struct {
 			Attempts int       `json:"attempts"`
 			Next     time.Time `json:"next"`
-		}{r.attempts, r.next}
+			Deferred bool      `json:"deferred,omitempty"`
+		}{r.attempts, r.next, r.deferred}
 	}
 	b, e := json.Marshal(v)
 	if e != nil {
 		return e
 	}
 	return atomicfile.Write(s.dir, "retry-v1.json", b)
+}
+
+// NetworkChanged handles a debounced OS notification as a hint, never proof of
+// connectivity. Only policy-deferred next checks may be brought forward. It
+// cannot reset retry attempts, provider-failure backoff, or exhausted budgets.
+// A burst of kernel notifications cannot induce more than one expedited check
+// in fifteen seconds. The real Start policy still samples trusted device facts.
+func (s *Supervisor) NetworkChanged() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	if !s.lastNetworkWake.IsZero() && now.Sub(s.lastNetworkWake) < 15*time.Second {
+		return false
+	}
+	changed := false
+	for name, r := range s.retry {
+		if !r.deferred || r.attempts >= s.maxAttempts || !now.Before(r.next) {
+			continue
+		}
+		r.next = now
+		s.retry[name] = r
+		changed = true
+	}
+	if changed {
+		s.lastNetworkWake = now
+	}
+	return changed
 }
 
 // ConfigureCache applies bounded high/low-water maintenance during periodic reconciliation.
@@ -181,11 +212,13 @@ func (s *Supervisor) Reconcile(ctx context.Context) ([]Health, error) {
 			// the next policy check without exhausting the budget reserved for
 			// actual failed starts. Keep any previously spent tokens.
 			r.next = s.now().Add(30 * time.Second)
+			r.deferred = true
 			s.retry[name] = r
 			out = append(out, Health{Name: name, State: "RETRYING", Reason: "policy_deferred", Attempts: r.attempts, RetryAt: r.next})
 			continue
 		}
 		r.attempts++
+		r.deferred = false
 		backoff := time.Second * time.Duration(1<<uint(min(r.attempts, 6)))
 		if backoff > time.Minute {
 			backoff = time.Minute

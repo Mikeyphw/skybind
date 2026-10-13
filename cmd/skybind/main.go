@@ -23,6 +23,7 @@ import (
 	"skybind/internal/mounts/cache"
 	"skybind/internal/mounts/config"
 	"skybind/internal/mounts/lifecycle"
+	"skybind/internal/mounts/networkwatch"
 	"skybind/internal/mounts/policy"
 	"skybind/internal/mounts/supervisor"
 	"skybind/internal/namespace"
@@ -229,23 +230,13 @@ func daemonCommand() int {
 	defer srv.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	// Periodic reconciliation is bounded and driven solely by persisted desired
-	// state; explicit stop is not undone and no unknown network is assumed safe.
-	go func() {
-		audit := newSupervisorAuditor()
-		timer := time.NewTicker(30 * time.Second)
-		defer timer.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-timer.C:
-				health, reconcileErr := supervisorEngine.Reconcile(ctx)
-				audit.Write(logStore, health, reconcileErr)
-				_, _ = jobStore.Tick()
-			}
-		}
-	}()
+	// Kernel link/route events are wakeup hints only. Some Android devices
+	// deny NETLINK_ROUTE subscriptions; bounded timer fallback always remains.
+	networkEvents, watchErr := networkwatch.Listen(ctx)
+	if watchErr != nil {
+		_ = logStore.Write("INFO", "supervisor", "NETWORK_FALLBACK", "network_events=unavailable periodic_checks=enabled")
+	}
+	go runRecoveryLoop(ctx, supervisorEngine, logStore, jobStore, networkEvents)
 	if err = srv.Serve(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon:", err)
 		return 1
