@@ -1,7 +1,7 @@
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, saveSupportBundleToDownloads, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
 import { runtimeFailureText, providerReadinessPresentation } from './parity.js';
-import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, performanceSample, boundedPerformanceHistory, cachePressureAdvice, effectiveVfsOptions, suggestMountDefaults, safeOfflineRelativePath, offlineSnapshotSummary, activeOfflineTask } from './model.js';
+import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, performanceSample, boundedPerformanceHistory, cachePressureAdvice, effectiveVfsOptions, m8RefreshDelay, suggestMountDefaults, safeOfflineRelativePath, offlineSnapshotSummary, activeOfflineTask } from './model.js';
 
 const byId = (id) => document.getElementById(id);
 const compatibility = byId('compatibility');
@@ -12,7 +12,7 @@ const state = {
   editorDirty: false, editorInitial: '', editorExisting: false, editorValidationTimer: null, editorValidationSeq: 0, editorIssues: [], editorStep: 0, editorInteracted: false,
   editorRemotes: [], editorProfiles: [], editorRecommendation: null, editorProviderStatus: null, editorRuntimeStatus: null, editorRemotePath: '', editorManualRemote: false, editorRemoteReachable: null, editorNameTouched: false, editorMountpointTouched: false, editorProfileTouched: false, editorBackendValidated: false, editorTrigger: null, editorSession: 0, previewTimer: null, operationPollToken: 0, mountActionName: '', mountActionReturnFocus: null,
   perfOpen: new Set(), perfCache: new Map(), perfHistory: new Map(), perfPid: new Map(), perfPending: new Set(), perfEpoch: 0,
-  offlineOpen: new Set(), offlineInput: new Map(), offlineManifest: null, offlineTasks: [], offlinePending: false, offlineUnsupported: false, offlineConfirm: '', offlinePollId: null, offlineEdits: [], offlineReview: null,
+  offlineOpen: new Set(), offlineInput: new Map(), offlineManifest: null, offlineTasks: [], offlinePending: false, offlineUnsupported: false, offlineConfirm: '', offlinePollId: null, offlineEdits: [], offlineReview: null, remoteDetailsUpdatedAt: 0, mountToolsOpen: new Set(),
   mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountConfirmRequest: 0, mountPathReturnFocus: null,
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
@@ -429,12 +429,14 @@ async function pollPerformance(name, running, pid) {
   const epoch=state.perfEpoch;
   try {
     const payload=result(await query('rc.metrics',{name}));
-    if (epoch!==state.perfEpoch || !state.perfOpen.has(name) || state.activeView!=='mounts' || document.visibilityState!=='visible')return;
+    // Ignore RC replies originating from an earlier FUSE child after Restart.
+    // The mount status response, not browser-local state, owns the PID.
+    if (epoch!==state.perfEpoch || Number(pid||0)!==Number(state.perfPid.get(name)||0) || !state.perfOpen.has(name) || state.activeView!=='mounts' || document.visibilityState!=='visible')return;
     const sample=performanceSample(payload);
     state.perfCache.set(name,sample);
     if (sample.status!=='unavailable')state.perfHistory.set(name,boundedPerformanceHistory(state.perfHistory.get(name),sample));
-  }catch(_) {if(epoch===state.perfEpoch)state.perfCache.set(name,null);}
-  finally {state.perfPending.delete(name);if(epoch===state.perfEpoch)updatePerformancePanel(name);}
+  }catch(_) {if(epoch===state.perfEpoch && Number(pid||0)===Number(state.perfPid.get(name)||0))state.perfCache.set(name,null);}
+  finally {state.perfPending.delete(name);if(epoch===state.perfEpoch && Number(pid||0)===Number(state.perfPid.get(name)||0))updatePerformancePanel(name);}
 }
 function mountPerformancePanel(card,name,running) {
   const wrap=document.createElement('section');wrap.className='perf-section';
@@ -667,7 +669,9 @@ function mountOfflinePanel(card,name) {
           if(previousToggle){previousToggle.textContent='▾ Offline files';previousToggle.setAttribute('aria-expanded','false');}
         }
       }
-      state.offlineOpen.clear();state.offlineOpen.add(name);body.hidden=false;trigger.textContent='▴ Hide offline files';void offlineLoad(name);
+      state.offlineOpen.clear();state.offlineOpen.add(name);body.hidden=false;trigger.textContent='▴ Hide offline files';
+      for(const c of byId('mountCards')?.children||[]){const b=c.querySelector('.mount-m8-offline');if(b){const active=c.dataset.mountName===name;b.textContent=active?'▴ Offline':'↓ Keep offline';b.setAttribute('aria-expanded',String(active));}}
+      void offlineLoad(name);
     }
     trigger.setAttribute('aria-expanded',String(state.offlineOpen.has(name)));offlineSchedulePoll();
   },'offline-toggle');
@@ -716,29 +720,78 @@ function renderMounts(snapshot, statuses, health) {
     const restart = button('↻ Restart', () => requestMountAction('restart', name, restart));
     restart.disabled = !status.canRestart; restart.dataset.lifecycleAction = 'restart';
     primary.append(main, restart); card.append(primary);
-    const secondary = document.createElement('div'); secondary.className = 'mount-quick-secondary';
+    // M8: three compact everyday controls. These drive the SAME protected
+    // M2/M5 components, never a second cache/offline implementation.
+    const quick = document.createElement('div'); quick.className='mount-m8-tools';
+    const offlineQuick = button(state.offlineOpen.has(name)?'▴ Offline':'↓ Keep offline', () => {
+      card.querySelector('.offline-toggle')?.click();
+      const opened=state.offlineOpen.has(name);
+      offlineQuick.textContent=opened?'▴ Offline':'↓ Keep offline';
+      offlineQuick.setAttribute('aria-expanded',String(opened));
+    },'mount-m8-offline');
+    offlineQuick.setAttribute('aria-expanded',String(state.offlineOpen.has(name)));
+    offlineQuick.setAttribute('aria-controls',`offline-${name}`);
+    const cacheQuick = button(state.perfOpen.has(name)?'▴ Cache':'▤ Cache', () => {
+      card.querySelector('.perf-toggle')?.click();
+      const opened=state.perfOpen.has(name);
+      cacheQuick.textContent=opened?'▴ Cache':'▤ Cache';
+      cacheQuick.setAttribute('aria-expanded',String(opened));
+    },'mount-m8-cache');
+    cacheQuick.setAttribute('aria-expanded',String(state.perfOpen.has(name)));
+    cacheQuick.setAttribute('aria-controls',`perf-${name}`);
+    const utilities = document.createElement('div'); utilities.className='mount-m8-utilities';
+    utilities.id=`mount-m8-details-${name}`;
+    utilities.hidden=!state.mountToolsOpen.has(name);
+    const detailsQuick=button('⋯ Details',()=>{
+      const opened=utilities.hidden;
+      utilities.hidden=!opened;
+      detailsQuick.setAttribute('aria-expanded',String(opened));
+      if(opened)state.mountToolsOpen.add(name);else state.mountToolsOpen.delete(name);
+    },'mount-m8-details');
+    detailsQuick.setAttribute('aria-controls',utilities.id);
+    detailsQuick.setAttribute('aria-expanded',String(!utilities.hidden));
+    quick.append(offlineQuick,cacheQuick,detailsQuick);card.append(quick);
+    const secondary = document.createElement('div'); secondary.className='mount-quick-secondary';
     const files = button('▤ Folder', () => openMountFolder(name, row.config.mountpoint, files));
     const logs = button('☷ Logs', () => void setView('logs'));
     const edit = button(status.terminalFailure ? '✎ Fix mount' : '✎ Edit', () => openEditor(row.config));
     const menu = button('⋯', () => openMountActions(row, menu), 'mount-quick-more');
     menu.setAttribute('aria-label', `More actions for ${name}`); menu.setAttribute('aria-haspopup', 'dialog');
-    secondary.append(files, logs, edit, menu); card.append(secondary);
+    secondary.append(files, logs, edit, menu);utilities.append(secondary);card.append(utilities);
     mountPerformancePanel(card,name,status.running);
     mountOfflinePanel(card,name);
+    // The quick controls own expansion semantics; invisible compatibility
+    // triggers remain callable and are not keyboard-focusable.
+    const perfLegacy=card.querySelector('.perf-toggle'),offlineLegacy=card.querySelector('.offline-toggle');
+    if(perfLegacy)perfLegacy.hidden=true;
+    if(offlineLegacy)offlineLegacy.hidden=true;
     root.append(card);
   }
   for (const name of state.perfOpen)updatePerformancePanel(name);
 }
 
+// Remote metadata is relatively static and is fetched by the editor on demand.
+// Failure to refresh cosmetic labels must not hide a healthy mount or trigger
+// extra authenticated RPC attempts every five seconds.
+async function refreshRemoteDetailsIfDue() {
+  if (Date.now()-state.remoteDetailsUpdatedAt < 60000) return;
+  state.remoteDetailsUpdatedAt=Date.now(); // back off even on failure
+  try {
+    const remotes=result(await query('provider.remotes'));
+    state.remoteDetails=remotes.details||[];
+  } catch (_) { /* stale labels are preferable to hiding mount state */ }
+}
 async function loadMounts() {
-  const [snapshotEnvelope, statusesEnvelope, healthEnvelope, remotesEnvelope] = await Promise.all([
-    query('config.snapshot'), query('mount.status'), query('mount.health'), query('provider.remotes'),
+  const [snapshotEnvelope, statusesEnvelope, healthEnvelope] = await Promise.all([
+    query('config.snapshot'), query('mount.status'), query('mount.health'),
   ]);
-  const snapshot = result(snapshotEnvelope); state.snapshot = snapshot;state.remoteDetails=result(remotesEnvelope).details||[];
+  const snapshot = result(snapshotEnvelope); state.snapshot = snapshot;
+  await refreshRemoteDetailsIfDue();
   const statuses=result(statusesEnvelope).mounts || [];
   // Clear metrics if a mount is removed, stopped, or replaced with a new PID.
   const known=new Set((snapshot.mounts||[]).map(m=>m.name));
   for (const name of state.offlineOpen)if(!known.has(name))state.offlineOpen.delete(name);
+  for (const name of state.mountToolsOpen)if(!known.has(name))state.mountToolsOpen.delete(name);
   for (const name of state.perfOpen)if(!known.has(name)){state.perfOpen.delete(name);state.perfCache.delete(name);state.perfHistory.delete(name);state.perfPid.delete(name);}
   const statusMap=new Map(statuses.map(row=>[row.name,row]));
   const rows=mountRows(snapshot,statuses,result(healthEnvelope).health || []);
@@ -1052,7 +1105,7 @@ async function loadMountEditorData(existing, session = state.editorSession) {
   const settled = await Promise.allSettled([query('provider.remotes'), query('vfs.profiles'), query('provider.status'), query('runtime.status')]);
   if (session !== state.editorSession || byId('editorBackdrop').hidden) return;
   const helperErrors=[];
-  try { const remotesData=settled[0].status === 'fulfilled' ? result(settled[0].value) : (()=>{throw settled[0].reason;})(); state.editorRemotes=remotesData.remotes||[];state.remoteDetails=remotesData.details||[]; } catch(error){state.editorRemotes=[];state.remoteDetails=[];helperErrors.push(`remote list: ${String(error?.message||error)}`);}
+  try { const remotesData=settled[0].status === 'fulfilled' ? result(settled[0].value) : (()=>{throw settled[0].reason;})(); state.editorRemotes=remotesData.remotes||[];state.remoteDetails=remotesData.details||[];state.remoteDetailsUpdatedAt=Date.now(); } catch(error){state.editorRemotes=[];state.remoteDetails=[];helperErrors.push(`remote list: ${String(error?.message||error)}`);}
   try { const profileData=settled[1].status === 'fulfilled' ? result(settled[1].value) : (()=>{throw settled[1].reason;})(); state.editorProfiles=Array.isArray(profileData)?profileData:(profileData.profiles||[]);state.editorRecommendation=profileData.recommendation || (state.editorProfiles.find(p=>p.recommended) ? {profile:state.editorProfiles.find(p=>p.recommended).name,reason:state.editorProfiles.find(p=>p.recommended).recommendation_reason||'device resources',cache_max_size:bytes(state.editorProfiles.find(p=>p.recommended).suggested_max_bytes||0)}:null); } catch(error){state.editorProfiles=[];state.editorRecommendation=null;helperErrors.push(`profiles: ${String(error?.message||error)}`);}
   try { state.editorProviderStatus=settled[2].status === 'fulfilled' ? result(settled[2].value) : (()=>{throw settled[2].reason;})(); } catch(error){state.editorProviderStatus=null;helperErrors.push(`provider status: ${String(error?.message||error)}`);}
   try { state.editorRuntimeStatus=settled[3].status === 'fulfilled' ? result(settled[3].value) : (()=>{throw settled[3].reason;})(); } catch(error){state.editorRuntimeStatus=null;helperErrors.push(`runtime status: ${String(error?.message||error)}`);}
@@ -1290,7 +1343,7 @@ async function previewJob(deleteMode=false){ try{ const candidates=jobCandidates
 async function applyJob(){ const v=state.jobPreview;if(!v?.preview_proof)return;try{ result(await run('jobs.apply',{expected_revision:v.current_revision,candidate_digest:v.candidate_digest,preview_proof:v.preview_proof,jobs:state.jobCandidates}));closeJob();await loadJobs();showNotice(byId('jobsNotice'),'Job registry applied from a fresh backend preview.','ok');}catch(error){invalidateJobPreview();showNotice(byId('jobError'),String(error?.message||error),'error');} }
 async function runJob(name){ const notice=byId('jobsNotice');try{const pre=result(await preview('job.run.preview',{name}));if(pre?.destructive&&!globalThis.confirm(`Sync job ${name} may delete destination files not present at the source. Execute this job now?`)){showNotice(notice,`${name}: destructive sync not authorized.`,'warn');return;}const launched=result(await run('job.run',{name,proof:pre.preview_proof}));if(launched.state!=='RUNNING'||!launched.id)throw new Error('Backend returned no durable running claim');showNotice(notice,`${name}: run ${launched.id.slice(0,8)} started; outcome pending. Track progress in Jobs or Activity.`,'ok');await loadJobs();}catch(error){showNotice(notice,`${name}: ${String(error?.message||error)}`,'error');}}
 function renderJobs(snapshot,status){ const root=byId('jobCards');clear(root);const stateMap=new Map((status||[]).map((j)=>[j.name,j]));if(!(snapshot.jobs||[]).length){root.append(paragraph('No scheduled jobs configured.','notice'));return;}for(const job of snapshot.jobs){const card=document.createElement('article');card.className='job-card';const head=document.createElement('div');head.className='mount-head';const t=document.createElement('div');const h=document.createElement('h3');h.textContent=job.name;t.append(h,paragraph(`${job.type}: ${job.source} → ${job.destination}`,'muted code'));const badges=document.createElement('div');badges.className='security-badge-row';const sourceBadge=encryptionBadgeForEndpoint(job.source),destinationBadge=encryptionBadgeForEndpoint(job.destination);if(sourceBadge){sourceBadge.title='Job source encryption';badges.append(sourceBadge);}if(destinationBadge){destinationBadge.title='Job destination encryption';badges.append(destinationBadge);}if(badges.childElementCount)t.append(badges);const st=stateMap.get(job.name)||{};head.append(t,label(st.last_state|| (job.enabled?'scheduled':'disabled'),st.last_state==='SUCCEEDED'?'state-pill good':st.last_state==='FAILED'?'state-pill bad':'state-pill'));card.append(head);const grid=document.createElement('div');grid.className='runtime-grid';metric(grid,'Every',job.every);metric(grid,'Next run',formatTime(st.next_run_unix_ms));metric(grid,'Runs',st.run_count||0);if(st.last_run_id){metric(grid,'Transferred',bytes(st.bytes));metric(grid,'Speed',`${bytes(st.speed_bytes_per_second)}/s`);metric(grid,'ETA',st.last_state==='RUNNING'?`${st.eta_seconds||0}s`:'—');if(st.reason)card.append(paragraph(st.reason,'muted'));}metric(grid,'Policy',`${job.network_mode||'any'}${job.charging_only?' · charging':''}`);card.append(grid);const actions=document.createElement('div');actions.className='mount-actions';const runButton=button('Run now',()=>void runJob(job.name),'primary');runButton.disabled=st.last_state==='RUNNING';actions.append(runButton,button('Edit',()=>openJob(job)));card.append(actions);root.append(card);}}
-async function loadJobs(){ const [snap,status,remotes]=await Promise.all([query('jobs.snapshot'),query('jobs.status'),query('provider.remotes')]);state.jobSnapshot=result(snap);state.remoteDetails=result(remotes).details||[];renderJobs(state.jobSnapshot,result(status).jobs||[]); }
+async function loadJobs(){ const [snap,status]=await Promise.all([query('jobs.snapshot'),query('jobs.status')]);await refreshRemoteDetailsIfDue();state.jobSnapshot=result(snap);renderJobs(state.jobSnapshot,result(status).jobs||[]); }
 
 // Explicit, accessible selection. Never silently choose an Android namespace.
 function chooseNamespaceGroups(snapshot) {
@@ -1584,7 +1637,7 @@ async function browseRemote(remote,path=''){
   }catch(error){root.append(paragraph(`Browse failed: ${String(error?.message||error)}`,'notice error'));}
 }
 async function useRemoteForJob(endpoint,field,trigger=null){if(!state.jobSnapshot){state.jobSnapshot=result(await query('jobs.snapshot'));}openJob(null,trigger||document.activeElement);byId(field==='source'?'job-source':'job-destination').value=endpoint;invalidateJobPreview();renderJobEncryptionNotice();}
-async function loadRemotes(){const value=result(await query('provider.remotes'));state.remoteDetails=value.details||[];const root=byId('remoteButtons');clear(root);for(const name of value.remotes||[]){const detail=remoteDetail(name);const encrypted=detail?.encryption==='rclone-crypt';const chip=button(`${encrypted?'🔒':'△'} ${name}:`,()=>void browseRemote(name,''),'remote-choice');if(encrypted){const provenance=detail.managed_by_skybind?` · Skybind generation ${detail.password_revision||'?'}${detail.password_current?' current':' older'}`:' · external crypt';chip.title=`Encrypted via rclone crypt → ${detail.backing_remote||'backing remote'}${provenance}`;if(detail.managed_by_skybind&&!detail.password_current)chip.classList.add('provenance-old');}else chip.title='Not protected by rclone crypt';chip.setAttribute('aria-pressed',String(state.remote===name));root.append(chip);}if(!(value.remotes||[]).length){root.append(paragraph('No configured remotes were returned.','muted'));byId('remoteBreadcrumb').textContent='No remotes configured';}else if(!state.remote){byId('remoteBreadcrumb').textContent='Choose a remote';}}
+async function loadRemotes(){const value=result(await query('provider.remotes'));state.remoteDetails=value.details||[];state.remoteDetailsUpdatedAt=Date.now();const root=byId('remoteButtons');clear(root);for(const name of value.remotes||[]){const detail=remoteDetail(name);const encrypted=detail?.encryption==='rclone-crypt';const chip=button(`${encrypted?'🔒':'△'} ${name}:`,()=>void browseRemote(name,''),'remote-choice');if(encrypted){const provenance=detail.managed_by_skybind?` · Skybind generation ${detail.password_revision||'?'}${detail.password_current?' current':' older'}`:' · external crypt';chip.title=`Encrypted via rclone crypt → ${detail.backing_remote||'backing remote'}${provenance}`;if(detail.managed_by_skybind&&!detail.password_current)chip.classList.add('provenance-old');}else chip.title='Not protected by rclone crypt';chip.setAttribute('aria-pressed',String(state.remote===name));root.append(chip);}if(!(value.remotes||[]).length){root.append(paragraph('No configured remotes were returned.','muted'));byId('remoteBreadcrumb').textContent='No remotes configured';}else if(!state.remote){byId('remoteBreadcrumb').textContent='Choose a remote';}}
 
 // M7 portable personal backup. All imported data is untrusted until the
 // authenticated daemon validates schema, digest and current registry revision.
@@ -1650,7 +1703,14 @@ async function loadDoctor(){await runDoctorUI();}
 async function loadRemoteBrowser(){await loadRemotes();}
 
 function stopTimer() { if (state.timer) clearTimeout(state.timer); state.timer = null; }
-function refreshDelay(){const configured=Number(state.settingsSnapshot?.settings?.refresh_seconds||5)*1000;if(state.activeView==='runtime'||state.activeView==='jobs')return Math.max(2000,configured);if(state.activeView==='logs'&&state.settingsSnapshot?.settings?.log_follow&&!state.logPaused)return Math.max(2000,configured);if(state.activeView==='mounts')return Math.max(3000,configured);return Math.max(5000,configured);}
+function refreshDelay(){
+  return m8RefreshDelay({
+    view:state.activeView,
+    configuredSeconds:state.settingsSnapshot?.settings?.refresh_seconds,
+    logsFollowing:Boolean(state.settingsSnapshot?.settings?.log_follow)&&!state.logPaused,
+    mountAttention:Boolean(state.mountBusyNames.size||state.perfOpen.size||state.offlineOpen.size),
+  });
+}
 async function loadViewData(view,{announce=true}={}){const titles={home:'Home',mounts:'Mounts',jobs:'Jobs',activity:'Activity',more:'More',runtime:'Runtime',remotes:'Remote browser',doctor:'Doctor',logs:'Logs',settings:'Settings'};if(view==='more')return;setViewBusy(view,true,announce?`Loading ${titles[view]||view}…`:'');try{if(view==='mounts')await loadMounts();else if(view==='jobs')await loadJobs();else if(view==='activity')await loadOperations();else if(view==='runtime')await loadRuntime();else if(view==='remotes')await loadRemoteBrowser();else if(view==='doctor')await loadDoctor();else if(view==='logs')await loadLogs();else if(view==='settings')await loadSettings();else if(view==='home')await loadHome();if(announce)announceStatus(`${titles[view]||view} ready.`);}catch(error){if(announce)announceStatus(`${titles[view]||view} failed to load.`);throw error;}finally{setViewBusy(view,false);}}
 function showHomeLoadFailure(error) {
   const message = `Home status request failed: ${backendErrorText(error)}`;
@@ -1665,7 +1725,8 @@ function showHomeLoadFailure(error) {
 async function refreshView(view){try{await loadViewData(view,{announce:true});}catch(error){if(view==='home')showHomeLoadFailure(error);const notices={home:'compatibility',mounts:'mountsNotice',jobs:'jobsNotice',activity:'activityNotice',runtime:'runtimeNotice',remotes:'remotesNotice',doctor:'doctorNotice',logs:'logsNotice',settings:'settingsNotice'};const node=byId(notices[view]||'compatibility');showNotice(node,`Refresh failed: ${String(error?.message||error)}`,'error');}}
 function scheduleRefresh() {
   stopTimer(); if (document.visibilityState !== 'visible') return;
-  state.timer=setTimeout(async()=>{try{if(state.activeView==='logs'&&(!state.settingsSnapshot?.settings?.log_follow||state.logPaused))return;await loadViewData(state.activeView,{announce:false});}catch(error){if(state.activeView==='home')showHomeLoadFailure(error);}finally{scheduleRefresh();}},refreshDelay());
+  const delay=refreshDelay();if(delay===null)return;
+  state.timer=setTimeout(async()=>{try{if(state.activeView==='logs'&&(!state.settingsSnapshot?.settings?.log_follow||state.logPaused))return;await loadViewData(state.activeView,{announce:false});}catch(error){if(state.activeView==='home')showHomeLoadFailure(error);}finally{scheduleRefresh();}},delay);
 }
 async function setView(view) {
   const names=['home','mounts','jobs','activity','more','runtime','remotes','doctor','logs','settings'];

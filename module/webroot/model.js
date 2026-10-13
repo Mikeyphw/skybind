@@ -257,3 +257,15 @@ export function activeOfflineTask(tasks, mount) {
   const entries=Array.isArray(tasks) ? tasks : [];
   return entries.find(t=>t?.state==='RUNNING') || [...entries].reverse().find(t=>t?.mount===mount) || null;
 }
+
+// M8: policy-based WebUI polling budget. Mounted FUSE and supervisor run
+// independently; lowering idle UI RPC traffic never delays backend recovery.
+export function m8RefreshDelay({view, configuredSeconds=5, logsFollowing=false, mountAttention=false}={}) {
+  const seconds=Number(configuredSeconds);
+  const configured=Number.isFinite(seconds)&&seconds>=1&&seconds<=3600?seconds*1000:5000;
+  if (view==='more') return null;
+  if (view==='logs') return logsFollowing?Math.max(2000,configured):null;
+  if (view==='mounts') return mountAttention?Math.max(3000,configured):Math.max(15000,configured);
+  if (view==='jobs'||view==='runtime')return Math.max(2000,configured);
+  return Math.max(5000,configured);
+}

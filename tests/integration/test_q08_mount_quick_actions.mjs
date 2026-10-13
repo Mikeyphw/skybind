@@ -26,6 +26,7 @@ class E {
   constructor(tag='div') { this.tag=tag;this.children=[];this.dataset={};this.attributes={};this.className='';this.textContent='';this.disabled=false; }
   append(...children){this.children.push(...children);}
   setAttribute(n,v){this.attributes[n]=v;}
+  querySelector(){return null;}
 }
 const roots={mountCards:new E(),mountCount:new E()};
 const document={createElement:(tag)=>new E(tag),getElementById:(id)=>roots[id]};
@@ -36,7 +37,7 @@ const label=(txt,cls='')=>{const e=new E('span');e.textContent=txt;e.className=c
 const button=(txt,fn,cls='')=>{const e=new E('button');e.textContent=txt;e.className=cls;e.click=fn;return e};
 const mountRows=(snapshot,statuses,health)=>snapshot.mounts.map(config=>({config,status:statuses.find(e=>e.name===config.name)||{},health:health.find(e=>e.name===config.name)||{}}));
 const renderSrc=app.slice(app.indexOf('function renderMounts('),app.indexOf('\nasync function loadMounts()',app.indexOf('function renderMounts(')));
-const render=new Function('byId','document','clear','text','paragraph','label','button','mountRows','mountStateCopy','healthClass','encryptionBadgeForEndpoint','requestMountAction','openMountFolder','openEditor','setView','openMountActions',`${renderSrc};return renderMounts;`)((id)=>roots[id],document,clear,text,paragraph,label,button,mountRows,(r)=>classify(r),()=>'',()=>null,()=>{},()=>{},()=>{},()=>{},()=>{});
+const render=new Function('byId','document','clear','text','paragraph','label','button','mountRows','mountStateCopy','healthClass','encryptionBadgeForEndpoint','requestMountAction','openMountFolder','openEditor','setView','openMountActions','mountPerformancePanel','mountOfflinePanel','state',`${renderSrc};return renderMounts;`)((id)=>roots[id],document,clear,text,paragraph,label,button,mountRows,(r)=>classify(r),()=>'',()=>null,()=>{},()=>{},()=>{},()=>{},()=>{},()=>{},()=>{},{mountToolsOpen:new Set(),perfOpen:new Set(),offlineOpen:new Set()});
 const snapshot={mounts:[{name:'safegdrive',remote:'safegdrive:',mountpoint:'/storage/emulated/0/Rclone/SafeGDrive',vfs_profile:'custom',network_mode:'offline-allowed'}]};
 function all(e){return [e,...e.children.flatMap(all)];}
 render(snapshot,[{name:'safegdrive',observed:'RUNNING',desired:true}],[{name:'safegdrive',state:'RUNNING',reason:'owned_fuse_mount'}]);

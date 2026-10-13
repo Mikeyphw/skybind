@@ -176,8 +176,11 @@ def verify_webui() -> None:
             raise LocalBuildError('unsafe WebUI input: ' + asset.name)
         checked_command(['node', '--input-type=module', '--check'], stdin=asset.read_bytes(), label='WebUI syntax: ' + asset.name)
     # The Q05P7 native-log contract is important for observable mount failures.
-    for test in ('test_q05p7_logs_truth.mjs', 'test_q05p6_ui_truth.mjs'):
+    # M8: personal builds must test cross-milestone UI regression, not only legacy screens.
+    for test in ('test_q05p7_logs_truth.mjs', 'test_q05p6_ui_truth.mjs', 'test_q08_mount_quick_actions.mjs'):
         checked_command(['node', 'tests/integration/' + test], label='WebUI regression: ' + test)
+    checked_command(['node', '--test', *[str(p) for p in sorted((ROOT / 'tests/webui').glob('*.mjs'))]],
+                    label='WebUI cross-milestone regression M0-M8')
 
 
 def verify_native(binary: Path, expected_go: str, go_bin: str, env: dict[str, str]) -> None:
