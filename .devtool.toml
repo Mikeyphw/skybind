@@ -70,6 +70,9 @@ inputs = [".devtool.toml", "docs/roadmap/**", "scripts/devtool/**", "tests/test_
 metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 
 [targets.skybind.workflows]
+personal-tests = ["job:personal-tests"]
+personal-release-bclone = ["job:personal-release-bclone"]
+personal-release-newfuture = ["job:personal-release-newfuture"]
 local-build-newfuture = ["job:local-build-newfuture"]
 local-build-bclone = ["job:local-build-bclone"]
 local-build-both = ["job:local-build-both"]
@@ -983,3 +986,41 @@ execution_environment = "native-termux"
 command = ["python3", "../scripts/dev/release/q17_fixedpoint_runs.py", "run", "--repository", "..", "--output-dir", "/storage/emulated/0/Download/skybind-q17-runs"]
 inputs = ["../scripts/dev/release/q17_fixedpoint_runs.py", "../scripts/dev/gates/sb_g02.py", "../cmd/**", "../internal/**", "../go.mod", "../go.sum"]
 metadata = { qualification = "fresh-local-negative-tests-raw-only", independent_attestation = false, gate_promotion = false, release_seal = false }
+
+# Personal-release track: verified local package, no formal CFS1 gate promotion.
+[wrapper.commands.test]
+description = "Run local Go unit tests, go vet, and WebUI smoke checks"
+workflow = "personal-tests"
+target = "skybind"
+
+[wrapper.commands.personal-release]
+description = "Build and export verified bclone Personal KernelSU ZIP to Android Downloads (NOT CFS1)"
+workflow = "personal-release-bclone"
+target = "skybind"
+
+[wrapper.commands.personal-release-newfuture]
+description = "Build and export verified NewFuture Personal KernelSU ZIP to Android Downloads (NOT CFS1)"
+workflow = "personal-release-newfuture"
+target = "skybind"
+
+[targets.skybind.jobs.personal-tests]
+runner = "command"
+command = ["python3", "scripts/dev/integration/personal_release.py", "test"]
+inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/webroot/**", "tests/integration/**", "scripts/dev/integration/personal_release.py"]
+metadata = { qualification = "local-test-only", independent_attestation = false, final_seal = false, read_only = true }
+
+[targets.skybind.jobs.personal-release-bclone]
+runner = "command"
+command = ["python3", "scripts/dev/integration/personal_release.py", "build", "--provider", "bclone"]
+inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
+outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
+metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = false }
+
+[targets.skybind.jobs.personal-release-newfuture]
+runner = "command"
+command = ["python3", "scripts/dev/integration/personal_release.py", "build", "--provider", "newfuture"]
+inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
+outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
+metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = false }
+
+# Existing Devtool native build stays the single build authority. No CFS1 edits.
