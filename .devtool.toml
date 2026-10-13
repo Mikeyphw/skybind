@@ -180,6 +180,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+q13-reproducibility = ["job:q13-reproducibility"]
 q12-provenance = ["job:q12-provenance"]
 q11-reconcile = ["job:q11-reconcile"]
 qualification-readiness = ["job:q01-gate-triage"]
@@ -910,3 +911,17 @@ execution_environment = "native-termux"
 command = ["python3", "../scripts/dev/release/q12_provenance.py", "--evidence-dir", "/storage/emulated/0/Download", "--output-dir", "/storage/emulated/0/Download"]
 inputs = ["../scripts/dev/release/q12_provenance.py", "../scripts/dev/release/q11_reconcile.py", "../scripts/dev/release/skybind_release.py", "../scripts/dev/seal/**", "../scripts/dev/gates/**"]
 metadata = { qualification = "local-observed-hashes-only", independent_attestation = false, release_seal = false, read_only = true }
+
+# SB-Q13: read-only provider repeat-build comparison and independent-gate triage.
+[wrapper.commands.q13]
+description = "Compare unqualified newfuture/bclone candidate lanes and explain original gate blockers (no seal)"
+workflow = "q13-reproducibility"
+target = "skybind_release"
+
+[targets.skybind_release.jobs.q13-reproducibility]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../scripts/dev/release/q13_reproducibility.py", "--output-dir", "/storage/emulated/0/Download"]
+inputs = ["../scripts/dev/release/q13_reproducibility.py", "../scripts/dev/release/q12_provenance.py", "../scripts/dev/release/skybind_release.py", "../scripts/dev/gates/**", "../scripts/dev/seal/**", "../scripts/dev/integration/q05_candidate.py", "../scripts/dev/runtime/**"]
+metadata = { qualification = "unattested-source-and-build-byte-observations", independent_attestation = false, release_seal = false, read_only = true }
+
