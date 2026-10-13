@@ -180,6 +180,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+q14-attestation = ["job:q14-attestation"]
 q13-reproducibility = ["job:q13-reproducibility"]
 q12-provenance = ["job:q12-provenance"]
 q11-reconcile = ["job:q11-reconcile"]
@@ -925,3 +926,17 @@ command = ["python3", "../scripts/dev/release/q13_reproducibility.py", "--output
 inputs = ["../scripts/dev/release/q13_reproducibility.py", "../scripts/dev/release/q12_provenance.py", "../scripts/dev/release/skybind_release.py", "../scripts/dev/gates/**", "../scripts/dev/seal/**", "../scripts/dev/integration/q05_candidate.py", "../scripts/dev/runtime/**"]
 metadata = { qualification = "unattested-source-and-build-byte-observations", independent_attestation = false, release_seal = false, read_only = true }
 
+
+# SB-Q14: retrieve original CI lane archives, verify SHA-256, check authenticated run,
+# verify GitHub-signed provenance when present; preserve CFS1 gates untouched.
+[wrapper.commands.q14]
+description = "Fetch original Q13/Q14 CI candidates, verify signed provenance where available, preserve release blockers"
+workflow = "q14-attestation"
+target = "skybind_release"
+
+[targets.skybind_release.jobs.q14-attestation]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../scripts/dev/release/q14_attestation.py", "--run-id", "38328621356", "--repo", "Mikeyphw/skybind", "--output-dir", "/storage/emulated/0/Download"]
+inputs = ["../scripts/dev/release/q14_attestation.py", "../scripts/dev/release/q13_reproducibility.py", "../scripts/dev/release/q12_provenance.py", "../scripts/dev/seal/**", "../scripts/dev/gates/**"]
+metadata = { qualification = "ci-artifact-and-signature-inventory-only", independent_gate_attestation = false, release_seal = false, installed_module_mutation = false }

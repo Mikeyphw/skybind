@@ -1,0 +1,111 @@
+# SB-Q14 signed GitHub build attestations, still not CFS1 gate certification.
+# This does not sign receipts or qualify G01-G08 or the final seal.
+name: Skybind Q14 signed candidate provenance (NOT A RELEASE)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+  attestations: write
+
+jobs:
+  candidate-lanes:
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [A, B]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - name: Checkout exact source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Go without cache
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.2'
+          check-latest: false
+          cache: false
+      - name: Build both provider candidates from verified immutable Q04 input
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/dev/integration/local_build.py --provider both \
+            --output-parent "dist/q14/${{ matrix.lane }}"
+      - name: Stage only verified candidate ZIPs and build-time receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=(dist/q14/${{ matrix.lane }}/candidate-*/candidate-evidence.json)
+          test "${#found[@]}" -eq 1
+          folder="$(dirname "${found[0]}")"
+          test -f "$folder/skybind-newfuture-CANDIDATE-UNQUALIFIED.zip"
+          test -f "$folder/skybind-bclone-CANDIDATE-UNQUALIFIED.zip"
+          mkdir -p "dist/q14/stage-${{ matrix.lane }}"
+          cp "$folder/candidate-evidence.json" "$folder/skybind-newfuture-CANDIDATE-UNQUALIFIED.zip" \
+            "$folder/skybind-bclone-CANDIDATE-UNQUALIFIED.zip" "dist/q14/stage-${{ matrix.lane }}/"
+      - name: Sign provenance for original candidate ZIPs (GitHub OIDC/Sigstore)
+        uses: actions/attest@e59cbc1ad1ac2d59339667419eb8cdde6eb61e3d # v3.2.0
+        with:
+          subject-path: dist/q14/stage-${{ matrix.lane }}/skybind-*-CANDIDATE-UNQUALIFIED.zip
+      - name: Preserve raw lane outputs (signed subjects remain separately verifiable)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skybind-q14-candidate-${{ matrix.lane }}
+          path: dist/q14/stage-${{ matrix.lane }}/
+          retention-days: 30
+          if-no-files-found: error
+
+  compare-lanes:
+    needs: candidate-lanes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout verifier source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Retrieve separate lane artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: skybind-q14-candidate-*
+          path: received
+          merge-multiple: false
+      - name: Verify checkout source cleanliness before writing reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Verify raw candidates, compare bytes, inventory blocked gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/q14/report
+          python3 scripts/dev/release/q13_reproducibility.py \
+            --lane-a received/skybind-q14-candidate-A \
+            --lane-b received/skybind-q14-candidate-B \
+            --source-only --output-dir dist/q14/report
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('dist/q14/report/skybind-q13-summary.json').read_text())
+          assert data['final_seal']=='NOT_ISSUED' and data['independent_attestation'] is False
+          assert not data['issues'], data['issues']
+          assert all(p['status']=='BYTE_IDENTICAL_UNATTESTED' for p in data['same_provider_repeat_build_comparison'].values())
+          assert all(p['status']=='SHARED_PAYLOAD_MATCH_UNATTESTED' for p in data['cross_provider_shared_payload'])
+          print('CANDIDATE_BYTE_IDENTICAL_UNATTESTED; candidate provenance attested in build lanes, independent G01-G08 still required')
+          PY
+      - name: Publish raw comparison and blocker report (no gate promotion)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skybind-q14-attested-comparison
+          path: dist/q14/report/
+          retention-days: 30
+          if-no-files-found: error
