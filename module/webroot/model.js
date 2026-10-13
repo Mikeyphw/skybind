@@ -203,3 +203,33 @@ export function boundedPerformanceHistory(history, sample, max = 60) {
   const next = previous.length && previous[previous.length-1].at === sample.sampledAt ? previous.slice(0,-1) : previous;
   return [...next,{at:sample.sampledAt,speed:sample.speed}].slice(-Math.min(60,Math.max(1,max)));
 }
+
+// M3: advisory pressure only. It never authorizes deleting a cached file.
+export function cachePressureAdvice(sample, config) {
+  const max = Number(config?.cache_max_bytes ?? 0);
+  const used = sample?.cacheBytes;
+  const high = Number(config?.cache_high_percent ?? 90);
+  const low = Number(config?.cache_low_percent ?? 75);
+  if (sample?.status === 'unavailable' || typeof used !== 'number' || !Number.isFinite(used) ||
+      !Number.isSafeInteger(max) || max <= 0 || !Number.isInteger(high) || !Number.isInteger(low) ||
+      high < 1 || high > 100 || low < 0 || low >= high) return {state:'unknown',message:'Cache pressure unavailable; no eviction is assumed.'};
+  const percent = Math.max(0,Math.round(100*used/max));
+  if(percent>=high) return {state:'high',percent,message:`Cache ${percent}% of configured soft target. rclone manages eviction; pending uploads stay protected.`};
+  return {state:'normal',percent,message:`Cache ${percent}% of configured soft target; native VFS eviction only.`};
+}
+// A display-only, narrowly scoped explanation of effective profile VFS flags.
+// Fixed runtime args (remote, mountpoint, credentials, cache directory) are omitted.
+export function effectiveVfsOptions(config, profiles=[]) {
+  const cfg=candidate(config);
+  const selected=(Array.isArray(profiles)?profiles:[]).find(p=>p?.name===cfg.vfs_profile);
+  const o=cfg.vfs_profile==='custom' || !selected ? {
+    vfs_cache_mode:cfg.vfs_cache_mode, vfs_cache_max_size:cfg.vfs_cache_max_size,
+    vfs_cache_max_age:cfg.vfs_cache_max_age,dir_cache_time:cfg.dir_cache_time,poll_interval:cfg.poll_interval
+  }:selected.options||{};
+  const flags=[['--vfs-cache-mode',o.vfs_cache_mode],['--vfs-cache-max-size',o.vfs_cache_max_size],
+    ['--vfs-cache-max-age',o.vfs_cache_max_age],['--dir-cache-time',o.dir_cache_time],
+    ['--poll-interval',o.poll_interval],['--vfs-cache-min-free-space',cfg.min_free_cache_space]];
+  return {flags:flags.filter(([_,v])=>String(v??'')!=='').map(([k,v])=>`${k} ${String(v)}`),
+    readOnly:Boolean(cfg.read_only || selected?.read_only || cfg.vfs_profile==='read-only'),
+    profile:cfg.vfs_profile};
+}

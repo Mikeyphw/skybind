@@ -17,20 +17,32 @@ func fixture(t *testing.T) (*Manager, string) {
 	}
 	return newManager(root, func(string) bool { return false }), filepath.Join(root, "cloud")
 }
-func TestClearAndReplay(t *testing.T) {
+func TestClearPreservesUnverifiedCache(t *testing.T) {
 	m, dir := fixture(t)
-	if e := os.WriteFile(filepath.Join(dir, "file"), []byte("hello"), 0600); e != nil {
-		t.Fatal(e)
+	file := filepath.Join(dir, "dirty-pending-upload")
+	if err := os.WriteFile(file, []byte("queued"), 0600); err != nil {
+		t.Fatal(err)
 	}
-	p, e := m.Preview("cloud", "clear", 0)
-	if e != nil || p.BytesToRemove != 5 {
-		t.Fatal(p, e)
+	if _, err := m.Preview("cloud", "clear", 0); err == nil {
+		t.Fatal("unknown cache allowed destructive preview")
 	}
-	v, e := m.Apply("cloud", "clear", p.Proof, 0)
-	if e != nil || v.Bytes != 0 {
-		t.Fatal(v, e)
+	if _, err := m.Apply("cloud", "clear", "forged", 0); err == nil {
+		t.Fatal("unknown cache allowed destructive apply")
 	}
-	if _, e = m.Apply("cloud", "clear", p.Proof, 0); e == nil {
+	if b, err := os.ReadFile(file); err != nil || string(b) != "queued" {
+		t.Fatal("dirty file lost")
+	}
+}
+func TestEmptyCachePreviewReplay(t *testing.T) {
+	m, _ := fixture(t)
+	v, err := m.Preview("cloud", "clear", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Apply("cloud", "clear", v.Proof, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Apply("cloud", "clear", v.Proof, 0); err == nil {
 		t.Fatal("replay accepted")
 	}
 }
@@ -54,49 +66,43 @@ func TestRunningCacheProtected(t *testing.T) {
 		t.Fatal("running cache exposed")
 	}
 }
-func TestMutationBetweenPreviewAndApply(t *testing.T) {
+func TestUnknownFileCannotBeClearedAfterPreview(t *testing.T) {
 	m, dir := fixture(t)
-	file := filepath.Join(dir, "one")
-	os.WriteFile(file, []byte("one"), 0600)
-	p, e := m.Preview("cloud", "clear", 0)
+	proof, e := m.Preview("cloud", "clear", 0)
 	if e != nil {
 		t.Fatal(e)
 	}
-	os.WriteFile(file, []byte("changed"), 0600)
-	if _, e = m.Apply("cloud", "clear", p.Proof, 0); e == nil {
-		t.Fatal("stale proof accepted")
+	file := filepath.Join(dir, "new-dirty-upload")
+	os.WriteFile(file, []byte("queued"), 0600)
+	if _, e = m.Apply("cloud", "clear", proof.Proof, 0); e == nil {
+		t.Fatal("stale proof allowed deletion")
+	}
+	if _, e = os.Stat(file); e != nil {
+		t.Fatal("dirty file removed")
 	}
 }
-func TestForgetRemovesNestedDirs(t *testing.T) {
+func TestForgetPreservesNestedDirtyFile(t *testing.T) {
 	m, dir := fixture(t)
 	nested := filepath.Join(dir, "nested")
-	if e := os.Mkdir(nested, 0700); e != nil {
-		t.Fatal(e)
+	os.Mkdir(nested, 0700)
+	file := filepath.Join(nested, "dirty")
+	os.WriteFile(file, []byte("x"), 0600)
+	if _, err := m.Preview("cloud", "forget", 0); err == nil {
+		t.Fatal("forget accepted unknown writes")
 	}
-	if e := os.WriteFile(filepath.Join(nested, "cachepart"), []byte("x"), 0600); e != nil {
-		t.Fatal(e)
-	}
-	p, e := m.Preview("cloud", "forget", 0)
-	if e != nil {
-		t.Fatal(e)
-	}
-	_, e = m.Apply("cloud", "forget", p.Proof, 0)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = os.Stat(nested); !os.IsNotExist(e) {
-		t.Fatalf("nested directory not reset: %v", e)
+	if _, err := os.Stat(file); err != nil {
+		t.Fatal("dirty file removed")
 	}
 }
-func TestAutoPruneLowWater(t *testing.T) {
+func TestAutoPrunePreservesUnverifiedWrites(t *testing.T) {
 	m, dir := fixture(t)
 	for i := 0; i < 4; i++ {
 		if e := os.WriteFile(filepath.Join(dir, string(rune('a'+i))), []byte("abcde"), 0600); e != nil {
 			t.Fatal(e)
 		}
 	}
-	s, e := m.AutoPruneStopped("cloud", 20, 75, 25)
-	if e != nil || s.Bytes > 5 {
-		t.Fatalf("low-water pruning failed %+v %v", s, e)
+	snap, err := m.AutoPruneStopped("cloud", 20, 75, 25)
+	if err == nil || snap.Bytes != 20 {
+		t.Fatalf("unknown dirty cache was pruned: %+v %v", snap, err)
 	}
 }

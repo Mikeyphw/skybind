@@ -104,7 +104,7 @@ func normalize(r Registry) (Registry, error) {
 			}
 		}
 		destinations = append(destinations, m.Mountpoint)
-		if !oneOf(m.VFSProfile, "", "streaming", "balanced", "offline", "minimal", "custom") || !oneOf(m.CacheMode, "", "off", "minimal", "writes", "full") || !oneOf(m.NetworkMode, "", "any", "wifi", "unmetered", "offline-allowed") || !oneOf(m.LogLevel, "", "DEBUG", "INFO", "NOTICE", "ERROR") {
+		if !oneOf(m.VFSProfile, "", "streaming", "balanced", "offline", "offline-ready", "documents", "minimal", "read-only", "custom") || !oneOf(m.CacheMode, "", "off", "minimal", "writes", "full") || !oneOf(m.NetworkMode, "", "any", "wifi", "unmetered", "offline-allowed") || !oneOf(m.LogLevel, "", "DEBUG", "INFO", "NOTICE", "ERROR") {
 			return r, errors.New("invalid policy enumeration")
 		}
 		if m.CacheMaxBytes < 0 || m.CacheMaxBytes > 1<<44 || m.MinCacheFreeBytes < 0 || m.MinCacheFreeBytes > 1<<44 || m.CacheMaxAgeSeconds < 0 || m.CacheMaxAgeSeconds > 31536000 || m.DirCacheSeconds < 0 || m.DirCacheSeconds > 31536000 || m.PollSeconds < 0 || m.PollSeconds > 86400 {
@@ -161,9 +161,9 @@ func Diff(before, after Registry) []Effect {
 		if a == b {
 			continue
 		}
-		restart := a.Remote != b.Remote || a.Mountpoint != b.Mountpoint || a.AllowOther != b.AllowOther || a.ReadOnly != b.ReadOnly || a.CacheMode != b.CacheMode || a.CacheMaxBytes != b.CacheMaxBytes || a.CacheMaxAgeSeconds != b.CacheMaxAgeSeconds || a.DirCacheSeconds != b.DirCacheSeconds || a.PollSeconds != b.PollSeconds || a.Enabled != b.Enabled
+		restart := a.Remote != b.Remote || a.Mountpoint != b.Mountpoint || a.AllowOther != b.AllowOther || a.ReadOnly != b.ReadOnly || a.VFSProfile != b.VFSProfile || a.CacheMode != b.CacheMode || a.CacheMaxBytes != b.CacheMaxBytes || a.CacheMaxAgeSeconds != b.CacheMaxAgeSeconds || a.DirCacheSeconds != b.DirCacheSeconds || a.PollSeconds != b.PollSeconds || a.Enabled != b.Enabled
 		cache := "unchanged"
-		if a.CacheMaxBytes != b.CacheMaxBytes || a.CacheMode != b.CacheMode {
+		if a.CacheMaxBytes != b.CacheMaxBytes || a.CacheMode != b.CacheMode || a.VFSProfile != b.VFSProfile {
 			cache = "policy_changed"
 		}
 		ns := "unchanged"

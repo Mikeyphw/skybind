@@ -562,10 +562,13 @@ func buildArgs(m config.Mount, cacheDir string) ([]string, error) {
 		level = "NOTICE"
 	}
 	args := []string{"mount", m.Remote, m.Mountpoint, "--config", paths.RcloneConfig, "--vfs-cache-mode", mode, "--vfs-cache-max-size", strconv.FormatInt(p.MaxBytes, 10), "--vfs-cache-max-age", time.Duration(p.MaxAgeSeconds * int64(time.Second)).String(), "--dir-cache-time", time.Duration(p.DirCacheSeconds * int64(time.Second)).String(), "--poll-interval", time.Duration(p.PollSeconds * int64(time.Second)).String(), "--cache-dir", cacheDir, "--log-level", level}
+	if m.MinCacheFreeBytes > 0 {
+		args = append(args, "--vfs-cache-min-free-space", strconv.FormatInt(m.MinCacheFreeBytes, 10))
+	}
 	if m.AllowOther {
 		args = append(args, "--allow-other")
 	}
-	if m.ReadOnly {
+	if m.ReadOnly || p.ReadOnly {
 		args = append(args, "--read-only")
 	}
 	return args, nil

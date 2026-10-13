@@ -983,3 +983,8 @@ button:not(.primary):not(.danger):not(.nav-item):not(.nav-secondary):not(.remote
 #view-mounts .perf-trend { width:100%; height:68px; color:var(--ui-accent); display:block; }
 #view-mounts .perf-caption { font-size:.8rem; font-weight:650; margin:.9rem 0 .3rem; }
 #view-mounts .perf-footnote { font-size:.7rem; line-height:1.5; margin:.35rem 0 0; }
+
+/* M3: low-contrast, wrapping cache summaries for narrow manager WebViews */
+.m03-effective-flags{display:block;max-width:100%;overflow-wrap:anywhere;white-space:normal;font-size:.73rem;line-height:1.6;color:var(--text-secondary,#aab8c8);padding:.45rem .7rem;border-radius:.5rem;background:rgba(128,148,170,.08)}
+.m03-cache-hint,.m03-profile-warning,.m03-cache-pressure{font-size:.78rem;line-height:1.55}
+.m03-cache-pressure.high{color:var(--warn,#e2b36f)}

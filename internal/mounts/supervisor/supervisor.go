@@ -119,7 +119,10 @@ func (s *Supervisor) maybePrune(name string) {
 	}
 	for _, m := range r.Mounts {
 		if m.Name == name && m.CacheMaxBytes > 0 && m.CacheHighPercent > 0 && m.CacheHighPercent > m.CacheLowPercent {
-			_, _ = s.cache.AutoPruneStopped(name, m.CacheMaxBytes, m.CacheHighPercent, m.CacheLowPercent)
+			// M3: a stopped cache can still contain unsent uploads. Only the
+			// running rclone process may perform native VFS eviction. Without
+			// a durable, independently verified clean writeback manifest we
+			// must not unlink stopped-cache files or spend CPU scanning them.
 			return
 		}
 	}

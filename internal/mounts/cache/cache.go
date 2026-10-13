@@ -196,6 +196,9 @@ func (m *Manager) Preview(name, action string, targetBytes int64) (Preview, erro
 		return Preview{}, e
 	}
 	s := snapshot(name, rows)
+	if s.Count > 0 {
+		return Preview{}, errors.New("cache preserved: stopped VFS may contain pending uploads; clean state cannot be proven")
+	}
 	amount := s.Bytes
 	if action == "prune" {
 		if targetBytes >= s.Bytes {
@@ -224,6 +227,9 @@ func (m *Manager) Apply(name, action, proof string, targetBytes int64) (Snapshot
 		return Snapshot{}, e
 	}
 	s := snapshot(name, rows)
+	if s.Count > 0 {
+		return Snapshot{}, errors.New("cache preserved: persistent writeback status unverified")
+	}
 	if e = m.proofs.Consume(proof, previewproof.Binding{Action: "cache." + action, Subject: name, Digest: s.Digest + ":" + strconv.FormatInt(targetBytes, 10)}); e != nil {
 		return Snapshot{}, e
 	}
@@ -326,6 +332,9 @@ func (m *Manager) AutoPruneStopped(name string, maxBytes int64, high, low int) (
 		return Snapshot{}, err
 	}
 	before := snapshot(name, rows)
+	if before.Count > 0 {
+		return before, errors.New("auto-prune disabled: persistent dirty-cache state unknown")
+	}
 	if before.Bytes <= maxBytes*int64(high)/100 {
 		return before, nil
 	}

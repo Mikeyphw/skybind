@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { cachePressureAdvice,effectiveVfsOptions } from '../../module/webroot/model.js';
+assert.equal(cachePressureAdvice({status:'unavailable',cacheBytes:0},{cache_max_bytes:10}).state,'unknown');
+assert.equal(cachePressureAdvice({status:'available',cacheBytes:null},{cache_max_bytes:10}).state,'unknown');
+assert.equal(cachePressureAdvice({status:'available',cacheBytes:950},{cache_max_bytes:1000,cache_high_percent:90,cache_low_percent:75}).state,'high');
+assert.equal(cachePressureAdvice({status:'available',cacheBytes:200},{cache_max_bytes:1000,cache_high_percent:90,cache_low_percent:75}).state,'normal');
+const opts=effectiveVfsOptions({vfs_profile:'read-only',read_only:false},[{name:'read-only',read_only:true,options:{vfs_cache_mode:'full',vfs_cache_max_size:'1073741824'}}]);
+assert.equal(opts.readOnly,true);
+assert.ok(opts.flags.some(x=>x.includes('--vfs-cache-max-size 1073741824')));
+assert.equal(effectiveVfsOptions({vfs_profile:'custom',vfs_cache_mode:'writes',min_free_cache_space:'512MiB'}).flags.at(-1),'--vfs-cache-min-free-space 512MiB');
+console.log('M3 WebUI cache/profile tests PASS');

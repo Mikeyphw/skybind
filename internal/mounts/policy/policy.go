@@ -4,6 +4,7 @@ package policy
 
 import (
 	"errors"
+	"fmt"
 	"skybind/internal/mounts/config"
 	"time"
 )
@@ -76,23 +77,49 @@ func Evaluate(m config.Mount, f Facts, now time.Time) Decision {
 }
 
 type Profile struct {
-	Name                 string `json:"name"`
-	CacheMode            string `json:"cache_mode"`
-	MaxBytes             int64  `json:"max_bytes"`
-	MaxAgeSeconds        int64  `json:"max_age_seconds"`
-	DirCacheSeconds      int64  `json:"dir_cache_seconds"`
-	PollSeconds          int64  `json:"poll_seconds"`
-	Recommended          bool   `json:"recommended,omitempty"`
-	SuggestedMaxBytes    int64  `json:"suggested_max_bytes,omitempty"`
-	RecommendationReason string `json:"recommendation_reason,omitempty"`
+	Name                 string            `json:"name"`
+	Description          string            `json:"description"`
+	CacheMode            string            `json:"cache_mode"`
+	MaxBytes             int64             `json:"max_bytes"`
+	MaxAgeSeconds        int64             `json:"max_age_seconds"`
+	DirCacheSeconds      int64             `json:"dir_cache_seconds"`
+	PollSeconds          int64             `json:"poll_seconds"`
+	ReadOnly             bool              `json:"read_only"`
+	Options              map[string]string `json:"options"`
+	Recommended          bool              `json:"recommended,omitempty"`
+	SuggestedMaxBytes    int64             `json:"suggested_max_bytes,omitempty"`
+	RecommendationReason string            `json:"recommendation_reason,omitempty"`
 }
 
-var profiles = []Profile{{Name: "streaming", CacheMode: "full", MaxBytes: 4 << 30, MaxAgeSeconds: 86400, DirCacheSeconds: 600, PollSeconds: 60}, {Name: "balanced", CacheMode: "full", MaxBytes: 2 << 30, MaxAgeSeconds: 43200, DirCacheSeconds: 300, PollSeconds: 60}, {Name: "offline", CacheMode: "full", MaxBytes: 8 << 30, MaxAgeSeconds: 604800, DirCacheSeconds: 3600, PollSeconds: 0}, {Name: "minimal", CacheMode: "minimal", MaxBytes: 512 << 20, MaxAgeSeconds: 3600, DirCacheSeconds: 60, PollSeconds: 120}}
+// The legacy "offline" preset is retained for existing registries. Neither
+// offline nor offline-ready guarantees that every file is completely cached.
+var profiles = []Profile{
+	{Name: "streaming", Description: "Media seeking and read-ahead; native VFS eviction.", CacheMode: "full", MaxBytes: 4 << 30, MaxAgeSeconds: 86400, DirCacheSeconds: 600, PollSeconds: 60},
+	{Name: "balanced", Description: "Everyday file browsing and occasional edits.", CacheMode: "full", MaxBytes: 2 << 30, MaxAgeSeconds: 43200, DirCacheSeconds: 300, PollSeconds: 60},
+	{Name: "documents", Description: "Smaller cache and more responsive folder refresh for documents.", CacheMode: "full", MaxBytes: 1 << 30, MaxAgeSeconds: 14400, DirCacheSeconds: 120, PollSeconds: 60},
+	{Name: "minimal", Description: "Low local footprint; reduced cache retention.", CacheMode: "minimal", MaxBytes: 512 << 20, MaxAgeSeconds: 3600, DirCacheSeconds: 60, PollSeconds: 120},
+	{Name: "read-only", Description: "Prevent filesystem writes; keep bounded read cache.", CacheMode: "full", MaxBytes: 1 << 30, MaxAgeSeconds: 21600, DirCacheSeconds: 300, PollSeconds: 60, ReadOnly: true},
+	{Name: "offline-ready", Description: "Long retention for intermittent connectivity; not verified offline pinning.", CacheMode: "full", MaxBytes: 8 << 30, MaxAgeSeconds: 604800, DirCacheSeconds: 3600, PollSeconds: 0},
+	{Name: "offline", Description: "Legacy cached-access preset; NOT guaranteed complete offline files.", CacheMode: "full", MaxBytes: 8 << 30, MaxAgeSeconds: 604800, DirCacheSeconds: 3600, PollSeconds: 0},
+}
 
-func Profiles() []Profile { return append([]Profile(nil), profiles...) }
+func Profiles() []Profile {
+	out := make([]Profile, 0, len(profiles))
+	for _, p := range profiles {
+		p.Options = map[string]string{
+			"vfs_cache_mode":     p.CacheMode,
+			"vfs_cache_max_size": fmt.Sprintf("%d", p.MaxBytes),
+			"vfs_cache_max_age":  (time.Duration(p.MaxAgeSeconds) * time.Second).String(),
+			"dir_cache_time":     (time.Duration(p.DirCacheSeconds) * time.Second).String(),
+			"poll_interval":      (time.Duration(p.PollSeconds) * time.Second).String(),
+		}
+		out = append(out, p)
+	}
+	return out
+}
 func Resolve(m config.Mount) (Profile, error) {
 	if m.VFSProfile == "custom" || m.VFSProfile == "" {
-		return Profile{Name: "custom", CacheMode: m.CacheMode, MaxBytes: m.CacheMaxBytes, MaxAgeSeconds: m.CacheMaxAgeSeconds, DirCacheSeconds: m.DirCacheSeconds, PollSeconds: m.PollSeconds}, nil
+		return Profile{Name: "custom", CacheMode: m.CacheMode, MaxBytes: m.CacheMaxBytes, MaxAgeSeconds: m.CacheMaxAgeSeconds, DirCacheSeconds: m.DirCacheSeconds, PollSeconds: m.PollSeconds, ReadOnly: m.ReadOnly}, nil
 	}
 	for _, p := range profiles {
 		if p.Name == m.VFSProfile {
@@ -100,6 +127,31 @@ func Resolve(m config.Mount) (Profile, error) {
 		}
 	}
 	return Profile{}, errors.New("unknown VFS profile")
+}
+
+// Pressure is advice only; VFS max-size is a soft cache eviction target, not
+// a hard guarantee and never authorizes deletion of unknown dirty files.
+type Pressure struct {
+	State       string `json:"state"`
+	Percent     int    `json:"percent,omitempty"`
+	HighPercent int    `json:"high_percent,omitempty"`
+	LowPercent  int    `json:"low_percent,omitempty"`
+	Reason      string `json:"reason"`
+}
+
+func AssessPressure(used, max int64, high, low int) Pressure {
+	if used < 0 || max <= 0 || high <= 0 || high > 100 || low < 0 || low >= high {
+		return Pressure{State: "unknown", Reason: "insufficient_cache_measurements"}
+	}
+	p := int(used * 100 / max)
+	if p > 10000 {
+		p = 10000
+	}
+	out := Pressure{State: "normal", Percent: p, HighPercent: high, LowPercent: low, Reason: "native_vfs_eviction_only"}
+	if p >= high {
+		out.State = "high"
+	}
+	return out
 }
 
 // Advice is a non-authoritative recommendation, not a change to the user's

@@ -1,7 +1,7 @@
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, saveSupportBundleToDownloads, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
 import { runtimeFailureText, providerReadinessPresentation } from './parity.js';
-import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, performanceSample, boundedPerformanceHistory, suggestMountDefaults } from './model.js';
+import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, performanceSample, boundedPerformanceHistory, cachePressureAdvice, effectiveVfsOptions, suggestMountDefaults } from './model.js';
 
 const byId = (id) => document.getElementById(id);
 const compatibility = byId('compatibility');
@@ -414,6 +414,8 @@ function updatePerformancePanel(name) {
   metric(grid,'Writeback',sample.writeback);
   metric(grid,'Queued / uploading',`${perfNumber(sample.queued)} / ${perfNumber(sample.active)}`);
   metric(grid,'Failed uploads',perfNumber(sample.failed));body.append(grid);
+  const config=mountConfigByName(name),pressure=cachePressureAdvice(sample,config);
+  const note=paragraph(pressure.message,pressure.state==='high'?'m03-cache-pressure high':'m03-cache-pressure');body.append(note);
   const heading=paragraph(`Aggregate transfer rate · last ${history.length} samples`, 'perf-caption');body.append(heading);
   drawPerformanceTrend(body,history,name);
   body.append(paragraph(`RC totals combine directions; upload/download speeds are not individually available. Sample age ${Math.max(0,Math.floor((Date.now()-sample.sampledAt)/1000))}s. History is session-only.`, 'muted perf-footnote'));
@@ -823,7 +825,7 @@ async function loadMountEditorData(existing, session = state.editorSession) {
   if (session !== state.editorSession || byId('editorBackdrop').hidden) return;
   const helperErrors=[];
   try { const remotesData=settled[0].status === 'fulfilled' ? result(settled[0].value) : (()=>{throw settled[0].reason;})(); state.editorRemotes=remotesData.remotes||[];state.remoteDetails=remotesData.details||[]; } catch(error){state.editorRemotes=[];state.remoteDetails=[];helperErrors.push(`remote list: ${String(error?.message||error)}`);}
-  try { const profileData=settled[1].status === 'fulfilled' ? result(settled[1].value) : (()=>{throw settled[1].reason;})(); state.editorProfiles=profileData.profiles||[];state.editorRecommendation=profileData.recommendation||null; } catch(error){state.editorProfiles=[];state.editorRecommendation=null;helperErrors.push(`profiles: ${String(error?.message||error)}`);}
+  try { const profileData=settled[1].status === 'fulfilled' ? result(settled[1].value) : (()=>{throw settled[1].reason;})(); state.editorProfiles=Array.isArray(profileData)?profileData:(profileData.profiles||[]);state.editorRecommendation=profileData.recommendation || (state.editorProfiles.find(p=>p.recommended) ? {profile:state.editorProfiles.find(p=>p.recommended).name,reason:state.editorProfiles.find(p=>p.recommended).recommendation_reason||'device resources',cache_max_size:bytes(state.editorProfiles.find(p=>p.recommended).suggested_max_bytes||0)}:null); } catch(error){state.editorProfiles=[];state.editorRecommendation=null;helperErrors.push(`profiles: ${String(error?.message||error)}`);}
   try { state.editorProviderStatus=settled[2].status === 'fulfilled' ? result(settled[2].value) : (()=>{throw settled[2].reason;})(); } catch(error){state.editorProviderStatus=null;helperErrors.push(`provider status: ${String(error?.message||error)}`);}
   try { state.editorRuntimeStatus=settled[3].status === 'fulfilled' ? result(settled[3].value) : (()=>{throw settled[3].reason;})(); } catch(error){state.editorRuntimeStatus=null;helperErrors.push(`runtime status: ${String(error?.message||error)}`);}
   renderMountRemoteSelect(); renderProfileCards(); renderProviderReadiness();
@@ -837,12 +839,12 @@ async function loadMountEditorData(existing, session = state.editorSession) {
 function renderProfileCards() {
   const root = byId('profileCards'); clear(root); const selected = byId('field-vfs_profile').value || 'custom';
   const profiles = state.editorProfiles.length ? state.editorProfiles : [
-    {name:'balanced',description:'General-purpose full VFS caching.'},{name:'streaming',description:'Larger cache for media.'},{name:'offline',description:'Persistent cache for intermittent connectivity.'},{name:'minimal',description:'Small cache footprint.'},{name:'custom',description:'Use explicit VFS values.'},
+    {name:'balanced',description:'General-purpose full VFS caching.'},{name:'streaming',description:'Larger cache for media.'},{name:'offline',description:'Legacy cached-access preset (not complete offline storage).'},{name:'documents',description:'Responsive metadata and smaller cache.'},{name:'read-only',description:'Native read-only mount; keep bounded read cache.'},{name:'offline-ready',description:'Long retention; not guaranteed complete offline access.'},{name:'minimal',description:'Small cache footprint.'},{name:'custom',description:'Use explicit VFS values.'},
   ];
   for (const item of profiles) {
     const model = profilePresentation(item.name, profiles, state.editorRecommendation); const card=document.createElement('label'); card.className=`profile-card${selected===item.name?' selected':''}${model.recommended?' recommended':''}`;
     const radio=document.createElement('input'); radio.type='radio'; radio.name='profile-card'; radio.value=item.name; radio.checked=selected===item.name;
-    radio.addEventListener('change',()=>{ if(!radio.checked)return; state.editorProfileTouched=true; byId('field-vfs_profile').value=item.name; renderProfileCards(); updateProfilePresentation(); invalidatePreview(); });
+    radio.addEventListener('change',()=>{ if(!radio.checked)return; state.editorProfileTouched=true; byId('field-vfs_profile').value=item.name; if(item.name==='read-only')byId('field-read_only').checked=true; renderProfileCards(); updateProfilePresentation(); invalidatePreview(); });
     const strong=document.createElement('strong'); strong.textContent=item.name; const desc=paragraph(model.description,''); card.append(radio,strong,desc);
     const opts=model.options||{}; const meta=document.createElement('span'); meta.className='profile-meta'; meta.textContent=[opts.vfs_cache_mode,opts.vfs_cache_max_size].filter(Boolean).join(' · ') || 'Explicit settings'; card.append(meta); root.append(card);
   }
@@ -851,14 +853,21 @@ function renderProfileCards() {
 }
 function updateProfilePresentation() {
   const profile=byId('field-vfs_profile').value||'custom'; const model=profilePresentation(profile,state.editorProfiles,state.editorRecommendation); const root=byId('profileEffective'); clear(root); const custom=profile==='custom';
+  const readOnly=byId('field-read_only');if(profile==='read-only')readOnly.checked=true;readOnly.disabled=profile==='read-only';
   byId('customVfsDetails').open=custom; byId('customVfsDetails').classList.toggle('profile-managed',!custom);
   for (const node of document.querySelectorAll('#customVfsDetails input, #customVfsDetails select')) node.disabled=!custom;
-  if (custom) { root.append(label('Custom values','state-pill')); return; }
+  if (custom) { root.append(label('Custom values','state-pill')); }
+  else {
   const o=model.options||{};
   const profileFields={vfs_cache_mode:o.vfs_cache_mode||'full',vfs_cache_max_size:o.vfs_cache_max_size||'',vfs_cache_max_age:o.vfs_cache_max_age||'',dir_cache_time:o.dir_cache_time||'',poll_interval:o.poll_interval||''};
   for(const [field,value] of Object.entries(profileFields))byId(`field-${field}`).value=value;
   root.append(label('Profile-managed values','state-pill good'));
   for (const value of [o.vfs_cache_mode && `Cache ${o.vfs_cache_mode}`, o.vfs_cache_max_size && `Max ${o.vfs_cache_max_size}`, o.vfs_cache_max_age && `Age ${o.vfs_cache_max_age}`, o.dir_cache_time && `Dir cache ${o.dir_cache_time}`].filter(Boolean)) root.append(label(value,'state-pill'));
+  }
+  const effective=effectiveVfsOptions(formValue(),state.editorProfiles);
+  const help=document.createElement('p');help.className='muted m03-cache-hint';help.textContent=effective.readOnly?'Filesystem writes blocked by read-only mount profile. Cache size is an rclone eviction target, not a guaranteed hard limit.':'Cache limit uses native rclone eviction. It is a soft target; no automatic deletion of unverified stopped cache.';
+  const flags=document.createElement('code');flags.className='m03-effective-flags';flags.textContent=[...effective.flags,effective.readOnly?'--read-only':''].filter(Boolean).join(' · ')||'Select a profile to preview VFS settings';
+  root.append(help,flags);
 }
 function setManualRemote(enabled) {
   state.editorManualRemote=Boolean(enabled); byId('manualRemoteWrap').hidden=!state.editorManualRemote; byId('manualRemoteButton').textContent=state.editorManualRemote?'Use remote browser':'Enter manually';
