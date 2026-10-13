@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"skybind/internal/atomicfile"
+	"skybind/internal/mounts/writeback"
 	"skybind/internal/paths"
 	"strings"
 	"sync"
@@ -137,7 +138,60 @@ func (m *Manager) Metrics(ctx context.Context, name string) (any, error) {
 			output["transfers"] = safeStats
 		} else {
 			output["vfs"] = safeStats
+			snapshot, parseErr := writeback.ParseVFS(name, body)
+			if parseErr != nil {
+				snapshot = writeback.Unknown(name, "invalid_vfs_response")
+			}
+			output["writeback"] = snapshot
 		}
 	}
 	return output, nil
+}
+
+// Writeback requires a currently verified, owned mount. It never exposes raw
+// RC responses and refuses missing credentials or incomplete VFS counters.
+func (m *Manager) Writeback(ctx context.Context, name string) (writeback.Snapshot, error) {
+	if !safe.MatchString(name) {
+		return writeback.Unknown(name, "invalid_name"), errors.New("invalid mount")
+	}
+	if m.owned == nil || !m.owned(name) {
+		return writeback.Unknown(name, "not_verified_running"), errors.New("owned running mount required")
+	}
+	return m.WritebackVerified(ctx, name)
+}
+
+// WritebackVerified is for lifecycle.Engine ONLY, after it has verified PID,
+// process start ticks and mountinfo identity under its lock. Calling the public
+// Writeback callback here would deadlock against VerifiedMount's own lock.
+func (m *Manager) WritebackVerified(ctx context.Context, name string) (writeback.Snapshot, error) {
+	if !safe.MatchString(name) {
+		return writeback.Unknown(name, "invalid_name"), errors.New("invalid mount")
+	}
+	m.mu.Lock()
+	s, ok := m.sessions[name]
+	m.mu.Unlock()
+	if !ok {
+		return writeback.Unknown(name, "credentials_unavailable"), errors.New("RC credentials unavailable")
+	}
+	client := *m.client
+	client.Transport = &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp4", "127.0.0.1:"+s.port)
+	}}
+	defer client.Transport.(*http.Transport).CloseIdleConnections()
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://127.0.0.1:"+s.port+"/vfs/stats", strings.NewReader("{}"))
+	if err != nil {
+		return writeback.Unknown(name, "request_failed"), errors.New("RC request failed")
+	}
+	req.SetBasicAuth("skybind", s.password)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := client.Do(req)
+	if err != nil {
+		return writeback.Unknown(name, "rc_unavailable"), errors.New("RC unavailable")
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(res.Body, 65537))
+	if err != nil || len(body) > 65536 || res.StatusCode != http.StatusOK {
+		return writeback.Unknown(name, "rc_rejected"), errors.New("RC rejected")
+	}
+	return writeback.ParseVFS(name, body)
 }

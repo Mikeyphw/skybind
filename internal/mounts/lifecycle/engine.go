@@ -17,6 +17,7 @@ import (
 	"skybind/internal/mounts/cache"
 	"skybind/internal/mounts/config"
 	"skybind/internal/mounts/policy"
+	"skybind/internal/mounts/writeback"
 	"skybind/internal/paths"
 	"skybind/internal/previewproof"
 	"skybind/internal/runtimeauth"
@@ -238,16 +239,17 @@ func (linuxObserver) Mount(point string) (MountObservation, bool, error) {
 }
 
 type Engine struct {
-	mu        sync.Mutex
-	store     *config.Store
-	dir       string
-	obs       Observer
-	run       Spawner
-	env       RunEnv
-	state     map[string]bool
-	proofs    *previewproof.Store
-	rcPrepare func(string) ([]string, error)
-	rcDrop    func(string)
+	mu             sync.Mutex
+	store          *config.Store
+	dir            string
+	obs            Observer
+	run            Spawner
+	env            RunEnv
+	state          map[string]bool
+	proofs         *previewproof.Store
+	rcPrepare      func(string) ([]string, error)
+	rcDrop         func(string)
+	writebackProbe func(context.Context, string) (writeback.Snapshot, error)
 }
 
 // Canonical returns a production engine. Roots and executables cannot be
@@ -267,6 +269,64 @@ func (e *Engine) ConfigureRC(prepare func(string) ([]string, error), drop func(s
 	e.rcPrepare = prepare
 	e.rcDrop = drop
 }
+
+// ConfigureWriteback installs the internal, authenticated VFS read path.
+// Production must configure this when RC is enabled; no client supplies it.
+func (e *Engine) ConfigureWriteback(fn func(context.Context, string) (writeback.Snapshot, error)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.writebackProbe = fn
+}
+
+const writebackWaitLimit = 20 * time.Second
+const writebackPollInterval = 1 * time.Second
+
+// waitWritebackLocked runs only after process/mount ownership is verified.
+// An unobservable queue is not an empty queue. An unfinished upload waits for
+// a bounded duration and then refuses detachment; there is no force bypass.
+func (e *Engine) waitWritebackLocked(ctx context.Context, name string) error {
+	if e.writebackProbe == nil {
+		// Test engines without an RC provider retain the legacy fake spawner.
+		// A real daemon with RC configured must never run without its probe.
+		if e.rcPrepare != nil {
+			return errors.New("writeback_unavailable")
+		}
+		return nil
+	}
+	deadline := time.NewTimer(writebackWaitLimit)
+	defer deadline.Stop()
+	for {
+		if ctx.Err() != nil {
+			return errors.New("writeback_cancelled")
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		status, err := e.writebackProbe(probeCtx, name)
+		cancel()
+		if err != nil || status.State == "unknown" {
+			return errors.New("writeback_unavailable")
+		}
+		if status.State == "errored" {
+			return errors.New("writeback_errors")
+		}
+		if status.Safe() {
+			if ctx.Err() != nil {
+				return errors.New("writeback_cancelled")
+			}
+			return nil
+		}
+		if status.State != "busy" {
+			return errors.New("writeback_unavailable")
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("writeback_cancelled")
+		case <-deadline.C:
+			return errors.New("writeback_timeout")
+		case <-time.After(writebackPollInterval):
+		}
+	}
+}
+
 func (e *Engine) recordFile(name string) string { return filepath.Join(e.dir, "process-"+name+".json") }
 func (e *Engine) desiredFile() string           { return filepath.Join(e.dir, "desired-v1.json") }
 func (e *Engine) loadDesired() error {
@@ -636,7 +696,7 @@ func (e *Engine) startLocked(m config.Mount) (State, error) {
 // stopOwnedLocked is the only process/detach path used by both explicit Stop
 // and configuration publication. The latter keeps persistent desired=true so
 // interrupted transactions recover without losing requested mount intent.
-func (e *Engine) stopOwnedLocked(m config.Mount) error {
+func (e *Engine) stopOwnedLocked(ctx context.Context, m config.Mount) error {
 	rec, owned, err := e.owned(m)
 	if err != nil {
 		return err
@@ -650,6 +710,13 @@ func (e *Engine) stopOwnedLocked(m config.Mount) error {
 	}
 	if owned {
 		if exists {
+			// A genuinely read-only mount cannot queue new writes.
+			// Never modify its cache during stop.
+			if !m.ReadOnly {
+				if err = e.waitWritebackLocked(ctx, m.Name); err != nil {
+					return err
+				}
+			}
 			tick, exe, identityErr := e.obs.Identity(rec.PID)
 			if identityErr != nil || tick != rec.StartTicks || exe != rec.Executable {
 				return errors.New("owned process identity lost before unmount")
@@ -674,7 +741,8 @@ func (e *Engine) stopOwnedLocked(m config.Mount) error {
 	}
 	return nil
 }
-func (e *Engine) Stop(name string) (State, error) {
+func (e *Engine) Stop(name string) (State, error) { return e.StopContext(context.Background(), name) }
+func (e *Engine) StopContext(ctx context.Context, name string) (State, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if err := e.loadDesired(); err != nil {
@@ -684,7 +752,7 @@ func (e *Engine) Stop(name string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	if err = e.stopOwnedLocked(m); err != nil {
+	if err = e.stopOwnedLocked(ctx, m); err != nil {
 		return State{}, err
 	}
 	e.state[name] = false
@@ -718,7 +786,7 @@ func (e *Engine) commitConfig(raw []byte, proof string, rollback bool) (config.R
 			}
 			for _, mount := range old.Mounts {
 				if mount.Name == effect.Name {
-					if err := e.stopOwnedLocked(mount); err != nil {
+					if err := e.stopOwnedLocked(context.Background(), mount); err != nil {
 						return fmt.Errorf("%s: %w", effect.Name, err)
 					}
 					break
@@ -774,7 +842,10 @@ func (e *Engine) commitConfig(raw []byte, proof string, rollback bool) (config.R
 }
 
 func (e *Engine) Restart(name string) (State, error) {
-	if _, err := e.Stop(name); err != nil {
+	return e.RestartContext(context.Background(), name)
+}
+func (e *Engine) RestartContext(ctx context.Context, name string) (State, error) {
+	if _, err := e.StopContext(ctx, name); err != nil {
 		return State{}, err
 	}
 	return e.Start(name)

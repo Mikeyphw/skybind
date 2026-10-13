@@ -199,6 +199,7 @@ func daemonCommand() int {
 	providerEngine := provider.Canonical()
 	rcEngine := rc.Canonical(func(name string) bool { _, _, err := mountEngine.VerifiedMount(name); return err == nil })
 	mountEngine.ConfigureRC(rcEngine.Prepare, rcEngine.Drop)
+	mountEngine.ConfigureWriteback(rcEngine.WritebackVerified)
 	logStore, err := diagnostics.Open(paths.StateRoot + "/logs")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "private logs:", err)

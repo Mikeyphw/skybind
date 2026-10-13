@@ -69,7 +69,7 @@ func (e *Engine) SetFailureAudit(fn func(operation, reason string)) {
 // from providers, configurations, and arbitrary filesystem paths can contain
 // credentials; they must not be forwarded to an embedded WebUI.
 func safeOperationReason(operation string, err error) string {
-	if err == nil || operation != "mount.start" && operation != "mount.restart" {
+	if err == nil || operation != "mount.start" && operation != "mount.restart" && operation != "mount.stop" {
 		return "operation_failed"
 	}
 	const prefix = "FUSE readiness/mount identity not observed ("
@@ -81,7 +81,8 @@ func safeOperationReason(operation string, err error) string {
 		}
 	}
 	switch err.Error() {
-	case "FUSE readiness/mount identity not observed",
+	case "writeback_unavailable", "writeback_timeout", "writeback_cancelled", "writeback_errors",
+		"FUSE readiness/mount identity not observed",
 		"could not prove child process ownership",
 		"static runtime integrity unverified",
 		"destination contains link/non-directory",
@@ -189,7 +190,7 @@ func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) (response p
 		e.mu.RLock()
 		notify := e.failureAudit
 		e.mu.RUnlock()
-		if notify != nil && (req.Operation == "mount.start" || req.Operation == "mount.restart") {
+		if notify != nil && (req.Operation == "mount.start" || req.Operation == "mount.restart" || req.Operation == "mount.stop") {
 			notify(req.Operation, reason)
 		}
 		failure := protocol.Fail(req.RequestID, "operation_failed", "operation", "execute", false)

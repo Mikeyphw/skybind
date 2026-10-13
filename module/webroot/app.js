@@ -11,7 +11,7 @@ const state = {
   preview: null, previewCandidates: null, rollbackPreview: null, refreshing: false,
   editorDirty: false, editorInitial: '', editorExisting: false, editorValidationTimer: null, editorValidationSeq: 0, editorIssues: [], editorStep: 0, editorInteracted: false,
   editorRemotes: [], editorProfiles: [], editorRecommendation: null, editorProviderStatus: null, editorRuntimeStatus: null, editorRemotePath: '', editorManualRemote: false, editorRemoteReachable: null, editorNameTouched: false, editorMountpointTouched: false, editorProfileTouched: false, editorBackendValidated: false, editorTrigger: null, editorSession: 0, previewTimer: null, operationPollToken: 0, mountActionName: '', mountActionReturnFocus: null,
-  mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountPathReturnFocus: null,
+  mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountConfirmRequest: 0, mountPathReturnFocus: null,
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
 };
@@ -82,7 +82,7 @@ function showLifecycleFailure(name, action, error) {
     { label: 'View logs', run: () => void setView('logs') },
     { label: 'View activity', run: () => void setView('activity') },
   ];
-  if (error?.retryable) actions.unshift({ label: 'Retry now', run: () => void lifecycleAction(action === 'stop' ? 'start' : action, name), className: 'primary' });
+  if (error?.retryable) actions.unshift({ label: 'Retry now', run: () => void lifecycleAction(action, name), className: 'primary' });
   showMountOutcome(`${name}: ${backendErrorText(error)}`, 'error', actions);
 }
 
@@ -291,22 +291,47 @@ function mountStateCopy(row) { return mountQuickState(row, state.mountBusyNames.
 
 // All lifecycle buttons, including the advanced action sheet, use the same
 // confirmation and backend-authoritative operation path.
-function requestMountAction(action, name, trigger = document.activeElement) {
+async function requestMountAction(action, name, trigger = document.activeElement) {
   if (state.mountBusyNames.has(name)) return;
   if (action === 'start') { void lifecycleAction(action, name); return; }
   if (!['stop', 'restart'].includes(action)) return;
   state.mountConfirmAction = action; state.mountConfirmName = name;
   state.mountConfirmReturnFocus = trigger instanceof HTMLElement ? trigger : null;
+  const request = ++state.mountConfirmRequest;
   text('mountConfirmTitle', `${action === 'stop' ? 'Stop' : 'Restart'} ${name}?`);
-  text('mountConfirmDetail', action === 'stop'
-    ? 'Apps using this mounted folder will temporarily lose access. The remote data will not be deleted.'
-    : 'Skybind will temporarily disconnect this mount. Apps using its files may be interrupted.');
-  text('mountConfirmApply', action === 'stop' ? 'Stop mount' : 'Restart mount');
-  byId('mountConfirmApply').className = action === 'stop' ? 'danger' : 'primary';
+  text('mountConfirmDetail', 'Checking pending VFS uploads…');
+  const apply = byId('mountConfirmApply'); apply.disabled = true;
+  apply.textContent = action === 'stop' ? 'Wait and stop safely' : 'Wait and restart safely';
+  apply.className = action === 'stop' ? 'danger' : 'primary';
   byId('mountConfirmBackdrop').hidden = false;
   queueMicrotask(() => byId('mountConfirmCancel')?.focus());
+  if (mountConfigByName(name)?.read_only) {
+    text('mountConfirmDetail', 'This mount is configured read-only. No VFS uploads can originate here; no cache cleanup is performed.');
+    apply.disabled = false;
+    return;
+  }
+  try {
+    const metrics = result(await query('rc.metrics',{name}));
+    if (state.mountConfirmRequest !== request || state.mountConfirmName !== name) return;
+    const wb = metrics.writeback || {};
+    if (wb.state === 'idle') {
+      text('mountConfirmDetail', 'No pending or failed VFS uploads reported. Skybind checks again before unmounting.');
+      apply.disabled = false;
+    } else if (wb.state === 'busy') {
+      text('mountConfirmDetail', `${Number(wb.uploads_queued||0)} queued, ${Number(wb.uploads_in_progress||0)} uploading, ${Number(wb.in_use||0)} VFS references. Skybind waits up to 20 seconds and refuses to detach if still busy.`);
+      apply.disabled = false;
+    } else if (wb.state === 'errored') {
+      text('mountConfirmDetail', 'Rclone reports failed uploads. Stop/Restart is blocked to protect recoverable data. Resolve uploads first.');
+    } else {
+      text('mountConfirmDetail', 'Writeback status is unknown. Stop/Restart is blocked until authenticated VFS telemetry is available.');
+    }
+  } catch (_) {
+    if (state.mountConfirmRequest === request && state.mountConfirmName === name)
+      text('mountConfirmDetail', 'Cannot verify pending writes. Stop/Restart is blocked for data safety.');
+  }
 }
 function closeMountConfirmation() {
+  ++state.mountConfirmRequest;
   byId('mountConfirmBackdrop').hidden = true;
   const focus = state.mountConfirmReturnFocus;
   state.mountConfirmAction = null; state.mountConfirmName = ''; state.mountConfirmReturnFocus = null;
@@ -426,7 +451,7 @@ async function lifecycleAction(action, name) {
     for (const control of card.querySelectorAll('[data-lifecycle-action]')) control.disabled = true;
   }
   const verb = { start:'Starting', stop:'Stopping', restart:'Restarting' }[action] || 'Updating';
-  showToast(`${verb} ${name}…`, 'warn');
+  showToast(`${verb} ${name}… Safely checking pending writes (up to 20 seconds).`, 'warn');
   try {
     const startProof = action === 'start' ? result(await preview('mount.start.preview', { name })).preview_proof : '';
     const handle = startOperation(`mount.${action}`, 'run', action === 'start' ? { name, proof: startProof } : { name });

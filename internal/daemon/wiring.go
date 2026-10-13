@@ -249,19 +249,19 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 			}
 			return mount.StartGuarded(p.Name, p.Proof)
 		})
-		register("mount.stop", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+		register("mount.stop", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
 			n, e := decodeName(a)
 			if e != nil {
 				return nil, e
 			}
-			return mount.Stop(n)
+			return mount.StopContext(ctx, n)
 		})
-		register("mount.restart", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+		register("mount.restart", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
 			n, e := decodeName(a)
 			if e != nil {
 				return nil, e
 			}
-			return mount.Restart(n)
+			return mount.RestartContext(ctx, n)
 		})
 		if sup != nil {
 			register("mount.health", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
