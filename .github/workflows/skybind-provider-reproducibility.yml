@@ -58,7 +58,9 @@ jobs:
           mkdir upstream
           git -C upstream init -q
           git -C upstream remote add origin https://github.com/BenjiThatFoxGuy/bclone.git
-          git -C upstream fetch --no-tags --depth=1 origin "$commit"
+          # A self-contained Git bundle needs the complete reachable ancestry;
+          # shallow fetch cannot be bundled and verified in an empty repository.
+          git -C upstream fetch --no-tags origin "$commit"
           git -C upstream checkout --detach -q FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = "$commit"
           test -z "$(git -C upstream status --porcelain=v1 --untracked-files=all)"
@@ -95,6 +97,18 @@ jobs:
           python3 scripts/dev/runtime/skybind_runtime.py verify dist/lane/packages/newfuture.zip
           python3 scripts/dev/runtime/skybind_runtime.py verify dist/lane/packages/bclone.zip
           cp inputs/newfuture-inspection.json dist/lane/newfuture-inspection.json
+      - name: Preserve exact original upstream source objects for Q16 review (NOT attested)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/lane/upstream
+          cp inputs/magisk-rclone_arm64-v8a.zip dist/lane/upstream/magisk-rclone_arm64-v8a.zip
+          commit="$(git -C upstream rev-parse HEAD)"
+          git -C upstream update-ref refs/heads/q16-frozen "$commit"
+          git -C upstream bundle create "$PWD/dist/lane/upstream/bclone-source.bundle" refs/heads/q16-frozen
+          test -s dist/lane/upstream/bclone-source.bundle
+          sha256sum dist/lane/upstream/* > dist/lane/upstream/SHA256SUMS
+          echo 'Original upstream objects preserved for review; provenance and independent custody remain unproven.'
       - name: Upload independent lane bytes (not signatures or release proof)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

@@ -180,6 +180,8 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+q16-source = ["job:q16-source"]
+q17-negative-run = ["job:q17-negative-run"]
 q15-readiness = ["job:q15-readiness"]
 q14-attestation = ["job:q14-attestation"]
 q13-reproducibility = ["job:q13-reproducibility"]
@@ -955,3 +957,29 @@ execution_environment = "native-termux"
 command = ["python3", "../scripts/dev/release/q15_gate_bridge.py", "--output-dir", "/storage/emulated/0/Download"]
 inputs = ["../scripts/dev/release/q15_gate_bridge.py", "../scripts/dev/release/q14_private_signing.py", "../scripts/dev/release/q13_reproducibility.py", "../scripts/dev/release/q12_provenance.py", "../scripts/dev/gates/**", "../scripts/dev/seal/**", "../scripts/dev/runtime/source.lock.json"]
 metadata = { qualification = "owner-signed-raw-evidence-audit-only", independent_attestation = false, gate_receipt_issued = false, release_seal = false, read_only = true }
+
+# Q16/Q17 genuine evidence acquisition. Independent validation is still an
+# external obligation: raw jobs and GitHub artifacts are not signed CFS1 receipts.
+[wrapper.commands.q16]
+description = "Check locked upstream provider inputs before real Q16 CI collection"
+workflow = "q16-source"
+target = "skybind_release"
+
+[targets.skybind_release.jobs.q16-source]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../scripts/dev/runtime/source_build.py", "pins"]
+inputs = ["../scripts/dev/runtime/source.lock.json", "../scripts/dev/runtime/source.selection.json", "../scripts/dev/runtime/source_build.py", "../scripts/dev/release/q16_provider_evidence.py"]
+metadata = { qualification = "pinned-inputs-only", independent_attestation = false, gate_promotion = false, release_seal = false, read_only = true }
+
+[wrapper.commands.q17]
+description = "Run ten real negative Go tests in a fresh Devtool execution; collect raw logs"
+workflow = "q17-negative-run"
+target = "skybind_release"
+
+[targets.skybind_release.jobs.q17-negative-run]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../scripts/dev/release/q17_fixedpoint_runs.py", "run", "--repository", "..", "--output-dir", "/storage/emulated/0/Download/skybind-q17-runs"]
+inputs = ["../scripts/dev/release/q17_fixedpoint_runs.py", "../scripts/dev/gates/sb_g02.py", "../cmd/**", "../internal/**", "../go.mod", "../go.sum"]
+metadata = { qualification = "fresh-local-negative-tests-raw-only", independent_attestation = false, gate_promotion = false, release_seal = false }
