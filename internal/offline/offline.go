@@ -97,10 +97,11 @@ func (b *bounded) Write(p []byte) (int, error) {
 }
 
 type Store struct {
-	dir string
-	r   Runner
-	cfg func() (config.Registry, error)
-	now func() time.Time
+	dir       string
+	draftBase string // fixed production Downloads root; tests may inject an isolated directory
+	r         Runner
+	cfg       func() (config.Registry, error)
+	now       func() time.Time
 }
 
 func Canonical() *Store {

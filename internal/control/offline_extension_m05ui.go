@@ -6,15 +6,20 @@ import "skybind/internal/protocol"
 // catalog is immutable; these are separately allowlisted, NOT silently added
 // to the historical catalog or represented as CFS1-qualified operations.
 var offlineExtension = map[string]protocol.Class{
-	"offline.list":         protocol.Query,
-	"offline.status":       protocol.Query,
-	"offline.tasks":        protocol.Query,
-	"offline.pin":          protocol.Run,
-	"offline.export":       protocol.Run,
-	"offline.view.publish": protocol.Run,
-	"offline.unpin":        protocol.Run,
-	"offline.quota":        protocol.Run,
-	"offline.cancel":       protocol.Cancel,
+	"offline.list":              protocol.Query,
+	"offline.status":            protocol.Query,
+	"offline.tasks":             protocol.Query,
+	"offline.pin":               protocol.Run,
+	"offline.export":            protocol.Run,
+	"offline.view.publish":      protocol.Run,
+	"offline.unpin":             protocol.Run,
+	"offline.quota":             protocol.Run,
+	"offline.cancel":            protocol.Cancel,
+	"offline.write.list":        protocol.Query,
+	"offline.write.check":       protocol.Query,
+	"offline.write.draft":       protocol.Run,
+	"offline.write.stage":       protocol.Run,
+	"offline.write.upload-copy": protocol.Run,
 }
 
 func lookupOfflineExtension(name string) (CatalogItem, bool) {
@@ -24,7 +29,7 @@ func lookupOfflineExtension(name string) (CatalogItem, bool) {
 	}
 	return CatalogItem{
 		Name: name, OperationClass: class,
-		Description:         "Optional explicitly scoped M5 read-only offline snapshot operation",
+		Description:         "Optional narrowly scoped M5 snapshot or M6 experimental separate-copy offline edit operation",
 		ImplementingOverlay: "SKYBIND-M5-UI", WebUIConsumers: "Mounts / Offline",
 		Cancellation: "operation_specific", ArgumentsSchema: `{"type":"object"}`,
 	}, true

@@ -12,7 +12,7 @@ const state = {
   editorDirty: false, editorInitial: '', editorExisting: false, editorValidationTimer: null, editorValidationSeq: 0, editorIssues: [], editorStep: 0, editorInteracted: false,
   editorRemotes: [], editorProfiles: [], editorRecommendation: null, editorProviderStatus: null, editorRuntimeStatus: null, editorRemotePath: '', editorManualRemote: false, editorRemoteReachable: null, editorNameTouched: false, editorMountpointTouched: false, editorProfileTouched: false, editorBackendValidated: false, editorTrigger: null, editorSession: 0, previewTimer: null, operationPollToken: 0, mountActionName: '', mountActionReturnFocus: null,
   perfOpen: new Set(), perfCache: new Map(), perfHistory: new Map(), perfPid: new Map(), perfPending: new Set(), perfEpoch: 0,
-  offlineOpen: new Set(), offlineInput: new Map(), offlineManifest: null, offlineTasks: [], offlinePending: false, offlineUnsupported: false, offlineConfirm: '', offlinePollId: null,
+  offlineOpen: new Set(), offlineInput: new Map(), offlineManifest: null, offlineTasks: [], offlinePending: false, offlineUnsupported: false, offlineConfirm: '', offlinePollId: null, offlineEdits: [],
   mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountConfirmRequest: 0, mountPathReturnFocus: null,
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
@@ -466,7 +466,7 @@ async function offlineLoad(name) {
   try {
     const tasks=result(await query('offline.tasks',{}));state.offlineTasks=tasks.tasks||[];
     const running=state.offlineTasks.some(t=>t.state==='RUNNING');
-    if(!running)state.offlineManifest=result(await query('offline.list',{}));
+    if(!running){state.offlineManifest=result(await query('offline.list',{}));const edits=result(await query('offline.write.list',{}));state.offlineEdits=edits.edits||[];}
     state.offlineUnsupported=false;
   } catch (error) {
     if(state.offlineManifest===null)state.offlineUnsupported=true;
@@ -505,6 +505,26 @@ async function offlinePublishView(name){
     renderOfflinePanels();offlineSchedulePoll();
   } catch(error) { showToast(`Offline view refused: ${error?.message||'backend unavailable'}`,'error'); }
 }
+async function offlineWriteTask(kind,name,path){
+  try {
+    const task=result(await run(kind==='draft'?'offline.write.draft':'offline.write.stage',{mount:name,path}));
+    state.offlineTasks=[...state.offlineTasks,task];
+    showToast(kind==='draft'?'Creating PUBLIC editable draft. It will not sync automatically.':'Importing edited public draft into protected private write queue.');
+    renderOfflinePanels();offlineSchedulePoll();
+  }catch(error){showToast(`Offline write refused: ${error?.message||'backend unavailable'}`,'error');}
+}
+async function offlineWriteCheck(id){
+  try {const r=result(await query('offline.write.check',{id}));showToast(`${r.state||'UNKNOWN'}: ${r.detail||'Review the remote before any reconciliation.'}`,r.state==='MATCH'?'ok':'warn');}
+  catch(error){showToast(`Remote revision check unavailable: ${error?.message||'offline'}`,'warn');}
+}
+async function offlineWriteCopy(id){
+  try {
+    const task=result(await run('offline.write.upload-copy',{id,acknowledge:true}));
+    state.offlineTasks=[...state.offlineTasks,task];
+    showToast('Uploading separate remote copy ONLY; original file will not be replaced. Manual reconciliation required.');
+    renderOfflinePanels();offlineSchedulePoll();
+  }catch(error){showToast(`Separate upload refused: ${error?.message||'unavailable'}`,'error');}
+}
 async function offlineVerify(name,path){
   try{const status=result(await query('offline.status',{mount:name,path}));showToast(`${status.state||'UNKNOWN'}: ${status.detail||'Local verification completed.'}`,status.state==='AVAILABLE_OFFLINE'?'ok':'warn');}
   catch(error){showToast('Local verification unavailable or timed out; not considered verified.','warn');}
@@ -536,8 +556,9 @@ function renderOfflineBody(body,name) {
   if(task){const t=document.createElement('div');t.className='offline-task';
     t.append(paragraph(`${task.kind||'Task'} · ${task.state||'UNKNOWN'}${task.state==='RUNNING'?' · preparing/copying':task.pinned_count?` · ${task.pinned_count} pinned`:''}`,'offline-task-label'));
     if(task.state==='RUNNING'){const cancelButton=button('Cancel download',()=>void offlineCancel(task.id));t.append(cancelButton);}
+    else if(task.state==='SUCCEEDED'&&task.edit_id)t.append(paragraph(`Queued edit ID ${task.edit_id}${task.remote_verification?` · ${task.remote_verification}`:''}`,'muted'));
     else if(task.state==='SUCCEEDED'&&task.exported_path)t.append(paragraph(`Exported to ${task.exported_path}`,'muted'));
-    else if(task.state==='FAILED'||task.state==='CANCELLED')t.append(paragraph(task.detail||'Check the pinned-files list; partial verified downloads may remain.','muted'));
+    else if(task.state==='FAILED'||task.state==='CANCELLED'||task.state==='REVIEW_REQUIRED')t.append(paragraph(task.detail||'Check the pinned-files list; partial verified downloads may remain.','muted'));
     body.append(t);
   }
   const manifest=state.offlineManifest;
@@ -560,12 +581,39 @@ function renderOfflineBody(body,name) {
     const line=paragraph(`${p.path} · ${offlineBytes(p.size)} · stored ${p.verification||'local hash'}`,'offline-pin-name');item.append(line);
     const actions=document.createElement('div');actions.className='offline-actions';
     actions.append(button('Verify',()=>void offlineVerify(name,p.path)));
+    const dk=`draft:${name}:${p.path}`;
+    const db=button(state.offlineConfirm===dk?'Confirm PUBLIC editable copy':'Edit offline',()=>{
+      if(state.offlineConfirm!==dk){state.offlineConfirm=dk;renderOfflinePanels();return;}
+      state.offlineConfirm='';void offlineWriteTask('draft',name,p.path);
+    });db.disabled=busy;actions.append(db);
+    const sb=button('Queue edited draft',()=>void offlineWriteTask('stage',name,p.path));sb.disabled=busy;actions.append(sb);
+
     const ek=`export:${name}:${p.path}`,uk=`unpin:${name}:${p.path}`;
     const eb=button(state.offlineConfirm===ek?'Confirm public export':'Export',()=>void offlineConfirmAction('export',name,p.path));eb.disabled=busy;actions.append(eb);
     const ub=button(state.offlineConfirm===uk?'Confirm unpin':'Unpin',()=>void offlineConfirmAction('unpin',name,p.path));ub.disabled=busy;actions.append(ub);
     item.append(actions);body.append(item);
   }
   if(view.count>100)offlineNotice(body,`Showing the first 100 of ${view.count} pinned files.`);
+  const edits=(state.offlineEdits||[]).filter(e=>e.mount===name);
+  if(edits.length){
+    body.append(paragraph(`Offline write queue: ${edits.length} private, immutable edit${edits.length===1?'':'s'}. No automatic sync or overwrite.`,'offline-caption'));
+    for(const e of edits){
+      const wrap=document.createElement('div');wrap.className='offline-pin-row';
+      wrap.append(paragraph(`${e.path} · ${offlineBytes(e.size)} · ${e.state} · ID ${e.id}`,'offline-pin-name'));
+      const actions=document.createElement('div');actions.className='offline-actions';
+      const checkButton=button('Compare remote revision',()=>void offlineWriteCheck(e.id));checkButton.disabled=busy;actions.append(checkButton);
+      if(e.state==='QUEUED'){
+        const key=`copy:${e.id}`;
+        const publishButton=button(state.offlineConfirm===key?'CONFIRM upload SEPARATE COPY':'Upload separate remote copy',()=>{
+          if(state.offlineConfirm!==key){state.offlineConfirm=key;renderOfflinePanels();return;}
+          state.offlineConfirm='';void offlineWriteCopy(e.id);
+        });publishButton.disabled=busy;actions.append(publishButton);
+      }
+      wrap.append(actions);body.append(wrap);
+    }
+  }
+  offlineNotice(body,'Experimental offline edits: edit only the explicit PUBLIC draft in Download/Skybind-Offline-Drafts, then queue it. Upload creates a separate file under Skybind-Offline-Edits/<ID>/ on your remote. Original cloud files remain untouched. Indeterminate uploads are never retried automatically.');
+
   const quota=document.createElement('div');quota.className='offline-quota';
   quota.append(paragraph('Private offline quota (GiB)', 'offline-caption'));
   const num=document.createElement('input');num.type='number';num.min='1';num.max='64';num.step='1';num.value=String(Math.max(1,Math.round(view.quotaBytes/(1024**3))));num.setAttribute('aria-label','Offline quota in GiB');

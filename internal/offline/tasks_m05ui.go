@@ -21,16 +21,18 @@ type TaskManager struct {
 	cancel context.CancelFunc
 }
 type TaskStatus struct {
-	ID           string `json:"id"`
-	Kind         string `json:"kind"`
-	Mount        string `json:"mount"`
-	Path         string `json:"path"`
-	State        string `json:"state"`
-	Started      int64  `json:"started_unix"`
-	Finished     int64  `json:"finished_unix,omitempty"`
-	Pinned       int    `json:"pinned_count,omitempty"`
-	Detail       string `json:"detail,omitempty"`
-	ExportedPath string `json:"exported_path,omitempty"`
+	ID                 string `json:"id"`
+	Kind               string `json:"kind"`
+	Mount              string `json:"mount"`
+	Path               string `json:"path"`
+	State              string `json:"state"`
+	Started            int64  `json:"started_unix"`
+	Finished           int64  `json:"finished_unix,omitempty"`
+	Pinned             int    `json:"pinned_count,omitempty"`
+	Detail             string `json:"detail,omitempty"`
+	ExportedPath       string `json:"exported_path,omitempty"`
+	EditID             string `json:"edit_id,omitempty"`
+	RemoteVerification string `json:"remote_verification,omitempty"`
 }
 
 func NewTaskManager(store *Store) *TaskManager { return &TaskManager{store: store} }
@@ -43,7 +45,7 @@ func (m *TaskManager) Tasks() []TaskStatus {
 	return result
 }
 func (m *TaskManager) Start(kind, mount, rel string) (TaskStatus, error) {
-	if kind != "pin" && kind != "pin-dir" && kind != "export" && kind != "view" {
+	if kind != "pin" && kind != "pin-dir" && kind != "export" && kind != "view" && kind != "write-draft" && kind != "write-stage" && kind != "write-upload-copy" {
 		return TaskStatus{}, errors.New("offline_invalid_action")
 	}
 	if !safeName.MatchString(mount) || (kind != "view" && validatePath(rel) != nil) || (kind == "view" && rel != "") {
@@ -78,7 +80,20 @@ func (m *TaskManager) run(ctx context.Context, cancel context.CancelFunc, id, ki
 	var count int
 	var dest string
 	var err error
-	if kind == "export" {
+	var editID, remoteVerification string
+	if kind == "write-draft" {
+		dest, err = m.store.DraftContext(ctx, mount, rel)
+	} else if kind == "write-stage" {
+		var entry Edit
+		entry, err = m.store.StageContext(ctx, mount, rel)
+		editID = entry.ID
+	} else if kind == "write-upload-copy" {
+		var entry Edit
+		entry, err = m.store.UploadSeparateCopy(ctx, rel, "--acknowledge-separate-copy")
+		editID = entry.ID
+		remoteVerification = entry.RemoteVerification
+		dest = entry.UploadedRemoteCopy
+	} else if kind == "export" {
 		dest, err = m.store.ExportContext(ctx, mount, rel)
 	} else if kind == "view" {
 		dest, err = m.store.PublishView(ctx, mount)
@@ -94,12 +109,24 @@ func (m *TaskManager) run(ctx context.Context, cancel context.CancelFunc, id, ki
 		t := &m.tasks[i]
 		t.Finished = time.Now().Unix()
 		t.Pinned = count
+		t.EditID = editID
+		t.RemoteVerification = remoteVerification
 		if ctx.Err() != nil {
+			if kind == "write-upload-copy" && editID!="" {
+				t.State = "REVIEW_REQUIRED"
+				t.Detail = "Remote copy may be partial or complete. Original remote was not targeted. Inspect destination; do not retry automatically."
+				break
+			}
 			t.State = "CANCELLED"
 			t.Detail = "Operation cancelled or timed out; already verified pins remain saved"
 		} else if err != nil {
+			if kind == "write-upload-copy" && editID!="" {
+				t.State = "REVIEW_REQUIRED"
+				t.Detail = "Remote copy outcome uncertain; original remote untouched. Inspect separate destination before any recovery."
+				break
+			}
 			t.State = "FAILED"
-			t.Detail = "Offline operation failed; private pins remain untouched"
+			t.Detail = "Offline operation failed or requires manual review; any sealed edits remain private"
 		} else {
 			t.State = "SUCCEEDED"
 			t.ExportedPath = dest

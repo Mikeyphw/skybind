@@ -126,6 +126,78 @@ func RegisterOffline(e *control.Engine, tasks *offline.TaskManager, store *offli
 	}); err != nil {
 		return err
 	}
+	// M6 is opt-in. Editing uses only fixed private/Downloads paths;
+	// uploading NEVER targets the original remote name, even on conflicts.
+	if err := register("offline.write.list", protocol.Query, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		if err := emptyArgs(raw); err != nil {
+			return nil, err
+		}
+		if tasks.Busy() {
+			return nil, errors.New("offline_busy")
+		}
+		return store.Edits()
+	}); err != nil {
+		return err
+	}
+	if err := register("offline.write.check", protocol.Query, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var a struct {
+			ID string `json:"id"`
+		}
+		if err := protocol.StrictBytes(raw, &a); err != nil {
+			return nil, err
+		}
+		if tasks.Busy() {
+			return nil, errors.New("offline_busy")
+		}
+		return store.CheckEdit(ctx, a.ID)
+	}); err != nil {
+		return err
+	}
+	if err := register("offline.write.draft", protocol.Run, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		a, err := decode(raw)
+		if err != nil {
+			return nil, err
+		}
+		return tasks.Start("write-draft", a.Mount, a.Path)
+	}); err != nil {
+		return err
+	}
+	if err := register("offline.write.stage", protocol.Run, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		a, err := decode(raw)
+		if err != nil {
+			return nil, err
+		}
+		return tasks.Start("write-stage", a.Mount, a.Path)
+	}); err != nil {
+		return err
+	}
+	if err := register("offline.write.upload-copy", protocol.Run, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var a struct {
+			ID          string `json:"id"`
+			Acknowledge bool   `json:"acknowledge"`
+		}
+		if err := protocol.StrictBytes(raw, &a); err != nil {
+			return nil, err
+		}
+		if !a.Acknowledge {
+			return nil, errors.New("explicit_separate_copy_confirmation_required")
+		}
+		if tasks.Busy() {
+			return nil, errors.New("offline_busy")
+		}
+		j, err := store.Edits()
+		if err != nil {
+			return nil, err
+		}
+		for _, edit := range j.Edits {
+			if edit.ID == a.ID && edit.State == "QUEUED" {
+				return tasks.Start("write-upload-copy", edit.Mount, a.ID)
+			}
+		}
+		return nil, errors.New("offline_edit_not_queued")
+	}); err != nil {
+		return err
+	}
 	return register("offline.cancel", protocol.Cancel, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var a struct {
 			ID string `json:"id"`

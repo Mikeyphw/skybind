@@ -17,7 +17,7 @@ func offlineCommand(args []string, store *offline.Store) int {
 		return 1
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: skybind offline <list|pin|pin-dir|status|check|export|view-publish|unpin|gc|quota> [mount] [relative-path]")
+		fmt.Fprintln(os.Stderr, "usage: skybind offline <list|pin|pin-dir|status|check|export|view-publish|unpin|gc|quota|write-draft|write-stage|write-list|write-check|write-upload-copy> ...")
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -25,6 +25,32 @@ func offlineCommand(args []string, store *offline.Store) int {
 	var v any
 	var err error
 	switch args[0] {
+	case "write-draft", "write-stage":
+		if len(args) != 3 {
+			return 2
+		}
+		if args[0] == "write-draft" {
+			var dest string
+			dest, err = store.Draft(args[1], args[2])
+			v = map[string]any{"editable_draft_path": dest, "warning": "Public Downloads draft; contains plaintext. No remote modification."}
+		} else {
+			v, err = store.Stage(args[1], args[2])
+		}
+	case "write-list":
+		if len(args) != 1 {
+			return 2
+		}
+		v, err = store.Edits()
+	case "write-check":
+		if len(args) != 2 {
+			return 2
+		}
+		v, err = store.CheckEdit(ctx, args[1])
+	case "write-upload-copy":
+		if len(args) != 3 {
+			return 2
+		}
+		v, err = store.UploadSeparateCopy(ctx, args[1], args[2])
 	case "list":
 		if len(args) != 1 {
 			return 2
