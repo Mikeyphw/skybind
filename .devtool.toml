@@ -180,6 +180,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+q12-provenance = ["job:q12-provenance"]
 q11-reconcile = ["job:q11-reconcile"]
 qualification-readiness = ["job:q01-gate-triage"]
 final-audit = ["job:cfs1-audit-definition"]
@@ -896,3 +897,16 @@ execution_environment = "native-termux"
 command = ["python3", "../scripts/dev/release/q11_reconcile.py", "--evidence-dir", "/storage/emulated/0/Download", "--output-dir", "/storage/emulated/0/Download"]
 inputs = ["../scripts/dev/release/q11_reconcile.py", "../scripts/dev/seal/**", "../scripts/dev/gates/**", "../docs/gates/**"]
 metadata = { qualification = "raw-evidence-reconciliation-only", independent_attestation = false, release_seal = false }
+
+# SB-Q12: local source/candidate/installed hash inventory, not independent proof.
+[wrapper.commands.q12]
+description = "Check source/build/device provenance hashes without promoting release gates"
+workflow = "q12-provenance"
+target = "skybind_release"
+
+[targets.skybind_release.jobs.q12-provenance]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../scripts/dev/release/q12_provenance.py", "--evidence-dir", "/storage/emulated/0/Download", "--output-dir", "/storage/emulated/0/Download"]
+inputs = ["../scripts/dev/release/q12_provenance.py", "../scripts/dev/release/q11_reconcile.py", "../scripts/dev/release/skybind_release.py", "../scripts/dev/seal/**", "../scripts/dev/gates/**"]
+metadata = { qualification = "local-observed-hashes-only", independent_attestation = false, release_seal = false, read_only = true }

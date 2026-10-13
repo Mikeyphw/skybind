@@ -207,6 +207,22 @@ def record_local_toolchain(output: Path, report: dict, actual_go: str, ci_pin: s
     report['selected_ci_toolchain'] = 'go' + ci_pin
     report['local_go_matches_ci_pin'] = actual_go == ci_pin
     report['local_toolchain_qualification'] = 'NOT_ATTESTED_NOT_CI_EQUIVALENT'
+    # SB-Q12: capture source identity at the *time of build*, not after installation.
+    # This receipt is local/self-reported and is NEVER a signed release assertion.
+    def git(*args: str) -> str | None:
+        p = subprocess.run(['git', '-c', 'safe.directory=' + str(ROOT), '-C', str(ROOT), *args],
+                           capture_output=True, text=True, timeout=10, check=False)
+        return p.stdout.strip() if p.returncode == 0 else None
+    commit = git('rev-parse', 'HEAD')
+    tree = git('rev-parse', 'HEAD^{tree}')
+    clean = git('status', '--porcelain') == ''
+    if not commit or not tree:
+        clean = False
+    report['q12_source_build'] = {
+        'schema_version': 1, 'commit': commit, 'tree': tree, 'git_clean': clean,
+        'candidate_sha256': {provider: item['sha256'] for provider, item in report['candidates'].items()},
+        'assurance': 'LOCAL_SELF_REPORTED_BUILD_TIME_NOT_ATTESTED',
+    }
     (output / 'candidate-evidence.json').write_bytes(q05.rt.canonical(report))
 
 
