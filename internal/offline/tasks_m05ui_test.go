@@ -57,7 +57,7 @@ func TestM05UIAsyncPinCompletion(t *testing.T) {
 func TestM05UIRejectsInvalidTasks(t *testing.T) {
 	s, _ := fixture(t)
 	m := NewTaskManager(s)
-	for _, q := range []struct{ kind, mount, path string }{{"shell", "drive", "a"}, {"pin", "/dev", "a"}, {"pin", "drive", "a/../evil"}, {"export", "drive", "/root"}} {
+	for _, q := range []struct{ kind, mount, path string }{{"shell", "drive", "a"}, {"pin", "/dev", "a"}, {"pin", "drive", "a/../evil"}, {"export", "drive", "/root"}, {"view", "drive", "some/path"}, {"view", "../drive", ""}} {
 		if _, err := m.Start(q.kind, q.mount, q.path); err == nil {
 			t.Fatalf("accepted invalid task %+v", q)
 		}

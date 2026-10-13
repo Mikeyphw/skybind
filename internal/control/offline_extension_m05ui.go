@@ -6,14 +6,15 @@ import "skybind/internal/protocol"
 // catalog is immutable; these are separately allowlisted, NOT silently added
 // to the historical catalog or represented as CFS1-qualified operations.
 var offlineExtension = map[string]protocol.Class{
-	"offline.list":   protocol.Query,
-	"offline.status": protocol.Query,
-	"offline.tasks":  protocol.Query,
-	"offline.pin":    protocol.Run,
-	"offline.export": protocol.Run,
-	"offline.unpin":  protocol.Run,
-	"offline.quota":  protocol.Run,
-	"offline.cancel": protocol.Cancel,
+	"offline.list":         protocol.Query,
+	"offline.status":       protocol.Query,
+	"offline.tasks":        protocol.Query,
+	"offline.pin":          protocol.Run,
+	"offline.export":       protocol.Run,
+	"offline.view.publish": protocol.Run,
+	"offline.unpin":        protocol.Run,
+	"offline.quota":        protocol.Run,
+	"offline.cancel":       protocol.Cancel,
 }
 
 func lookupOfflineExtension(name string) (CatalogItem, bool) {

@@ -74,6 +74,17 @@ func RegisterOffline(e *control.Engine, tasks *offline.TaskManager, store *offli
 	}); err != nil {
 		return err
 	}
+	if err := register("offline.view.publish", protocol.Run, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var a struct {
+			Mount string `json:"mount"`
+		}
+		if err := protocol.StrictBytes(raw, &a); err != nil {
+			return nil, err
+		}
+		return tasks.Start("view", a.Mount, "")
+	}); err != nil {
+		return err
+	}
 	if err := register("offline.export", protocol.Run, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		a, err := decode(raw)
 		if err != nil {

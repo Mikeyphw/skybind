@@ -17,7 +17,7 @@ func offlineCommand(args []string, store *offline.Store) int {
 		return 1
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: skybind offline <list|pin|pin-dir|status|check|export|unpin|gc|quota> [mount] [relative-path]")
+		fmt.Fprintln(os.Stderr, "usage: skybind offline <list|pin|pin-dir|status|check|export|view-publish|unpin|gc|quota> [mount] [relative-path]")
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -59,6 +59,13 @@ func offlineCommand(args []string, store *offline.Store) int {
 		var dest string
 		dest, err = store.Export(args[1], args[2])
 		v = map[string]any{"exported_path": dest, "warning": "export is a separate readable Android media copy, NOT a synced or protected mount"}
+	case "view-publish":
+		if len(args) != 2 {
+			return 2
+		}
+		var dest string
+		dest, err = store.PublishView(ctx, args[1])
+		v = map[string]any{"view_path": dest, "warning": "public Android Downloads snapshot; separate from original FUSE mount, not synchronized or tamper-resistant"}
 	case "unpin":
 		if len(args) != 3 {
 			return 2

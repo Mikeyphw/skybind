@@ -497,6 +497,14 @@ async function offlineConfirmAction(kind,name,path){
   try {result(await run('offline.unpin',{mount:name,path}));showToast('Pin removed from manifest. Content is not immediately deleted.');await offlineLoad(name);}
   catch(error){showToast(`Could not unpin: ${error?.message||'backend unavailable'}`,'error');}
 }
+async function offlinePublishView(name){
+  try {
+    const task=result(await run('offline.view.publish',{mount:name}));
+    state.offlineTasks=[...state.offlineTasks,task];
+    showToast('Publishing verified snapshots to Android Downloads. Copies are public and not synchronized.');
+    renderOfflinePanels();offlineSchedulePoll();
+  } catch(error) { showToast(`Offline view refused: ${error?.message||'backend unavailable'}`,'error'); }
+}
 async function offlineVerify(name,path){
   try{const status=result(await query('offline.status',{mount:name,path}));showToast(`${status.state||'UNKNOWN'}: ${status.detail||'Local verification completed.'}`,status.state==='AVAILABLE_OFFLINE'?'ok':'warn');}
   catch(error){showToast('Local verification unavailable or timed out; not considered verified.','warn');}
@@ -514,7 +522,7 @@ function renderOfflineBody(body,name) {
   clear(body);
   if(state.offlineUnsupported) {offlineNotice(body,'Offline extension unavailable. Install matching Skybind daemon and refresh.','notice');return;}
   const task=activeOfflineTask(state.offlineTasks,name),busy=state.offlineTasks.some(t=>t.state==='RUNNING');
-  offlineNotice(body,'Files are stored as private, read-only verified snapshots—not transparent offline mount files. Export makes a separate public, unsynced copy.');
+  offlineNotice(body,'Private verified snapshots are not automatically exposed through FUSE. Publish a separate Android Downloads view for other apps when offline; it is an unsynced, public copy.');
   const entry=document.createElement('div');entry.className='offline-entry';
   const input=document.createElement('input');input.type='text';input.className='offline-path-input';input.placeholder='Relative path, e.g. Documents/report.pdf';input.maxLength=512;
   input.value=state.offlineInput.get(name)||'';input.setAttribute('aria-label',`Offline path for ${name}`);
@@ -537,6 +545,17 @@ function renderOfflineBody(body,name) {
   const view=offlineSnapshotSummary(manifest,name);
   body.append(paragraph(`${view.count} pinned files on ${name} · ${offlineBytes(view.referencedBytes)} referenced across all mounts · quota ${offlineBytes(view.quotaBytes)}. Stored files are not reverified until you select Verify.`, 'offline-caption'));
   if(!view.count){offlineNotice(body,'Nothing pinned on this mount yet.');}
+  else {
+    const publish=document.createElement('div');publish.className='offline-actions';
+    const key=`view:${name}:`;
+    const btn=button(state.offlineConfirm===key?'Confirm PUBLIC view (extra storage)':'Publish offline files view',()=>{
+      if(state.offlineConfirm!==key){state.offlineConfirm=key;renderOfflinePanels();return;}
+      state.offlineConfirm='';void offlinePublishView(name);
+    });
+    btn.disabled=busy;publish.append(btn);
+    body.append(publish);
+    offlineNotice(body,'Publishes ALL verified pins into a NEW folder in Downloads, using additional storage. Older published views are not removed automatically.');
+  }
   for(const p of view.pins){const item=document.createElement('div');item.className='offline-pin-row';
     const line=paragraph(`${p.path} · ${offlineBytes(p.size)} · stored ${p.verification||'local hash'}`,'offline-pin-name');item.append(line);
     const actions=document.createElement('div');actions.className='offline-actions';

@@ -43,10 +43,10 @@ func (m *TaskManager) Tasks() []TaskStatus {
 	return result
 }
 func (m *TaskManager) Start(kind, mount, rel string) (TaskStatus, error) {
-	if kind != "pin" && kind != "pin-dir" && kind != "export" {
+	if kind != "pin" && kind != "pin-dir" && kind != "export" && kind != "view" {
 		return TaskStatus{}, errors.New("offline_invalid_action")
 	}
-	if !safeName.MatchString(mount) || validatePath(rel) != nil {
+	if !safeName.MatchString(mount) || (kind != "view" && validatePath(rel) != nil) || (kind == "view" && rel != "") {
 		return TaskStatus{}, errors.New("offline_invalid_selection")
 	}
 	if m.store == nil {
@@ -80,6 +80,8 @@ func (m *TaskManager) run(ctx context.Context, cancel context.CancelFunc, id, ki
 	var err error
 	if kind == "export" {
 		dest, err = m.store.ExportContext(ctx, mount, rel)
+	} else if kind == "view" {
+		dest, err = m.store.PublishView(ctx, mount)
 	} else {
 		count, err = m.store.Pin(ctx, mount, rel, kind == "pin-dir")
 	}
@@ -97,7 +99,7 @@ func (m *TaskManager) run(ctx context.Context, cancel context.CancelFunc, id, ki
 			t.Detail = "Operation cancelled or timed out; already verified pins remain saved"
 		} else if err != nil {
 			t.State = "FAILED"
-			t.Detail = "Offline operation failed; inspect existing pins before retry"
+			t.Detail = "Offline operation failed; private pins remain untouched"
 		} else {
 			t.State = "SUCCEEDED"
 			t.ExportedPath = dest
