@@ -21,6 +21,7 @@ import (
 	"skybind/internal/jobs"
 	"skybind/internal/journal"
 	"skybind/internal/mounts/cache"
+	"skybind/internal/offline"
 	"skybind/internal/mounts/config"
 	"skybind/internal/mounts/lifecycle"
 	"skybind/internal/mounts/networkwatch"
@@ -82,6 +83,8 @@ func run(args []string) int {
 		}
 		fmt.Println(dest)
 		return 0
+	case "offline":
+		return offlineCommand(args[1:], offline.Canonical())
 	case "daemon":
 		if len(args) != 1 {
 			usage()
@@ -159,7 +162,7 @@ func run(args []string) int {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: skybind <mount|jobs|job|crypt|remotes|namespace|doctor|platform|runtime|rc|webui|daemon|capabilities|operation|rpc|version|paths|help>")
+	fmt.Fprintln(os.Stderr, "usage: skybind <mount|jobs|job|crypt|remotes|namespace|doctor|platform|runtime|rc|offline|webui|daemon|capabilities|operation|rpc|version|paths|help>")
 }
 func daemonCommand() int {
 	if os.Geteuid() != 0 {

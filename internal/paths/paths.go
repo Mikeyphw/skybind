@@ -28,6 +28,7 @@ const linuxOPath = 0x200000
 var StateDirectories = [...]string{
 	"run", "config", "config/previous", "desired", "health", "jobs",
 	"namespace", "cache", "logs", "rc", "ui", "support", "journal", "locks",
+	"offline", "offline/objects",
 }
 
 // Layout is a read-only set of well-known paths, not a mutable root override.
