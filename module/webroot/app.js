@@ -1,7 +1,7 @@
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, saveSupportBundleToDownloads, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
 import { runtimeFailureText, providerReadinessPresentation } from './parity.js';
-import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, performanceSample, boundedPerformanceHistory, cachePressureAdvice, effectiveVfsOptions, suggestMountDefaults } from './model.js';
+import { DEFAULT_MOUNT, activityPresentation, candidate, consequenceLabel, isDestructivePreview, localMountIssues, mountRows, operationSummary, parseRemoteEndpoint, previewIsUsable, profilePresentation, removeMount, replaceMount, performanceSample, boundedPerformanceHistory, cachePressureAdvice, effectiveVfsOptions, suggestMountDefaults, safeOfflineRelativePath, offlineSnapshotSummary, activeOfflineTask } from './model.js';
 
 const byId = (id) => document.getElementById(id);
 const compatibility = byId('compatibility');
@@ -12,6 +12,7 @@ const state = {
   editorDirty: false, editorInitial: '', editorExisting: false, editorValidationTimer: null, editorValidationSeq: 0, editorIssues: [], editorStep: 0, editorInteracted: false,
   editorRemotes: [], editorProfiles: [], editorRecommendation: null, editorProviderStatus: null, editorRuntimeStatus: null, editorRemotePath: '', editorManualRemote: false, editorRemoteReachable: null, editorNameTouched: false, editorMountpointTouched: false, editorProfileTouched: false, editorBackendValidated: false, editorTrigger: null, editorSession: 0, previewTimer: null, operationPollToken: 0, mountActionName: '', mountActionReturnFocus: null,
   perfOpen: new Set(), perfCache: new Map(), perfHistory: new Map(), perfPid: new Map(), perfPending: new Set(), perfEpoch: 0,
+  offlineOpen: new Set(), offlineInput: new Map(), offlineManifest: null, offlineTasks: [], offlinePending: false, offlineUnsupported: false, offlineConfirm: '', offlinePollId: null,
   mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountConfirmRequest: 0, mountPathReturnFocus: null,
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
@@ -451,6 +452,130 @@ function mountPerformancePanel(card,name,running) {
   if(state.perfOpen.has(name))updatePerformancePanel(name);
 }
 
+// M5 read-only snapshot controls. Transport remains the existing typed WebUI
+// bridge; this interface cannot execute arbitrary commands or serve private files.
+function offlineBytes(value) {
+  const n=Number(value);if(!Number.isFinite(n)||n<0)return 'Unavailable';
+  return `${(n/(1024*1024)).toFixed(1)} MiB`;
+}
+function offlineShown(name){return state.activeView==='mounts'&&state.offlineOpen.has(name);}
+function offlineNotice(body,message,kind='') {body.append(paragraph(message,kind||'muted'));}
+async function offlineLoad(name) {
+  if(state.offlinePending)return;
+  state.offlinePending=true;
+  try {
+    const tasks=result(await query('offline.tasks',{}));state.offlineTasks=tasks.tasks||[];
+    const running=state.offlineTasks.some(t=>t.state==='RUNNING');
+    if(!running)state.offlineManifest=result(await query('offline.list',{}));
+    state.offlineUnsupported=false;
+  } catch (error) {
+    if(state.offlineManifest===null)state.offlineUnsupported=true;
+    showToast(`Offline controls unavailable: ${error?.message||'backend not ready'}`,'warn');
+  } finally {state.offlinePending=false;renderOfflinePanels();offlineSchedulePoll();}
+}
+function offlineSchedulePoll() {
+  if(state.offlinePollId)clearTimeout(state.offlinePollId);
+  state.offlinePollId=null;
+  if(state.activeView!=='mounts'||document.visibilityState!=='visible'||!state.offlineOpen.size)return;
+  if(state.offlineTasks.some(t=>t.state==='RUNNING')) {
+    state.offlinePollId=setTimeout(()=>{state.offlinePollId=null;const name=state.offlineOpen.values().next().value; if(name)void offlineLoad(name);},2500);
+  }
+}
+async function offlineTaskAction(kind,name,path,recursive=false) {
+  try {
+    const task=result(await run(kind==='export'?'offline.export':'offline.pin',kind==='export'?{mount:name,path}:{mount:name,path,recursive}));
+    state.offlineTasks=[...state.offlineTasks,task];
+    showToast(kind==='export'?'Export queued. This creates a public, unsynced copy.':'Offline download queued. Verified files remain private until exported.');
+    renderOfflinePanels();offlineSchedulePoll();
+  }catch(error){showToast(`Offline operation refused: ${error?.message||'backend unavailable'}`,'error');}
+}
+async function offlineConfirmAction(kind,name,path){
+  const key=`${kind}:${name}:${path}`;
+  if(state.offlineConfirm!==key){state.offlineConfirm=key;renderOfflinePanels();return;}
+  state.offlineConfirm='';
+  if(kind==='export'){await offlineTaskAction('export',name,path);return;}
+  try {result(await run('offline.unpin',{mount:name,path}));showToast('Pin removed from manifest. Content is not immediately deleted.');await offlineLoad(name);}
+  catch(error){showToast(`Could not unpin: ${error?.message||'backend unavailable'}`,'error');}
+}
+async function offlineVerify(name,path){
+  try{const status=result(await query('offline.status',{mount:name,path}));showToast(`${status.state||'UNKNOWN'}: ${status.detail||'Local verification completed.'}`,status.state==='AVAILABLE_OFFLINE'?'ok':'warn');}
+  catch(error){showToast('Local verification unavailable or timed out; not considered verified.','warn');}
+}
+async function offlineCancel(id){
+  try{result(await cancel('offline.cancel',{id}));showToast('Cancellation requested. Previously verified files remain pinned.');}
+  catch(error){showToast(`Cannot cancel: ${error?.message||'not active'}`,'error');}
+}
+function renderOfflinePanels(){
+  for(const name of state.offlineOpen){const card=[...byId('mountCards')?.children||[]].find(el=>el.dataset.mountName===name);if(!card)continue;
+    const body=card.querySelector('.offline-body');if(body && !body.hidden)renderOfflineBody(body,name);
+  }
+}
+function renderOfflineBody(body,name) {
+  clear(body);
+  if(state.offlineUnsupported) {offlineNotice(body,'Offline extension unavailable. Install matching Skybind daemon and refresh.','notice');return;}
+  const task=activeOfflineTask(state.offlineTasks,name),busy=state.offlineTasks.some(t=>t.state==='RUNNING');
+  offlineNotice(body,'Files are stored as private, read-only verified snapshots—not transparent offline mount files. Export makes a separate public, unsynced copy.');
+  const entry=document.createElement('div');entry.className='offline-entry';
+  const input=document.createElement('input');input.type='text';input.className='offline-path-input';input.placeholder='Relative path, e.g. Documents/report.pdf';input.maxLength=512;
+  input.value=state.offlineInput.get(name)||'';input.setAttribute('aria-label',`Offline path for ${name}`);
+  input.addEventListener('input',()=>state.offlineInput.set(name,input.value));
+  const controls=document.createElement('div');controls.className='offline-actions';
+  const add=(text,fn)=>{const b=button(text,fn);b.disabled=busy;controls.append(b);};
+  const selected=()=>{const path=safeOfflineRelativePath(input.value);if(!path)showToast('Enter a relative remote path without .., backslashes, or a leading /.','warn');return path;};
+  add('↓ Keep file',()=>{const p=selected();if(p)void offlineTaskAction('pin',name,p,false);});
+  add('↓ Keep folder',()=>{const p=selected();if(p)void offlineTaskAction('pin',name,p,true);});
+  add('↻ Refresh',()=>void offlineLoad(name));entry.append(input,controls);body.append(entry);
+  if(task){const t=document.createElement('div');t.className='offline-task';
+    t.append(paragraph(`${task.kind||'Task'} · ${task.state||'UNKNOWN'}${task.state==='RUNNING'?' · preparing/copying':task.pinned_count?` · ${task.pinned_count} pinned`:''}`,'offline-task-label'));
+    if(task.state==='RUNNING'){const cancelButton=button('Cancel download',()=>void offlineCancel(task.id));t.append(cancelButton);}
+    else if(task.state==='SUCCEEDED'&&task.exported_path)t.append(paragraph(`Exported to ${task.exported_path}`,'muted'));
+    else if(task.state==='FAILED'||task.state==='CANCELLED')t.append(paragraph(task.detail||'Check the pinned-files list; partial verified downloads may remain.','muted'));
+    body.append(t);
+  }
+  const manifest=state.offlineManifest;
+  if(!manifest){offlineNotice(body,'Select Refresh to fetch the offline manifest.');return;}
+  const view=offlineSnapshotSummary(manifest,name);
+  body.append(paragraph(`${view.count} pinned files on ${name} · ${offlineBytes(view.referencedBytes)} referenced across all mounts · quota ${offlineBytes(view.quotaBytes)}. Stored files are not reverified until you select Verify.`, 'offline-caption'));
+  if(!view.count){offlineNotice(body,'Nothing pinned on this mount yet.');}
+  for(const p of view.pins){const item=document.createElement('div');item.className='offline-pin-row';
+    const line=paragraph(`${p.path} · ${offlineBytes(p.size)} · stored ${p.verification||'local hash'}`,'offline-pin-name');item.append(line);
+    const actions=document.createElement('div');actions.className='offline-actions';
+    actions.append(button('Verify',()=>void offlineVerify(name,p.path)));
+    const ek=`export:${name}:${p.path}`,uk=`unpin:${name}:${p.path}`;
+    const eb=button(state.offlineConfirm===ek?'Confirm public export':'Export',()=>void offlineConfirmAction('export',name,p.path));eb.disabled=busy;actions.append(eb);
+    const ub=button(state.offlineConfirm===uk?'Confirm unpin':'Unpin',()=>void offlineConfirmAction('unpin',name,p.path));ub.disabled=busy;actions.append(ub);
+    item.append(actions);body.append(item);
+  }
+  if(view.count>100)offlineNotice(body,`Showing the first 100 of ${view.count} pinned files.`);
+  const quota=document.createElement('div');quota.className='offline-quota';
+  quota.append(paragraph('Private offline quota (GiB)', 'offline-caption'));
+  const num=document.createElement('input');num.type='number';num.min='1';num.max='64';num.step='1';num.value=String(Math.max(1,Math.round(view.quotaBytes/(1024**3))));num.setAttribute('aria-label','Offline quota in GiB');
+  const save=button('Update quota',async()=>{const gib=Number(num.value);if(!Number.isSafeInteger(gib)||gib<1||gib>64){showToast('Quota must be from 1 to 64 GiB.','warn');return;}try{result(await run('offline.quota',{gib}));showToast('Offline quota updated.');await offlineLoad(name);}catch(_){showToast('Quota cannot be lowered below retained objects, or backend unavailable.','warn');}});save.disabled=busy;
+  quota.append(num,save);body.append(quota);
+}
+function mountOfflinePanel(card,name) {
+  const wrap=document.createElement('section');wrap.className='offline-section';
+  const opened=state.offlineOpen.has(name);
+  const trigger=button(opened?'▴ Hide offline files':'▾ Offline files',()=>{
+    if(state.offlineOpen.has(name)){state.offlineOpen.delete(name);body.hidden=true;trigger.textContent='▾ Offline files';}
+    else {
+      for(const previous of state.offlineOpen){
+        const oldCard=[...byId('mountCards')?.children||[]].find(el=>el.dataset.mountName===previous);
+        if(oldCard){const previousBody=oldCard.querySelector('.offline-body'),previousToggle=oldCard.querySelector('.offline-toggle');
+          if(previousBody)previousBody.hidden=true;
+          if(previousToggle){previousToggle.textContent='▾ Offline files';previousToggle.setAttribute('aria-expanded','false');}
+        }
+      }
+      state.offlineOpen.clear();state.offlineOpen.add(name);body.hidden=false;trigger.textContent='▴ Hide offline files';void offlineLoad(name);
+    }
+    trigger.setAttribute('aria-expanded',String(state.offlineOpen.has(name)));offlineSchedulePoll();
+  },'offline-toggle');
+  trigger.setAttribute('aria-expanded',String(opened));trigger.setAttribute('aria-controls',`offline-${name}`);
+  const body=document.createElement('div');body.className='offline-body';body.id=`offline-${name}`;body.hidden=!opened;body.setAttribute('role','region');body.setAttribute('aria-label',`Offline snapshots for ${name}`);
+  wrap.append(trigger,body);card.append(wrap);
+  if(opened)renderOfflineBody(body,name);
+}
+
 function renderMounts(snapshot, statuses, health) {
   const root = byId('mountCards'); clear(root);
   const rows = mountRows(snapshot, statuses, health);
@@ -498,6 +623,7 @@ function renderMounts(snapshot, statuses, health) {
     menu.setAttribute('aria-label', `More actions for ${name}`); menu.setAttribute('aria-haspopup', 'dialog');
     secondary.append(files, logs, edit, menu); card.append(secondary);
     mountPerformancePanel(card,name,status.running);
+    mountOfflinePanel(card,name);
     root.append(card);
   }
   for (const name of state.perfOpen)updatePerformancePanel(name);
@@ -511,6 +637,7 @@ async function loadMounts() {
   const statuses=result(statusesEnvelope).mounts || [];
   // Clear metrics if a mount is removed, stopped, or replaced with a new PID.
   const known=new Set((snapshot.mounts||[]).map(m=>m.name));
+  for (const name of state.offlineOpen)if(!known.has(name))state.offlineOpen.delete(name);
   for (const name of state.perfOpen)if(!known.has(name)){state.perfOpen.delete(name);state.perfCache.delete(name);state.perfHistory.delete(name);state.perfPid.delete(name);}
   const statusMap=new Map(statuses.map(row=>[row.name,row]));
   const rows=mountRows(snapshot,statuses,result(healthEnvelope).health || []);
@@ -1432,4 +1559,4 @@ byId('useMountRemoteFolderButton')?.addEventListener('click',chooseCurrentRemote
 for(const node of document.querySelectorAll('[data-mountpoint-template]'))node.addEventListener('click',()=>applyMountpointSuggestion(node.dataset.mountpointTemplate));
 byId('keepEditingButton')?.addEventListener('click',()=>{byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();});
 byId('discardChangesButton')?.addEventListener('click',forceCloseEditor);
-byId('editorBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('editorBackdrop'))closeEditor();});byId('discardBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('discardBackdrop')){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();}});byId('mountConfirmBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountConfirmBackdrop'))closeMountConfirmation();});byId('mountFolderBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountFolderBackdrop'))closeMountFolder();});byId('mountActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountActionBackdrop'))closeMountActions();});byId('remoteActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('remoteActionBackdrop'))closeRemoteActions();});byId('cryptBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('cryptBackdrop'))closeCryptCreator();});byId('jobBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('jobBackdrop'))closeJob();});byId('rollbackBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('rollbackBackdrop'))closeRollback();});document.addEventListener('keydown',(event)=>{if(!byId('discardBackdrop').hidden&&trapModalTab(event,byId('discardBackdrop')))return;if(!byId('mountConfirmBackdrop').hidden&&trapModalTab(event,byId('mountConfirmBackdrop')))return;if(!byId('mountFolderBackdrop').hidden&&trapModalTab(event,byId('mountFolderBackdrop')))return;if(!byId('mountActionBackdrop').hidden&&trapModalTab(event,byId('mountActionBackdrop')))return;if(!byId('remoteActionBackdrop').hidden&&trapModalTab(event,byId('remoteActionBackdrop')))return;if(!byId('cryptBackdrop').hidden&&trapModalTab(event,byId('cryptBackdrop')))return;if(!byId('editorBackdrop').hidden&&trapModalTab(event,byId('editorBackdrop')))return;if(!byId('jobBackdrop').hidden&&trapModalTab(event,byId('jobBackdrop')))return;if(!byId('rollbackBackdrop').hidden&&trapModalTab(event,byId('rollbackBackdrop')))return;if(event.key!=='Escape')return;if(!byId('discardBackdrop').hidden){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();return;}if(!byId('mountConfirmBackdrop').hidden){closeMountConfirmation();return;}if(!byId('mountFolderBackdrop').hidden){closeMountFolder();return;}if(!byId('mountActionBackdrop').hidden){closeMountActions();return;}if(!byId('remoteActionBackdrop').hidden){closeRemoteActions();return;}if(!byId('cryptBackdrop').hidden){closeCryptCreator();return;}if(!byId('jobBackdrop').hidden){closeJob();return;}if(!byId('editorBackdrop').hidden){closeEditor();return;}if(!byId('rollbackBackdrop').hidden)closeRollback();});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void setView(state.activeView);else {state.perfEpoch++;stopTimer();}});void bootstrap();
+byId('editorBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('editorBackdrop'))closeEditor();});byId('discardBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('discardBackdrop')){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();}});byId('mountConfirmBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountConfirmBackdrop'))closeMountConfirmation();});byId('mountFolderBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountFolderBackdrop'))closeMountFolder();});byId('mountActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountActionBackdrop'))closeMountActions();});byId('remoteActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('remoteActionBackdrop'))closeRemoteActions();});byId('cryptBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('cryptBackdrop'))closeCryptCreator();});byId('jobBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('jobBackdrop'))closeJob();});byId('rollbackBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('rollbackBackdrop'))closeRollback();});document.addEventListener('keydown',(event)=>{if(!byId('discardBackdrop').hidden&&trapModalTab(event,byId('discardBackdrop')))return;if(!byId('mountConfirmBackdrop').hidden&&trapModalTab(event,byId('mountConfirmBackdrop')))return;if(!byId('mountFolderBackdrop').hidden&&trapModalTab(event,byId('mountFolderBackdrop')))return;if(!byId('mountActionBackdrop').hidden&&trapModalTab(event,byId('mountActionBackdrop')))return;if(!byId('remoteActionBackdrop').hidden&&trapModalTab(event,byId('remoteActionBackdrop')))return;if(!byId('cryptBackdrop').hidden&&trapModalTab(event,byId('cryptBackdrop')))return;if(!byId('editorBackdrop').hidden&&trapModalTab(event,byId('editorBackdrop')))return;if(!byId('jobBackdrop').hidden&&trapModalTab(event,byId('jobBackdrop')))return;if(!byId('rollbackBackdrop').hidden&&trapModalTab(event,byId('rollbackBackdrop')))return;if(event.key!=='Escape')return;if(!byId('discardBackdrop').hidden){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();return;}if(!byId('mountConfirmBackdrop').hidden){closeMountConfirmation();return;}if(!byId('mountFolderBackdrop').hidden){closeMountFolder();return;}if(!byId('mountActionBackdrop').hidden){closeMountActions();return;}if(!byId('remoteActionBackdrop').hidden){closeRemoteActions();return;}if(!byId('cryptBackdrop').hidden){closeCryptCreator();return;}if(!byId('jobBackdrop').hidden){closeJob();return;}if(!byId('editorBackdrop').hidden){closeEditor();return;}if(!byId('rollbackBackdrop').hidden)closeRollback();});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void setView(state.activeView);else {state.perfEpoch++;stopTimer();if(state.offlinePollId)clearTimeout(state.offlinePollId);state.offlinePollId=null;}});void bootstrap();

@@ -88,6 +88,9 @@ func SchemaForOperation(name string) string {
 	}
 }
 func Lookup(name string) (CatalogItem, bool) {
+	if v, ok := lookupOfflineExtension(name); ok {
+		return v, true
+	}
 	c, err := loadCatalog()
 	if err != nil {
 		return CatalogItem{}, false

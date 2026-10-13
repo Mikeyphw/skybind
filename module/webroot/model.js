@@ -233,3 +233,27 @@ export function effectiveVfsOptions(config, profiles=[]) {
     readOnly:Boolean(cfg.read_only || selected?.read_only || cfg.vfs_profile==='read-only'),
     profile:cfg.vfs_profile};
 }
+
+// Pure, dependency-free M5 presentation helpers. Never interpret a manifest
+// record as locally verified unless offline.status confirms the object hash.
+export function safeOfflineRelativePath(raw) {
+  const path = String(raw ?? '').trim();
+  if (!path || path.length > 512 || path.startsWith('/') || /[\\:\x00\r\n\t]/.test(path)) return null;
+  if (path.split('/').some(seg => !seg || seg === '.' || seg === '..' || seg.length > 255)) return null;
+  return path;
+}
+export function offlineSnapshotSummary(manifest, mount) {
+  const pins = Array.isArray(manifest?.pins) ? manifest.pins.filter(p => p?.mount === mount && typeof p.path === 'string') : [];
+  const seen = new Set(); let referencedBytes = 0;
+  for (const p of manifest?.pins || []) {
+    if (!/^[0-9a-f]{64}$/.test(String(p?.sha256 || '')) || seen.has(p.sha256)) continue;
+    seen.add(p.sha256);
+    const n = Number(p.size);
+    if (Number.isSafeInteger(n) && n >= 0) referencedBytes += n;
+  }
+  return {pins: pins.slice(0,100), count:pins.length, referencedBytes, quotaBytes: Number(manifest?.quota_bytes) || 0};
+}
+export function activeOfflineTask(tasks, mount) {
+  const entries=Array.isArray(tasks) ? tasks : [];
+  return entries.find(t=>t?.state==='RUNNING') || [...entries].reverse().find(t=>t?.mount===mount) || null;
+}

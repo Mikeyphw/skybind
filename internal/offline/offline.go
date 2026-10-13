@@ -642,6 +642,11 @@ func (s *Store) Status(ctx context.Context, mount, rel string, checkRemote bool)
 // Export copies a verified immutable snapshot to a fixed Android Downloads tree.
 // This is intentionally an explicit public copy, NOT a writable offline-sync view.
 func (s *Store) Export(mount, rel string) (string, error) {
+	return s.ExportContext(context.Background(), mount, rel)
+}
+
+// ExportContext supports cancellation for large explicit public-file copies.
+func (s *Store) ExportContext(ctx context.Context, mount, rel string) (string, error) {
 	release, e := s.lock()
 	if e != nil {
 		return "", e
@@ -690,7 +695,7 @@ func (s *Store) Export(mount, rel string) (string, error) {
 		if e != nil {
 			return "", e
 		}
-		copied, e := io.Copy(out, src)
+		copied, e := io.Copy(out, cancelableReader{ctx: ctx, r: src})
 		if e == nil {
 			e = out.Sync()
 		}
@@ -705,6 +710,18 @@ func (s *Store) Export(mount, rel string) (string, error) {
 		return dst, nil
 	}
 	return "", errors.New("file not pinned")
+}
+
+type cancelableReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r cancelableReader) Read(b []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.Read(b)
 }
 func ensureExportParent(dest string) error {
 	base := "/storage/emulated/0/Download"

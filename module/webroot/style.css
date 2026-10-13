@@ -988,3 +988,18 @@ button:not(.primary):not(.danger):not(.nav-item):not(.nav-secondary):not(.remote
 .m03-effective-flags{display:block;max-width:100%;overflow-wrap:anywhere;white-space:normal;font-size:.73rem;line-height:1.6;color:var(--text-secondary,#aab8c8);padding:.45rem .7rem;border-radius:.5rem;background:rgba(128,148,170,.08)}
 .m03-cache-hint,.m03-profile-warning,.m03-cache-pressure{font-size:.78rem;line-height:1.55}
 .m03-cache-pressure.high{color:var(--warn,#e2b36f)}
+/* M5: read-only offline snapshot controls, visually subordinate to mount actions */
+.offline-section{margin-top:.55rem;padding-top:.45rem;border-top:1px solid var(--border,#363b43)}
+.offline-toggle{font-size:.84rem}
+.offline-body{padding:.7rem .25rem;display:grid;gap:.65rem;min-width:0}
+.offline-body[hidden]{display:none}
+.offline-entry{display:grid;gap:.4rem}
+.offline-path-input{width:100%;min-width:0;box-sizing:border-box}
+.offline-actions{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.offline-actions button{font-size:.81rem;min-height:34px}
+.offline-pin-row,.offline-task{padding:.55rem;border:1px solid var(--border,#3b4657);border-radius:9px;min-width:0}
+.offline-pin-name{overflow-wrap:anywhere}
+.offline-caption{font-size:.81rem;opacity:.85}
+.offline-quota{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.offline-quota input{width:5rem}
+@media(max-width:450px){.offline-actions button{flex:1 1 auto}.offline-body{padding-inline:0}}

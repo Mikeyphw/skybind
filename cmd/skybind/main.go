@@ -21,13 +21,13 @@ import (
 	"skybind/internal/jobs"
 	"skybind/internal/journal"
 	"skybind/internal/mounts/cache"
-	"skybind/internal/offline"
 	"skybind/internal/mounts/config"
 	"skybind/internal/mounts/lifecycle"
 	"skybind/internal/mounts/networkwatch"
 	"skybind/internal/mounts/policy"
 	"skybind/internal/mounts/supervisor"
 	"skybind/internal/namespace"
+	"skybind/internal/offline"
 	"skybind/internal/paths"
 	"skybind/internal/platformlifecycle"
 	"skybind/internal/protocol"
@@ -225,6 +225,12 @@ func daemonCommand() int {
 		fmt.Fprintln(os.Stderr, "UI settings registry:", err)
 		return 1
 	}
+	offlineStore := offline.Canonical()
+	if err = daemon.RegisterOffline(engine, offline.NewTaskManager(offlineStore), offlineStore); err != nil {
+		fmt.Fprintln(os.Stderr, "offline RPC registry:", err)
+		return 1
+	}
+
 	srv := daemon.New(paths.DaemonSocket, engine)
 	if err = srv.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "daemon start:", err)
