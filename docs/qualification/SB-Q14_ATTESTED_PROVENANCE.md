@@ -1,5 +1,17 @@
 # SB-Q14 — GitHub candidate provenance, not final release qualification
 
+## Q14R1 signing repair
+
+The Q14 run `38333520326` reached `actions/attest` on both lanes and failed with
+`predicate-type must be provided`. Q14R1 fixes the workflow by pinning
+`actions/attest` v4.0.0 to its complete immutable commit and requiring
+`artifact-metadata: write`, while keeping `subject-path` for automatic SLSA
+provenance. Do not supply fabricated custom predicates and do not reuse old
+unsigned results as signed evidence.
+
+Commit/push Q14R1 and start a **new** `workflow_dispatch` run. Keep
+CFS1 G01–G08 independently blocked until its actual evidence is verified.
+
 SB-Q13 run `38328621356` produced raw, byte-identical provider candidate reports. The
 user-uploaded archive contains only the comparison report, not the original candidates.
 SB-Q14 **fetches original A/B candidate artifacts** through authenticated `gh` API,
@@ -46,6 +58,6 @@ To ensure a clean rerun, **move or archive** the existing `skybind-q14-run-NUMBE
 folder before repeating the command. The checker refuses to reuse prior evidence.
 
 GitHub hosted runner generation includes `id-token: write` and `attestations: write`.
-The workflow pins the attestation action by its full commit hash. Signing failures
+The workflow pins `actions/attest` v4.0.0 to its verified full commit `c32b4b8b198b65d0bd9d63490e847ff7b53989d4`. Version 4 generates the SLSA provenance predicate automatically from `subject-path`; v3 generic attestation did not and caused `predicate-type must be provided` in run `38333520326`. The failed historical run cannot be retroactively signed. Signing failures
 must fail the workflow; no silent unsigned fallback. The working Android module is
 neither rebuilt nor modified.

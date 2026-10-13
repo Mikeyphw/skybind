@@ -10,6 +10,7 @@ permissions:
   actions: read
   id-token: write
   attestations: write
+  artifact-metadata: write
 
 jobs:
   candidate-lanes:
@@ -52,7 +53,7 @@ jobs:
           cp "$folder/candidate-evidence.json" "$folder/skybind-newfuture-CANDIDATE-UNQUALIFIED.zip" \
             "$folder/skybind-bclone-CANDIDATE-UNQUALIFIED.zip" "dist/q14/stage-${{ matrix.lane }}/"
       - name: Sign provenance for original candidate ZIPs (GitHub OIDC/Sigstore)
-        uses: actions/attest@e59cbc1ad1ac2d59339667419eb8cdde6eb61e3d # v3.2.0
+        uses: actions/attest@c32b4b8b198b65d0bd9d63490e847ff7b53989d4 # v4.0.0 (auto SLSA provenance)
         with:
           subject-path: dist/q14/stage-${{ matrix.lane }}/skybind-*-CANDIDATE-UNQUALIFIED.zip
       - name: Preserve raw lane outputs (signed subjects remain separately verifiable)
