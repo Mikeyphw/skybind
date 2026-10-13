@@ -1,3 +1,9 @@
+# SB-Q14R2 private-repository replacement
+
+The GitHub Attestations API is unavailable for private personal repositories without Enterprise Cloud. **This document is superseded by `SB-Q14_PRIVATE_REPOSITORY_PROVENANCE.md`.** Q14R2 uses Ed25519 owner-managed signatures stored in private Actions artifacts, with an owner-pinned out-of-band public trust anchor. It cannot independently qualify G01–G08 or issue a release seal.
+
+---
+
 # SB-Q14 — GitHub candidate provenance, not final release qualification
 
 ## Q14R1 signing repair

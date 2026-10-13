@@ -1,5 +1,6 @@
-# SB-Q14 signed GitHub build attestations, still not CFS1 gate certification.
-# This does not sign receipts or qualify G01-G08 or the final seal.
+# SB-Q14R2 private repository mode: signed candidate manifests via Ed25519 GitHub secret.
+# Does not call GitHub Attestations API, publish public transparency metadata,
+# or issue independent CFS1 G01-G08 / final release receipts.
 name: Skybind Q14 signed candidate provenance (NOT A RELEASE)
 
 on:
@@ -8,9 +9,6 @@ on:
 permissions:
   contents: read
   actions: read
-  id-token: write
-  attestations: write
-  artifact-metadata: write
 
 jobs:
   candidate-lanes:
@@ -52,10 +50,27 @@ jobs:
           mkdir -p "dist/q14/stage-${{ matrix.lane }}"
           cp "$folder/candidate-evidence.json" "$folder/skybind-newfuture-CANDIDATE-UNQUALIFIED.zip" \
             "$folder/skybind-bclone-CANDIDATE-UNQUALIFIED.zip" "dist/q14/stage-${{ matrix.lane }}/"
-      - name: Sign provenance for original candidate ZIPs (GitHub OIDC/Sigstore)
-        uses: actions/attest@c32b4b8b198b65d0bd9d63490e847ff7b53989d4 # v4.0.0 (auto SLSA provenance)
-        with:
-          subject-path: dist/q14/stage-${{ matrix.lane }}/skybind-*-CANDIDATE-UNQUALIFIED.zip
+      - name: Sign original candidate hashes using private Ed25519 key (no GitHub attestation API)
+        shell: bash
+        env:
+          SIGNING_KEY_B64: ${{ secrets.SKYBIND_Q14_ED25519_KEY_B64 }}
+          EXPECTED_PUB_SHA256: ${{ vars.SKYBIND_Q14_SIGNER_PUBLIC_SHA256 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SIGNING_KEY_B64" || -z "$EXPECTED_PUB_SHA256" ]]; then
+            echo 'Q14R2: configure SKYBIND_Q14_ED25519_KEY_B64 secret and SKYBIND_Q14_SIGNER_PUBLIC_SHA256 variable' >&2
+            exit 2
+          fi
+          umask 077
+          keyfile="$(mktemp "${RUNNER_TEMP}/skybind-q14-key.XXXXXXXX")"
+          trap 'rm -f "$keyfile"' EXIT
+          printf '%s' "$SIGNING_KEY_B64" | base64 --decode > "$keyfile"
+          python3 scripts/dev/release/q14_private_signing.py sign \
+            --stage-dir "dist/q14/stage-${{ matrix.lane }}" --lane "${{ matrix.lane }}" \
+            --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --key-file "$keyfile"
+          printf '%s  %s\n' "$EXPECTED_PUB_SHA256" "dist/q14/stage-${{ matrix.lane }}/candidate-signer-public.pem" | sha256sum --check --status
+          echo 'Signed candidate hashes and run identity (private GitHub Actions artifact; CFS1 remains blocked).'
       - name: Preserve raw lane outputs (signed subjects remain separately verifiable)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -84,6 +99,23 @@ jobs:
         run: |
           set -euo pipefail
           test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Verify private signed manifests and pinned signer identity
+        shell: bash
+        env:
+          EXPECTED_PUB_SHA256: ${{ vars.SKYBIND_Q14_SIGNER_PUBLIC_SHA256 }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_PUB_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'Missing pinned signing public key fingerprint' >&2; exit 2; }
+          sha256sum --check --status <<< "$EXPECTED_PUB_SHA256  received/skybind-q14-candidate-A/candidate-signer-public.pem"
+          cmp received/skybind-q14-candidate-A/candidate-signer-public.pem received/skybind-q14-candidate-B/candidate-signer-public.pem
+          for lane in A B; do
+            python3 scripts/dev/release/q14_private_signing.py verify \
+              --stage-dir "received/skybind-q14-candidate-$lane" --lane "$lane" \
+              --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" \
+              --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+              --trusted-public-key received/skybind-q14-candidate-A/candidate-signer-public.pem
+          done
+          echo 'Both signatures valid against repository-configured signing fingerprint; independent CFS1 trust not implied.'
       - name: Verify raw candidates, compare bytes, inventory blocked gates
         shell: bash
         run: |
@@ -101,7 +133,7 @@ jobs:
           assert not data['issues'], data['issues']
           assert all(p['status']=='BYTE_IDENTICAL_UNATTESTED' for p in data['same_provider_repeat_build_comparison'].values())
           assert all(p['status']=='SHARED_PAYLOAD_MATCH_UNATTESTED' for p in data['cross_provider_shared_payload'])
-          print('CANDIDATE_BYTE_IDENTICAL_UNATTESTED; candidate provenance attested in build lanes, independent G01-G08 still required')
+          print('CANDIDATE_BYTE_IDENTICAL_WITH_PRIVATE_CI_SIGNATURES_NOT_INDEPENDENT_CFS1; G01-G08 still required')
           PY
       - name: Publish raw comparison and blocker report (no gate promotion)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
