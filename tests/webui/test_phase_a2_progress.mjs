@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { createLiveFeed, consumeLivePage, latestLiveJobs, projectLiveEvent, formatLiveProgress, cancellableLiveRun } from '../../module/webroot/live_progress.js';
+const id='a'.repeat(32), id2='b'.repeat(32);
+function event(seq, type='job.progress', run=id) { return {sequence:seq,unix_millis:10000+seq,operation_id:run,run_id:run,type,state: type==='job.completed'?'completed':'running',phase:'transferring',progress:{bytes:1024*seq,speed_bytes_per_second:2048,eta_seconds:10}}; }
+function page(events, cursor, opts={}) { return {schema_version:1,events,next_cursor:cursor,latest_cursor:Math.max(cursor,opts.latest_cursor||cursor),...opts}; }
+const f=createLiveFeed();
+assert.equal(consumeLivePage(f,page([event(1),event(2)],2)).more,false);
+assert.equal(f.cursor,2);assert.equal(latestLiveJobs(f)[0].bytes,2048);
+assert.equal(consumeLivePage(f,page([event(4,'job.started',id2)],4,{has_more:true})).more,true);
+assert.equal(latestLiveJobs(f).length,2);
+assert.equal(formatLiveProgress(latestLiveJobs(f)[0],n=>`${n}B`),'4096B transferred · 2048B/s · ETA 10s');
+assert.equal(cancellableLiveRun(latestLiveJobs(f)[0],new Map([[id2,'RUNNING']])),true);
+assert.equal(cancellableLiveRun(latestLiveJobs(f)[0],new Map([[id2,'COMPLETED']])),false);
+assert.equal(consumeLivePage(f,page([event(5,'job.completed',id2)],5)).terminal,true);
+assert.equal(cancellableLiveRun(latestLiveJobs(f)[0],new Map([[id2,'RUNNING']])),false);
+assert.equal(consumeLivePage(f,page([event(18)],18,{gap:true})).reconcile,true);
+assert.deepEqual(f.records.map(e=>e.sequence),[18]);
+assert.equal(consumeLivePage(f,page([event(1)],1,{cursor_reset:true})).reconcile,true);
+assert.deepEqual(f.records.map(e=>e.sequence),[1]);
+assert.throws(()=>consumeLivePage(f,page([event(1)],1)),/Out-of-order/);
+assert.throws(()=>consumeLivePage(f,page([event(3)],2)),/cursor/);
+assert.equal(projectLiveEvent({...event(9),progress:{bytes:-1,speed_bytes_per_second:Infinity}}).bytes,null);
+assert.equal(projectLiveEvent({...event(9),operation_id:'../../etc/passwd'}),null);
+assert.equal(projectLiveEvent({...event(9),state:'running\nsecret'}),null);
+const p=projectLiveEvent({...event(50),progress:null});
+assert.match(formatLiveProgress(p,n=>`${n}B`),/not available/);
+for(let i=2;i<180;i++)consumeLivePage(f,page([event(i)],i));
+assert.equal(f.records.length,96);
+const app=fs.readFileSync(new URL('../../module/webroot/app.js',import.meta.url),'utf8');
+const bridge=fs.readFileSync(new URL('../../module/webroot/bridge.js',import.meta.url),'utf8');
+assert.match(app,/query\('operation.events'/);
+assert.match(app,/cancel\('operation.cancel', \{ run_id: runId \}\)/);
+assert.match(app,/document.visibilityState !== 'visible'/);
+assert.match(app,/aria-live/);
+assert.doesNotMatch(app,/localStorage/);
+assert.match(bridge,/return sendEnvelope\(envelope\)/);
+console.log('Phase A2 event replay, cursor gaps, sanitization, cancellation guard and integration: PASS');

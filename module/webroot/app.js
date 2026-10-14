@@ -1,3 +1,4 @@
+import { createLiveFeed, consumeLivePage, latestLiveJobs, formatLiveProgress, cancellableLiveRun } from './live_progress.js';
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, saveSupportBundleToDownloads, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
 import { runtimeFailureText, providerReadinessPresentation } from './parity.js';
@@ -14,6 +15,7 @@ const state = {
   perfOpen: new Set(), perfCache: new Map(), perfHistory: new Map(), perfPid: new Map(), perfPending: new Set(), perfEpoch: 0,
   offlineOpen: new Set(), offlineInput: new Map(), offlineManifest: null, offlineTasks: [], offlinePending: false, offlineUnsupported: false, offlineConfirm: '', offlinePollId: null, offlineEdits: [], offlineReview: null, remoteDetailsUpdatedAt: 0, mountToolsOpen: new Set(),
   mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountConfirmRequest: 0, mountPathReturnFocus: null,
+  liveFeed: createLiveFeed(), liveTimer: null, liveEpoch: 0, liveStatus: 'Connecting to progress feed…', liveStates: new Map(), liveStatusAt: 0, liveCancelling: new Set(),
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
 };
@@ -836,6 +838,113 @@ async function reconcileAll() {
     showNotice(notice, 'Reconcile started. Track progress in Activity.');
     result(await handle.completion); showNotice(notice, 'Reconcile completed.', 'ok'); await loadMounts();
   } catch (error) { showNotice(notice, String(error?.message || error), 'error'); }
+}
+
+// Phase A2 observes a private, bounded backend event stream. The operation
+// journal/jobs.status remain authoritative (especially after a cursor gap).
+function livePanel(view) {
+  const host = byId(view === 'jobs' ? 'jobCards' : 'operationCards');
+  if (!host) return null;
+  const id = `phaseALive-${view}`;
+  let panel = byId(id);
+  if (!panel) { panel=document.createElement('section'); panel.id=id; panel.className='phase-a-live';
+    panel.setAttribute('aria-label','Operation progress'); host.before(panel); }
+  return panel;
+}
+function renderLivePanel() {
+  const view=state.activeView;
+  if (view !== 'jobs' && view !== 'activity') return;
+  const root=livePanel(view); if (!root) return;
+  clear(root);
+  const h=document.createElement('div'); h.className='phase-a-live-heading';
+  const title=document.createElement('h3'); title.textContent='Live operation progress';
+  const connection=document.createElement('span'); connection.className='phase-a-live-status';
+  connection.setAttribute('role','status'); connection.setAttribute('aria-live','polite');
+  connection.textContent=state.liveStatus; h.append(title,connection); root.append(h);
+  if (state.liveFeed.gap || state.liveFeed.reset || state.liveFeed.degraded) {
+    const warning=paragraph(state.liveFeed.gap ? 'Older events were pruned; checking current job status.' :
+      state.liveFeed.reset ? 'Event sequence restarted; checking current job status.' :
+      'Event logging degraded; use job status for the authoritative outcome.', 'phase-a-live-warning');
+    root.append(warning);
+  }
+  const events=latestLiveJobs(state.liveFeed).slice(0,view==='jobs'?8:16);
+  if (!events.length) { root.append(paragraph('No recent job progress events. Existing jobs continue to work independently of this feed.','muted'));return; }
+  for (const item of events) {
+    const row=document.createElement('article'); row.className='phase-a-live-row';
+    const heading=document.createElement('div'); heading.className='phase-a-live-row-heading';
+    const name=document.createElement('strong'); name.textContent=`Job ${item.runId.slice(0,8)}`;
+    const phase=document.createElement('span'); phase.textContent=`${item.type} · ${item.phase}`;
+    heading.append(name,phase);row.append(heading);
+    row.append(paragraph(formatLiveProgress(item,bytes),'phase-a-live-metrics'));
+    if (!item.terminal) { const strip=document.createElement('div'); strip.className='phase-a-live-indeterminate';
+      strip.setAttribute('role','img');strip.setAttribute('aria-label','Transfer progress: total size unknown');
+      row.append(strip); }
+    const when=document.createElement('span');when.className='phase-a-live-time';
+    when.textContent=`Updated ${new Date(item.time).toLocaleTimeString()}`; row.append(when);
+    if (cancellableLiveRun(item,state.liveStates) && !state.liveCancelling.has(item.runId)) {
+      row.append(button('Cancel run',()=>void cancelLiveRun(item.runId),'phase-a-live-cancel'));
+    } else if (state.liveCancelling.has(item.runId)) row.append(paragraph('Cancellation requested; awaiting terminal status…','muted'));
+    root.append(row);
+  }
+}
+function stopLivePoll() { state.liveEpoch++; if (state.liveTimer !== null) clearTimeout(state.liveTimer); state.liveTimer=null; }
+function liveViewActive(epoch) {
+  return epoch===state.liveEpoch && document.visibilityState === 'visible' &&
+    (state.activeView==='jobs' || state.activeView==='activity');
+}
+async function refreshLiveStates(epoch) {
+  // A progress event alone does not prove a run is still running. Only the
+  // latest authoritative jobs.status permits a cancellation control.
+  const snapshot=result(await query('jobs.status'));
+  if (!liveViewActive(epoch)) return;
+  const statuses=new Map();
+  for (const job of snapshot.jobs||[]) if (job.last_run_id && /^[a-f0-9]{32}$/.test(job.last_run_id))
+    statuses.set(job.last_run_id,job.last_state);
+  state.liveStates=statuses; state.liveStatusAt=Date.now();
+  for (const runId of state.liveCancelling) if (statuses.get(runId) !== 'RUNNING') state.liveCancelling.delete(runId);
+}
+async function cancelLiveRun(runId) {
+  const entry=latestLiveJobs(state.liveFeed).find(e=>e.runId===runId);
+  if (!cancellableLiveRun(entry,state.liveStates) || state.liveCancelling.has(runId)) return;
+  if (!globalThis.confirm('Cancel this active Skybind job? Files already transferred will not be rolled back.')) return;
+  state.liveCancelling.add(runId);renderLivePanel();
+  try { result(await cancel('operation.cancel', { run_id: runId }));
+    state.liveStatus='Cancellation requested; waiting for backend outcome.';
+  } catch (error) { state.liveCancelling.delete(runId);
+    showNotice(byId(state.activeView==='jobs'?'jobsNotice':'activityNotice'),`Cancellation failed: ${backendErrorText(error)}`,'error'); }
+  renderLivePanel();
+}
+async function pollLiveEvents(epoch) {
+  if (!liveViewActive(epoch)) return;
+  let delay=2500;
+  try {
+    const page=result(await query('operation.events',{cursor:state.liveFeed.cursor,limit:64,wait_ms:0}));
+    if (!liveViewActive(epoch)) return;
+    const update=consumeLivePage(state.liveFeed,page);
+    state.liveStatus=page.degraded?'Event history degraded':`Connected · cursor ${state.liveFeed.cursor}`;
+    if (update.reconcile || Date.now()-state.liveStatusAt>8000 || update.terminal) {
+      await refreshLiveStates(epoch);
+      if (!liveViewActive(epoch)) return;
+      if (update.reconcile && state.activeView==='activity') await loadOperations();
+      else if (update.terminal && !update.more && state.activeView==='jobs') await loadJobs();
+      if (!liveViewActive(epoch)) return;
+    }
+    for (const entry of latestLiveJobs(state.liveFeed)) if (entry.terminal) state.liveCancelling.delete(entry.runId);
+    renderLivePanel();
+    if (update.more) delay=150;
+  } catch (_error) {
+    if (!liveViewActive(epoch)) return;
+    state.liveStatus='Progress feed temporarily unavailable; retrying';
+    renderLivePanel(); delay=5000;
+  }
+  if (liveViewActive(epoch)) state.liveTimer=setTimeout(()=>void pollLiveEvents(epoch),delay);
+}
+function startLivePoll() {
+  stopLivePoll();
+  if (document.visibilityState !== 'visible' || !['jobs','activity'].includes(state.activeView)) return;
+  renderLivePanel();
+  const epoch=state.liveEpoch;
+  void pollLiveEvents(epoch);
 }
 
 function renderActivityGroup(root, records) {
@@ -1738,13 +1847,13 @@ async function setView(view) {
   const names=['home','mounts','jobs','activity','more','runtime','remotes','doctor','logs','settings'];
   const secondary=new Set(['runtime','remotes','doctor','logs','settings']);
   const titles={home:'Home',mounts:'Mounts',jobs:'Jobs',activity:'Activity',more:'More',runtime:'Runtime',remotes:'Remote browser',doctor:'Doctor',logs:'Logs',settings:'Settings'};
-  if(!names.includes(view))view='home';if(state.activeView!==view)state.perfEpoch++;state.activeView=view;stopTimer();
+  if(!names.includes(view))view='home';if(state.activeView!==view)state.perfEpoch++;state.activeView=view;stopTimer();stopLivePoll();
   const primary=secondary.has(view)?'more':view;
   for(const name of names)byId(`view-${name}`).hidden=name!==view;
   for(const nav of document.querySelectorAll('.nav-item')){const active=nav.dataset.view===primary;nav.classList.toggle('active',active);if(active)nav.setAttribute('aria-current','page');else nav.removeAttribute('aria-current');}
   for(const nav of document.querySelectorAll('.nav-secondary,.more-card,.settings-link')){const active=nav.dataset.view===view;nav.classList.toggle('active',active);if(active)nav.setAttribute('aria-current','page');else nav.removeAttribute('aria-current');}
   text('pageTitle',titles[view]||'Home');
-  try{await loadViewData(view,{announce:true});if(view==='home')clearTransientBackendNotice();}catch(error){if(view==='home')showHomeLoadFailure(error);compatibility.hidden=false;compatibility.className='notice error';compatibility.textContent=`Backend request failed: ${backendErrorText(error)}`;}scheduleRefresh();
+  try{await loadViewData(view,{announce:true});if(view==='home')clearTransientBackendNotice();}catch(error){if(view==='home')showHomeLoadFailure(error);compatibility.hidden=false;compatibility.className='notice error';compatibility.textContent=`Backend request failed: ${backendErrorText(error)}`;}scheduleRefresh();startLivePoll();
 }
 const skybindLogin = byId('skybindLogin');
 byId('skybindLoginForm')?.addEventListener('submit', async (event) => {
@@ -1787,4 +1896,4 @@ byId('useMountRemoteFolderButton')?.addEventListener('click',chooseCurrentRemote
 for(const node of document.querySelectorAll('[data-mountpoint-template]'))node.addEventListener('click',()=>applyMountpointSuggestion(node.dataset.mountpointTemplate));
 byId('keepEditingButton')?.addEventListener('click',()=>{byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();});
 byId('discardChangesButton')?.addEventListener('click',forceCloseEditor);
-byId('editorBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('editorBackdrop'))closeEditor();});byId('discardBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('discardBackdrop')){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();}});byId('mountConfirmBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountConfirmBackdrop'))closeMountConfirmation();});byId('mountFolderBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountFolderBackdrop'))closeMountFolder();});byId('mountActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountActionBackdrop'))closeMountActions();});byId('remoteActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('remoteActionBackdrop'))closeRemoteActions();});byId('cryptBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('cryptBackdrop'))closeCryptCreator();});byId('jobBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('jobBackdrop'))closeJob();});byId('rollbackBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('rollbackBackdrop'))closeRollback();});document.addEventListener('keydown',(event)=>{if(!byId('discardBackdrop').hidden&&trapModalTab(event,byId('discardBackdrop')))return;if(!byId('mountConfirmBackdrop').hidden&&trapModalTab(event,byId('mountConfirmBackdrop')))return;if(!byId('mountFolderBackdrop').hidden&&trapModalTab(event,byId('mountFolderBackdrop')))return;if(!byId('mountActionBackdrop').hidden&&trapModalTab(event,byId('mountActionBackdrop')))return;if(!byId('remoteActionBackdrop').hidden&&trapModalTab(event,byId('remoteActionBackdrop')))return;if(!byId('cryptBackdrop').hidden&&trapModalTab(event,byId('cryptBackdrop')))return;if(!byId('editorBackdrop').hidden&&trapModalTab(event,byId('editorBackdrop')))return;if(!byId('jobBackdrop').hidden&&trapModalTab(event,byId('jobBackdrop')))return;if(!byId('rollbackBackdrop').hidden&&trapModalTab(event,byId('rollbackBackdrop')))return;if(event.key!=='Escape')return;if(!byId('discardBackdrop').hidden){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();return;}if(!byId('mountConfirmBackdrop').hidden){closeMountConfirmation();return;}if(!byId('mountFolderBackdrop').hidden){closeMountFolder();return;}if(!byId('mountActionBackdrop').hidden){closeMountActions();return;}if(!byId('remoteActionBackdrop').hidden){closeRemoteActions();return;}if(!byId('cryptBackdrop').hidden){closeCryptCreator();return;}if(!byId('jobBackdrop').hidden){closeJob();return;}if(!byId('editorBackdrop').hidden){closeEditor();return;}if(!byId('rollbackBackdrop').hidden)closeRollback();});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void setView(state.activeView);else {state.perfEpoch++;stopTimer();if(state.offlinePollId)clearTimeout(state.offlinePollId);state.offlinePollId=null;}});void bootstrap();
+byId('editorBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('editorBackdrop'))closeEditor();});byId('discardBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('discardBackdrop')){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();}});byId('mountConfirmBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountConfirmBackdrop'))closeMountConfirmation();});byId('mountFolderBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountFolderBackdrop'))closeMountFolder();});byId('mountActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('mountActionBackdrop'))closeMountActions();});byId('remoteActionBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('remoteActionBackdrop'))closeRemoteActions();});byId('cryptBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('cryptBackdrop'))closeCryptCreator();});byId('jobBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('jobBackdrop'))closeJob();});byId('rollbackBackdrop')?.addEventListener('click',(event)=>{if(event.target===byId('rollbackBackdrop'))closeRollback();});document.addEventListener('keydown',(event)=>{if(!byId('discardBackdrop').hidden&&trapModalTab(event,byId('discardBackdrop')))return;if(!byId('mountConfirmBackdrop').hidden&&trapModalTab(event,byId('mountConfirmBackdrop')))return;if(!byId('mountFolderBackdrop').hidden&&trapModalTab(event,byId('mountFolderBackdrop')))return;if(!byId('mountActionBackdrop').hidden&&trapModalTab(event,byId('mountActionBackdrop')))return;if(!byId('remoteActionBackdrop').hidden&&trapModalTab(event,byId('remoteActionBackdrop')))return;if(!byId('cryptBackdrop').hidden&&trapModalTab(event,byId('cryptBackdrop')))return;if(!byId('editorBackdrop').hidden&&trapModalTab(event,byId('editorBackdrop')))return;if(!byId('jobBackdrop').hidden&&trapModalTab(event,byId('jobBackdrop')))return;if(!byId('rollbackBackdrop').hidden&&trapModalTab(event,byId('rollbackBackdrop')))return;if(event.key!=='Escape')return;if(!byId('discardBackdrop').hidden){byId('discardBackdrop').hidden=true;byId('closeEditorButton').focus();return;}if(!byId('mountConfirmBackdrop').hidden){closeMountConfirmation();return;}if(!byId('mountFolderBackdrop').hidden){closeMountFolder();return;}if(!byId('mountActionBackdrop').hidden){closeMountActions();return;}if(!byId('remoteActionBackdrop').hidden){closeRemoteActions();return;}if(!byId('cryptBackdrop').hidden){closeCryptCreator();return;}if(!byId('jobBackdrop').hidden){closeJob();return;}if(!byId('editorBackdrop').hidden){closeEditor();return;}if(!byId('rollbackBackdrop').hidden)closeRollback();});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void setView(state.activeView);else {state.perfEpoch++;stopTimer();stopLivePoll();if(state.offlinePollId)clearTimeout(state.offlinePollId);state.offlinePollId=null;}});void bootstrap();

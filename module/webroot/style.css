@@ -1013,3 +1013,16 @@ button:not(.primary):not(.danger):not(.nav-item):not(.nav-secondary):not(.remote
 #view-mounts .mount-m8-utilities .mount-quick-secondary{margin-top:0}
 #view-mounts .perf-toggle[hidden],#view-mounts .offline-toggle[hidden]{display:none}
 @media(max-width:360px){#view-mounts .mount-m8-tools button{font-size:.74rem;padding-inline:.15rem}}
+
+/* Phase A2: accessible, bounded event progress without altering frozen HTML. */
+.phase-a-live{margin:0 0 1rem;padding:.8rem;border:1px solid #4d637a;border-radius:14px;background:#111b28}
+.phase-a-live-heading,.phase-a-live-row-heading{display:flex;justify-content:space-between;gap:.5rem;align-items:center;flex-wrap:wrap}
+.phase-a-live-heading h3{font-size:1rem;margin:0}.phase-a-live-status,.phase-a-live-time{color:#aeb8c8;font-size:.78rem}
+.phase-a-live-row{margin-top:.65rem;border-top:1px solid #364353;padding:.7rem .2rem .1rem}
+.phase-a-live-row-heading strong{font-size:.9rem}.phase-a-live-row-heading span,.phase-a-live-metrics{color:#ced9e9;font-size:.82rem}
+.phase-a-live-warning{color:#ffda91;border-left:3px solid #a7772e;padding-left:.5rem;font-size:.83rem}
+.phase-a-live-indeterminate{position:relative;height:7px;overflow:hidden;border-radius:8px;background:#24394d;margin:.45rem 0}
+.phase-a-live-indeterminate::after{content:'';position:absolute;inset:0;width:30%;background:#80abc6;animation:phase-a-sweep 2.2s ease-in-out infinite}
+.phase-a-live-cancel{margin:.45rem 0 0;min-height:38px}
+@keyframes phase-a-sweep{0%{transform:translateX(-110%)}100%{transform:translateX(370%)}}
+@media (prefers-reduced-motion:reduce){.phase-a-live-indeterminate::after{animation:none;width:100%;opacity:.5}}
