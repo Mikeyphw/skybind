@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -121,15 +122,24 @@ type Registry struct {
 	Jobs          []Job  `json:"jobs"`
 }
 type Run struct {
-	ID                  string  `json:"id"`
-	Name                string  `json:"name"`
-	State               string  `json:"state"`
-	StartedUnix         int64   `json:"started_unix"`
-	FinishedUnix        int64   `json:"finished_unix,omitempty"`
-	Reason              string  `json:"reason,omitempty"`
-	Bytes               int64   `json:"bytes,omitempty"`
-	SpeedBytesPerSecond float64 `json:"speed_bytes_per_second,omitempty"`
-	ETASeconds          int64   `json:"eta_seconds,omitempty"`
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	State               string   `json:"state"`
+	StartedUnix         int64    `json:"started_unix"`
+	FinishedUnix        int64    `json:"finished_unix,omitempty"`
+	Reason              string   `json:"reason,omitempty"`
+	Bytes               int64    `json:"bytes,omitempty"`
+	SpeedBytesPerSecond float64  `json:"speed_bytes_per_second,omitempty"`
+	ETASeconds          int64    `json:"eta_seconds,omitempty"`
+	TotalBytes          *int64   `json:"total_bytes,omitempty"`
+	Percent             *float64 `json:"percent,omitempty"`
+	FilesDone           *int64   `json:"files_done,omitempty"`
+	FilesTotal          *int64   `json:"files_total,omitempty"`
+	ChecksDone          *int64   `json:"checks_done,omitempty"`
+	ChecksTotal         *int64   `json:"checks_total,omitempty"`
+	Errors              *int64   `json:"errors,omitempty"`
+	RetryError          *bool    `json:"retry_error,omitempty"`
+	TransferRetries     *int64   `json:"transfer_retries,omitempty"`
 }
 type persisted struct {
 	Registry Registry `json:"registry"`
@@ -146,10 +156,37 @@ type ProgressRunner interface {
 	ExecuteWithProgress(context.Context, Job, func(int64, float64, int64)) error
 }
 
-func (r execRunner) Execute(ctx context.Context, j Job) error {
-	return r.ExecuteWithProgress(ctx, j, nil)
+// DetailedProgress is derived from numeric rclone JSON stats only. The default
+// rclone stats do NOT report a numeric count of per-transfer retries; nil means
+// unknown, not zero. No file names, paths, error text or secrets are retained.
+type DetailedProgress struct {
+	Bytes           int64
+	Speed           float64
+	ETA             int64
+	TotalBytes      *int64
+	FilesDone       *int64
+	FilesTotal      *int64
+	ChecksDone      *int64
+	ChecksTotal     *int64
+	Errors          *int64
+	RetryError      *bool
+	TransferRetries *int64
 }
-func (execRunner) ExecuteWithProgress(ctx context.Context, j Job, update func(int64, float64, int64)) error {
+type DetailedProgressRunner interface {
+	ExecuteWithDetailedProgress(context.Context, Job, func(DetailedProgress)) error
+}
+
+func (r execRunner) Execute(ctx context.Context, j Job) error {
+	return r.ExecuteWithDetailedProgress(ctx, j, nil)
+}
+func (r execRunner) ExecuteWithProgress(ctx context.Context, j Job, update func(int64, float64, int64)) error {
+	return r.ExecuteWithDetailedProgress(ctx, j, func(p DetailedProgress) {
+		if update != nil {
+			update(p.Bytes, p.Speed, p.ETA)
+		}
+	})
+}
+func (execRunner) ExecuteWithDetailedProgress(ctx context.Context, j Job, update func(DetailedProgress)) error {
 	if err := validateLocalExisting(j.Source); err != nil {
 		return err
 	}
@@ -172,8 +209,8 @@ func (execRunner) ExecuteWithProgress(ctx context.Context, j Job, update func(in
 	scanner.Buffer(make([]byte, 4096), 65536)
 	for scanner.Scan() {
 		if update != nil {
-			if bytes, rate, eta, ok := decodeStats(scanner.Bytes()); ok {
-				update(bytes, rate, eta)
+			if stats, ok := decodeDetailedStats(scanner.Bytes()); ok {
+				update(stats)
 			}
 		}
 	}
@@ -187,35 +224,93 @@ func (execRunner) ExecuteWithProgress(ctx context.Context, j Job, update func(in
 	return nil
 }
 func decodeStats(line []byte) (int64, float64, int64, bool) {
-	var obj map[string]json.RawMessage
-	if len(line) > 65536 || json.Unmarshal(line, &obj) != nil {
-		return 0, 0, 0, false
+	p, ok := decodeDetailedStats(line)
+	return p.Bytes, p.Speed, p.ETA, ok
+}
+
+// decodeDetailedStats only reads allowlisted numeric/bool JSON fields. Standard
+// rclone --use-json-log stats contain totalBytes, totalTransfers, transfers,
+// errors and retryError. They do not contain per-transfer retry counts.
+func decodeDetailedStats(line []byte) (DetailedProgress, bool) {
+	var p DetailedProgress
+	if len(line) > 65536 {
+		return p, false
 	}
-	stats := obj
-	if raw, ok := obj["stats"]; ok {
-		if json.Unmarshal(raw, &stats) != nil {
-			return 0, 0, 0, false
+	var root map[string]json.RawMessage
+	if json.Unmarshal(line, &root) != nil {
+		return p, false
+	}
+	stats := root
+	if raw, present := root["stats"]; present {
+		if json.Unmarshal(raw, &stats) != nil || stats == nil {
+			return p, false
+		}
+	} else if root["bytes"] == nil && root["speed"] == nil {
+		return p, false
+	}
+	intField := func(key string, max int64) (*int64, bool) {
+		raw, present := stats[key]
+		if !present || string(raw) == "null" {
+			return nil, true
+		}
+		var n int64
+		if json.Unmarshal(raw, &n) != nil || n < 0 || n > max {
+			return nil, false
+		}
+		return &n, true
+	}
+	var ok bool
+	var bytes *int64
+	if bytes, ok = intField("bytes", 1<<60); !ok {
+		return p, false
+	}
+	if bytes != nil {
+		p.Bytes = *bytes
+	}
+	if raw := stats["speed"]; raw != nil && string(raw) != "null" {
+		if json.Unmarshal(raw, &p.Speed) != nil || math.IsNaN(p.Speed) || math.IsInf(p.Speed, 0) || p.Speed < 0 || p.Speed > 1e15 {
+			return DetailedProgress{}, false
 		}
 	}
-	var transferred int64
-	var speed float64
-	var eta int64
-	if raw := stats["bytes"]; raw != nil {
-		_ = json.Unmarshal(raw, &transferred)
+	if eta, valid := intField("eta", 1<<40); !valid {
+		return DetailedProgress{}, false
+	} else if eta != nil {
+		p.ETA = *eta
 	}
-	if raw := stats["speed"]; raw != nil {
-		_ = json.Unmarshal(raw, &speed)
+	if p.TotalBytes, ok = intField("totalBytes", 1<<60); !ok {
+		return DetailedProgress{}, false
 	}
-	if raw := stats["eta"]; raw != nil {
-		_ = json.Unmarshal(raw, &eta)
+	if p.FilesDone, ok = intField("transfers", 1<<40); !ok {
+		return DetailedProgress{}, false
 	}
-	if transferred < 0 || speed < 0 || speed > 1e15 || eta < 0 || eta > 1<<40 {
-		return 0, 0, 0, false
+	if p.FilesTotal, ok = intField("totalTransfers", 1<<40); !ok {
+		return DetailedProgress{}, false
 	}
-	if transferred == 0 && speed == 0 {
-		return 0, 0, 0, false
+	if p.ChecksDone, ok = intField("checks", 1<<40); !ok {
+		return DetailedProgress{}, false
 	}
-	return transferred, speed, eta, true
+	if p.ChecksTotal, ok = intField("totalChecks", 1<<40); !ok {
+		return DetailedProgress{}, false
+	}
+	if p.Errors, ok = intField("errors", 1<<40); !ok {
+		return DetailedProgress{}, false
+	}
+	// This field is forward-compatible; stock rclone omits it. No estimate
+	// is derived from errors or retryError because they have other meanings.
+	if p.TransferRetries, ok = intField("transferRetries", 1<<40); !ok {
+		return DetailedProgress{}, false
+	}
+	if raw, present := stats["retryError"]; present && string(raw) != "null" {
+		var v bool
+		if json.Unmarshal(raw, &v) != nil {
+			return DetailedProgress{}, false
+		}
+		p.RetryError = &v
+	}
+	if bytes == nil && p.Speed == 0 && p.TotalBytes == nil && p.FilesDone == nil && p.FilesTotal == nil && p.ChecksDone == nil && p.ChecksTotal == nil && p.Errors == nil {
+		return DetailedProgress{}, false
+	}
+	return p, true
 }
 
 type Store struct {
@@ -321,6 +416,18 @@ func validatePersisted(p persisted) (persisted, error) {
 		if len(r.ID) != 32 || !jobName.MatchString(r.Name) {
 			return p, errors.New("invalid run record")
 		}
+		if r.Bytes < 0 || r.Bytes > 1<<60 || math.IsNaN(r.SpeedBytesPerSecond) || math.IsInf(r.SpeedBytesPerSecond, 0) ||
+			r.SpeedBytesPerSecond < 0 || r.SpeedBytesPerSecond > 1e15 || r.ETASeconds < 0 || r.ETASeconds > 1<<40 {
+			return p, errors.New("invalid run progress")
+		}
+		for _, n := range []*int64{r.TotalBytes, r.FilesDone, r.FilesTotal, r.ChecksDone, r.ChecksTotal, r.Errors, r.TransferRetries} {
+			if n != nil && (*n < 0 || *n > 1<<60) {
+				return p, errors.New("invalid run progress counter")
+			}
+		}
+		if r.Percent != nil && (math.IsNaN(*r.Percent) || math.IsInf(*r.Percent, 0) || *r.Percent < 0 || *r.Percent > 100) {
+			return p, errors.New("invalid run percentage")
+		}
 	}
 	return p, nil
 }
@@ -358,7 +465,9 @@ func (s *Store) emit(r Run, kind, state, phase string) {
 		return
 	}
 	event := opevents.Event{OperationID: r.ID, RunID: r.ID, Operation: "job.run", Type: kind, State: state, Phase: phase,
-		Progress: &opevents.Progress{Bytes: r.Bytes, SpeedBytesPerSecond: r.SpeedBytesPerSecond, ETASeconds: r.ETASeconds}}
+		Progress: &opevents.Progress{Bytes: r.Bytes, SpeedBytesPerSecond: r.SpeedBytesPerSecond, ETASeconds: r.ETASeconds,
+			TotalBytes: r.TotalBytes, Percent: r.Percent, FilesDone: r.FilesDone, FilesTotal: r.FilesTotal, ChecksDone: r.ChecksDone, ChecksTotal: r.ChecksTotal,
+			Errors: r.Errors, RetryError: r.RetryError, TransferRetries: r.TransferRetries}}
 	s.eventObserver(event)
 }
 func (s *Store) RunStatus(id string) (Run, error) {
@@ -560,28 +669,64 @@ func (s *Store) claim(j Job) (Run, error) {
 }
 func (s *Store) execute(ctx context.Context, id string, j Job) {
 	var err error
-	if x, ok := s.executor.(ProgressRunner); ok {
-		err = x.ExecuteWithProgress(ctx, j, func(bytes int64, speed float64, eta int64) {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			for i := range s.state.Runs {
-				if s.state.Runs[i].ID == id {
-					if bytes < s.state.Runs[i].Bytes {
-						return
-					}
-					s.state.Runs[i].Bytes = bytes
-					s.state.Runs[i].SpeedBytesPerSecond = speed
-					s.state.Runs[i].ETASeconds = eta
-					if e := s.persist(); e == nil && s.eventObserver != nil {
-						now := s.now()
-						if last, ok := s.lastEmitted[id]; !ok || now.Sub(last) >= 2*time.Second {
-							s.lastEmitted[id] = now
-							s.emit(s.state.Runs[i], "job.progress", "running", "transferring")
-						}
-					}
-					return
-				}
+	update := func(p DetailedProgress) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for i := range s.state.Runs {
+			r := &s.state.Runs[i]
+			if r.ID != id {
+				continue
 			}
+			if p.Bytes > r.Bytes {
+				r.Bytes = p.Bytes
+			}
+			r.SpeedBytesPerSecond = p.Speed
+			r.ETASeconds = p.ETA
+			if p.TotalBytes != nil {
+				r.TotalBytes = p.TotalBytes
+			}
+			if p.FilesDone != nil {
+				r.FilesDone = p.FilesDone
+			}
+			if p.FilesTotal != nil {
+				r.FilesTotal = p.FilesTotal
+			}
+			if p.ChecksDone != nil {
+				r.ChecksDone = p.ChecksDone
+			}
+			if p.ChecksTotal != nil {
+				r.ChecksTotal = p.ChecksTotal
+			}
+			if p.Errors != nil {
+				r.Errors = p.Errors
+			}
+			if p.RetryError != nil {
+				r.RetryError = p.RetryError
+			}
+			if p.TransferRetries != nil {
+				r.TransferRetries = p.TransferRetries
+			}
+			r.Percent = nil
+			if r.TotalBytes != nil && *r.TotalBytes > 0 {
+				v := math.Min(100, (float64(r.Bytes)/float64(*r.TotalBytes))*100)
+				r.Percent = &v
+			}
+			now := s.now()
+			if last, seen := s.lastEmitted[id]; seen && now.Sub(last) < 2*time.Second {
+				return
+			}
+			if err := s.persist(); err == nil {
+				s.lastEmitted[id] = now
+				s.emit(*r, "job.progress", "running", "transferring")
+			}
+			return
+		}
+	}
+	if x, ok := s.executor.(DetailedProgressRunner); ok {
+		err = x.ExecuteWithDetailedProgress(ctx, j, update)
+	} else if x, ok := s.executor.(ProgressRunner); ok {
+		err = x.ExecuteWithProgress(ctx, j, func(bytes int64, speed float64, eta int64) {
+			update(DetailedProgress{Bytes: bytes, Speed: speed, ETA: eta})
 		})
 	} else {
 		err = s.executor.Execute(ctx, j)

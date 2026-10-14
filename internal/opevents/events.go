@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"regexp"
 	"skybind/internal/atomicfile"
@@ -23,9 +24,18 @@ var idRE = regexp.MustCompile(`^[a-f0-9]{32}$`)
 // Progress has only numeric, nonsensitive fields. Unknown totals/ETA remain
 // absent instead of a made-up completion percentage.
 type Progress struct {
-	Bytes               int64   `json:"bytes"`
-	SpeedBytesPerSecond float64 `json:"speed_bytes_per_second"`
-	ETASeconds          int64   `json:"eta_seconds,omitempty"`
+	Bytes               int64    `json:"bytes"`
+	SpeedBytesPerSecond float64  `json:"speed_bytes_per_second"`
+	ETASeconds          int64    `json:"eta_seconds,omitempty"`
+	TotalBytes          *int64   `json:"total_bytes,omitempty"`
+	Percent             *float64 `json:"percent,omitempty"`
+	FilesDone           *int64   `json:"files_done,omitempty"`
+	FilesTotal          *int64   `json:"files_total,omitempty"`
+	ChecksDone          *int64   `json:"checks_done,omitempty"`
+	ChecksTotal         *int64   `json:"checks_total,omitempty"`
+	Errors              *int64   `json:"errors,omitempty"`
+	RetryError          *bool    `json:"retry_error,omitempty"`
+	TransferRetries     *int64   `json:"transfer_retries,omitempty"`
 }
 
 type Event struct {
@@ -85,8 +95,19 @@ func safeEvent(e Event) bool {
 			}
 		}
 	}
-	if e.Progress != nil && (e.Progress.Bytes < 0 || e.Progress.SpeedBytesPerSecond < 0 || e.Progress.SpeedBytesPerSecond > 1e15 || e.Progress.ETASeconds < 0 || e.Progress.ETASeconds > 1<<40) {
-		return false
+	if e.Progress != nil {
+		p := e.Progress
+		if p.Bytes < 0 || p.Bytes > 1<<60 || math.IsNaN(p.SpeedBytesPerSecond) || math.IsInf(p.SpeedBytesPerSecond, 0) || p.SpeedBytesPerSecond < 0 || p.SpeedBytesPerSecond > 1e15 || p.ETASeconds < 0 || p.ETASeconds > 1<<40 {
+			return false
+		}
+		for _, n := range []*int64{p.TotalBytes, p.FilesDone, p.FilesTotal, p.ChecksDone, p.ChecksTotal, p.Errors, p.TransferRetries} {
+			if n != nil && (*n < 0 || *n > 1<<60) {
+				return false
+			}
+		}
+		if p.Percent != nil && (math.IsNaN(*p.Percent) || math.IsInf(*p.Percent, 0) || *p.Percent < 0 || *p.Percent > 100) {
+			return false
+		}
 	}
 	return true
 }

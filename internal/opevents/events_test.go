@@ -100,3 +100,43 @@ func TestSafetyWaitAndPoisoning(t *testing.T) {
 		t.Fatal("untrusted filter accepted")
 	}
 }
+
+func TestRichProgressPersistsAndRejectsUnsafeNumbers(t *testing.T) {
+	s, dir := openFixture(t)
+	total := int64(1000)
+	done := int64(3)
+	count := int64(5)
+	errs := int64(1)
+	flag := true
+	pct := float64(28.5)
+	ev := sample(285)
+	ev.Progress.TotalBytes = &total
+	ev.Progress.Percent = &pct
+	ev.Progress.FilesDone = &done
+	ev.Progress.FilesTotal = &count
+	ev.Progress.Errors = &errs
+	ev.Progress.RetryError = &flag
+	if err := s.Append(ev); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pg, err := reopened.Poll(context.Background(), 0, 64, "", 0)
+	if err != nil || len(pg.Events) != 1 || pg.Events[0].Progress.Percent == nil || *pg.Events[0].Progress.Percent != 28.5 {
+		t.Fatalf("rich event lost %v %+v", err, pg)
+	}
+	bad := sample(2)
+	tooLarge := float64(101)
+	bad.Progress.Percent = &tooLarge
+	if err := reopened.Append(bad); err == nil {
+		t.Fatal("accepted percent above 100")
+	}
+	bad = sample(3)
+	n := int64(-1)
+	bad.Progress.TransferRetries = &n
+	if err := reopened.Append(bad); err == nil {
+		t.Fatal("accepted negative retries")
+	}
+}

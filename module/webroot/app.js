@@ -1,4 +1,4 @@
-import { createLiveFeed, consumeLivePage, latestLiveJobs, formatLiveProgress, cancellableLiveRun } from './live_progress.js';
+import { createLiveFeed, consumeLivePage, latestLiveJobs, formatLiveProgress, throughputSeries, cancellableLiveRun } from './live_progress.js';
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, saveSupportBundleToDownloads, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
 import { runtimeFailureText, providerReadinessPresentation } from './parity.js';
@@ -876,9 +876,30 @@ function renderLivePanel() {
     const phase=document.createElement('span'); phase.textContent=`${item.type} · ${item.phase}`;
     heading.append(name,phase);row.append(heading);
     row.append(paragraph(formatLiveProgress(item,bytes),'phase-a-live-metrics'));
-    if (!item.terminal) { const strip=document.createElement('div'); strip.className='phase-a-live-indeterminate';
-      strip.setAttribute('role','img');strip.setAttribute('aria-label','Transfer progress: total size unknown');
-      row.append(strip); }
+    if (!item.terminal) {
+      const progress=document.createElement('div');
+      const known=item.percent !== null && item.totalBytes !== null && item.totalBytes > 0;
+      progress.className=known?'phase-a-live-progress':'phase-a-live-indeterminate';
+      if (known) {
+        progress.setAttribute('role','progressbar'); progress.setAttribute('aria-valuemin','0');
+        progress.setAttribute('aria-valuemax','100'); progress.setAttribute('aria-valuenow',String(item.percent));
+        progress.setAttribute('aria-label','Job transfer percentage');
+        const fill=document.createElement('span');fill.style.width=`${item.percent}%`;progress.append(fill);
+      } else { progress.setAttribute('role','img');progress.setAttribute('aria-label','Transfer progress: total size unknown'); }
+      row.append(progress);
+    }
+    const speeds=throughputSeries(state.liveFeed,item.runId);
+    if (speeds.length >= 2) {
+      const chart=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      chart.setAttribute('viewBox','0 0 120 28');chart.setAttribute('class','phase-a-live-sparkline');
+      chart.setAttribute('role','img');chart.setAttribute('aria-label','Recent transfer throughput trend');
+      const max=Math.max(1,...speeds.map(s=>s.bytesPerSecond));
+      const pts=speeds.map((s,i)=>`${(120*i/(speeds.length-1)).toFixed(2)},${(26-24*s.bytesPerSecond/max).toFixed(2)}`).join(' ');
+      const line=document.createElementNS('http://www.w3.org/2000/svg','polyline');
+      line.setAttribute('points',pts);line.setAttribute('fill','none');line.setAttribute('stroke','currentColor');
+      line.setAttribute('stroke-width','2');line.setAttribute('vector-effect','non-scaling-stroke');chart.append(line);
+      row.append(chart);
+    }
     const when=document.createElement('span');when.className='phase-a-live-time';
     when.textContent=`Updated ${new Date(item.time).toLocaleTimeString()}`; row.append(when);
     if (cancellableLiveRun(item,state.liveStates) && !state.liveCancelling.has(item.runId)) {

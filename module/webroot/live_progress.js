@@ -23,7 +23,12 @@ export function projectLiveEvent(input) {
     runId: input.run_id || (input.type.startsWith('job.') ? input.operation_id : ''),
     type: input.type, state: input.state, phase: input.phase,
     bytes: safeNumber(p?.bytes), speed: safeNumber(p?.speed_bytes_per_second),
-    eta: safeNumber(p?.eta_seconds), terminal: TERMINAL.has(input.type),
+    eta: safeNumber(p?.eta_seconds), totalBytes: safeNumber(p?.total_bytes),
+    percent: safeNumber(p?.percent), filesDone: safeNumber(p?.files_done),
+    filesTotal: safeNumber(p?.files_total),
+    checksDone: safeNumber(p?.checks_done), checksTotal: safeNumber(p?.checks_total), errors: safeNumber(p?.errors),
+    transferRetries: safeNumber(p?.transfer_retries), retryError: p?.retry_error === true,
+    terminal: TERMINAL.has(input.type),
   };
 }
 export function consumeLivePage(feed, page) {
@@ -56,10 +61,27 @@ export function latestLiveJobs(feed) {
 }
 export function formatLiveProgress(event, formatBytes) {
   const parts=[];
-  if (event.bytes !== null) parts.push(`${formatBytes(event.bytes)} transferred`);
+  if (event.bytes !== null) parts.push(event.totalBytes !== null ?
+    `${formatBytes(event.bytes)} / ${formatBytes(event.totalBytes)} transferred` : `${formatBytes(event.bytes)} transferred`);
+  if (event.percent !== null && event.percent <= 100) parts.push(`${event.percent.toFixed(1)}%`);
+  if (event.filesDone !== null) parts.push(event.filesTotal !== null ?
+    `${event.filesDone} / ${event.filesTotal} transfers` : `${event.filesDone} transfers`);
+  if (event.checksDone !== null) parts.push(event.checksTotal !== null ?
+    `${event.checksDone} / ${event.checksTotal} checks` : `${event.checksDone} checks`);
   if (event.speed !== null && event.speed > 0) parts.push(`${formatBytes(event.speed)}/s`);
   if (event.eta !== null && event.eta > 0 && !event.terminal) parts.push(`ETA ${event.eta}s`);
+  if (event.errors !== null && event.errors > 0) parts.push(`${event.errors} rclone errors`);
+  if (event.transferRetries !== null) parts.push(`${event.transferRetries} retries`);
+  else if (event.retryError) parts.push('rclone retry-error flag set; retry count not reported');
   return parts.length ? parts.join(' · ') : 'Total size and percentage not available';
+}
+// Throughput is reconstructed from the last bounded 96 replayed events. We do
+// not copy a large time series into every persisted server event.
+export function throughputSeries(feed, runId, maxPoints = 24) {
+  if (!OPERATION_ID.test(runId)) return [];
+  return feed.records.filter(e => e.runId === runId && e.type === 'job.progress' &&
+    e.speed !== null && e.speed >= 0).slice(-Math.max(1, Math.min(24, maxPoints)))
+    .map(e => ({ time: e.time, bytesPerSecond: e.speed }));
 }
 export function cancellableLiveRun(event, authoritativeStates) {
   return Boolean(event?.runId && OPERATION_ID.test(event.runId) &&

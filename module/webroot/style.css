@@ -1026,3 +1026,9 @@ button:not(.primary):not(.danger):not(.nav-item):not(.nav-secondary):not(.remote
 .phase-a-live-cancel{margin:.45rem 0 0;min-height:38px}
 @keyframes phase-a-sweep{0%{transform:translateX(-110%)}100%{transform:translateX(370%)}}
 @media (prefers-reduced-motion:reduce){.phase-a-live-indeterminate::after{animation:none;width:100%;opacity:.5}}
+
+/* Phase A3: truthful byte totals, progress bar and bounded throughput trend. */
+.phase-a-live-progress{height:8px;overflow:hidden;border-radius:8px;background:#24394d;margin:.45rem 0}
+.phase-a-live-progress>span{display:block;height:100%;max-width:100%;background:#80abc6;transition:width .25s ease-out}
+.phase-a-live-sparkline{display:block;width:100%;max-width:250px;height:32px;color:#8dbbd2;margin:.2rem 0 .4rem}
+@media (prefers-reduced-motion:reduce){.phase-a-live-progress>span{transition:none}}
