@@ -172,6 +172,17 @@ func translateDomain(args []string, input io.Reader) (string, []byte, error) {
 		case "reconcile":
 			return named("namespace.reconcile")
 		}
+	case "operations":
+		switch sub {
+		case "events":
+			return inputObj("operation.events")
+		case "status":
+			return inputObj("operation.status")
+		case "cancel":
+			return inputObj("operation.cancel")
+		case "list":
+			return empty("operation.list")
+		}
 	case "rc":
 		if sub == "metrics" {
 			return named("rc.metrics")

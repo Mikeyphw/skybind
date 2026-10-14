@@ -27,7 +27,7 @@ const linuxOPath = 0x200000
 // StateDirectories is an immutable allowlist of root-private storage directories.
 var StateDirectories = [...]string{
 	"run", "config", "config/previous", "desired", "health", "jobs",
-	"namespace", "cache", "logs", "rc", "ui", "support", "journal", "locks",
+	"namespace", "cache", "logs", "rc", "ui", "support", "journal", "events", "locks",
 	"offline", "offline/objects", "offline/writes", "offline/writes/objects",
 }
 

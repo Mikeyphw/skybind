@@ -18,6 +18,7 @@ import (
 	"skybind/internal/atomicfile"
 	"skybind/internal/mounts/config"
 	"skybind/internal/mounts/policy"
+	"skybind/internal/opevents"
 	"skybind/internal/paths"
 	"skybind/internal/previewproof"
 	"skybind/internal/protocol"
@@ -218,14 +219,18 @@ func decodeStats(line []byte) (int64, float64, int64, bool) {
 }
 
 type Store struct {
-	mu       sync.Mutex
-	dir      string
-	state    persisted
-	proofs   *previewproof.Store
-	executor Executor
-	running  map[string]context.CancelFunc
-	now      func() time.Time
-	facts    func() policy.Facts
+	mu            sync.Mutex
+	dir           string
+	state         persisted
+	proofs        *previewproof.Store
+	executor      Executor
+	running       map[string]context.CancelFunc
+	cancelling    map[string]bool
+	eventObserver func(opevents.Event)
+	interrupted   []Run
+	lastEmitted   map[string]time.Time
+	now           func() time.Time
+	facts         func() policy.Facts
 }
 
 func Empty() Registry { return Registry{SchemaVersion: 1, Jobs: []Job{}} }
@@ -264,7 +269,7 @@ func Open(dir string, executor Executor, facts func() policy.Facts) (*Store, err
 	if executor == nil {
 		return nil, errors.New("missing job executor")
 	}
-	s := &Store{dir: dir, proofs: previewproof.New(), executor: executor, running: map[string]context.CancelFunc{}, now: time.Now, facts: facts}
+	s := &Store{dir: dir, proofs: previewproof.New(), executor: executor, running: map[string]context.CancelFunc{}, cancelling: map[string]bool{}, lastEmitted: map[string]time.Time{}, now: time.Now, facts: facts}
 	b, e := atomicfile.Read(dir, "jobs-v1.json", 1<<19)
 	if errors.Is(e, os.ErrNotExist) {
 		s.state.persistDefault()
@@ -285,6 +290,7 @@ func Open(dir string, executor Executor, facts func() policy.Facts) (*Store, err
 			s.state.Runs[i].State = "INTERRUPTED"
 			s.state.Runs[i].Reason = "daemon_restarted"
 			s.state.Runs[i].FinishedUnix = s.now().Unix()
+			s.interrupted = append(s.interrupted, s.state.Runs[i])
 			dirty = true
 		}
 	}
@@ -336,6 +342,25 @@ func (s *Store) Snapshot() (Registry, error) {
 func clone(r Registry) Registry { r.Jobs = append([]Job(nil), r.Jobs...); return r }
 
 // RunStatus returns only a previously claimed job run; it cannot launch work.
+// SetEventObserver wires the durable event publisher after opening the run
+// registry. Previously in-flight runs are emitted as interrupted once on boot.
+func (s *Store) SetEventObserver(fn func(opevents.Event)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.eventObserver = fn
+	for _, r := range s.interrupted {
+		s.emit(r, "job.interrupted", "interrupted", "daemon_restarted")
+	}
+	s.interrupted = nil
+}
+func (s *Store) emit(r Run, kind, state, phase string) {
+	if s.eventObserver == nil {
+		return
+	}
+	event := opevents.Event{OperationID: r.ID, RunID: r.ID, Operation: "job.run", Type: kind, State: state, Phase: phase,
+		Progress: &opevents.Progress{Bytes: r.Bytes, SpeedBytesPerSecond: r.SpeedBytesPerSecond, ETASeconds: r.ETASeconds}}
+	s.eventObserver(event)
+}
 func (s *Store) RunStatus(id string) (Run, error) {
 	if len(id) != 32 {
 		return Run{}, errors.New("invalid run identity")
@@ -529,6 +554,7 @@ func (s *Store) claim(j Job) (Run, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.running[r.ID] = cancel
+	s.emit(r, "job.started", "running", "claimed")
 	go s.execute(ctx, r.ID, j)
 	return r, nil
 }
@@ -546,7 +572,13 @@ func (s *Store) execute(ctx context.Context, id string, j Job) {
 					s.state.Runs[i].Bytes = bytes
 					s.state.Runs[i].SpeedBytesPerSecond = speed
 					s.state.Runs[i].ETASeconds = eta
-					_ = s.persist()
+					if e := s.persist(); e == nil && s.eventObserver != nil {
+						now := s.now()
+						if last, ok := s.lastEmitted[id]; !ok || now.Sub(last) >= 2*time.Second {
+							s.lastEmitted[id] = now
+							s.emit(s.state.Runs[i], "job.progress", "running", "transferring")
+						}
+					}
 					return
 				}
 			}
@@ -571,7 +603,29 @@ func (s *Store) execute(ctx context.Context, id string, j Job) {
 		}
 	}
 	delete(s.running, id)
-	_ = s.persist()
+	delete(s.cancelling, id)
+	delete(s.lastEmitted, id)
+	if s.persist() == nil {
+		for _, r := range s.state.Runs {
+			if r.ID == id {
+				kind := "job.completed"
+				phase := "finished"
+				state := "completed"
+				if r.State == "FAILED" {
+					kind = "job.failed"
+					state = "failed"
+					phase = "executor_failed"
+				}
+				if r.State == "CANCELLED" {
+					kind = "job.cancelled"
+					state = "cancelled"
+					phase = "user_cancelled"
+				}
+				s.emit(r, kind, state, phase)
+				break
+			}
+		}
+	}
 }
 
 func (s *Store) Cancel(id string) (Run, error) {
@@ -582,6 +636,12 @@ func (s *Store) Cancel(id string) (Run, error) {
 		return Run{}, errors.New("no owned active run")
 	}
 	cancel()
+	for _, r := range s.state.Runs {
+		if r.ID == id && !s.cancelling[id] {
+			s.cancelling[id] = true
+			s.emit(r, "job.cancelling", "running", "cancellation_requested")
+		}
+	}
 	for _, r := range s.state.Runs {
 		if r.ID == id {
 			return r, nil

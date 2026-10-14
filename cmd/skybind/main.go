@@ -28,6 +28,7 @@ import (
 	"skybind/internal/mounts/supervisor"
 	"skybind/internal/namespace"
 	"skybind/internal/offline"
+	"skybind/internal/opevents"
 	"skybind/internal/paths"
 	"skybind/internal/platformlifecycle"
 	"skybind/internal/protocol"
@@ -64,6 +65,8 @@ func run(args []string) int {
 		return namespace.RunWorker(args[1:])
 	case "webui":
 		return webuiCommand(args[1:])
+	case "events":
+		return eventsCommand(args[1:])
 	case "support-export":
 		// Fixed, root-only export of a verified owned ZIP. No arbitrary path,
 		// shell command, unredacted data, or caller-controlled destination.
@@ -129,7 +132,7 @@ func run(args []string) int {
 			return 2
 		}
 		return rpcCommand([]string{"system.capabilities", "query", "{}"})
-	case "mount", "jobs", "job", "crypt", "remotes", "namespace", "doctor", "platform", "runtime", "rc":
+	case "mount", "jobs", "job", "crypt", "remotes", "namespace", "doctor", "platform", "runtime", "rc", "operations":
 		return domainCommand(args, os.Stdin, func(op string, payload []byte) int {
 			item, ok := control.Lookup(op)
 			if !ok {
@@ -162,7 +165,7 @@ func run(args []string) int {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: skybind <mount|jobs|job|crypt|remotes|namespace|doctor|platform|runtime|rc|offline|webui|daemon|capabilities|operation|rpc|version|paths|help>")
+	fmt.Fprintln(os.Stderr, "usage: skybind <mount|jobs|job|events|operations|crypt|remotes|namespace|doctor|platform|runtime|rc|offline|webui|daemon|capabilities|operation|rpc|version|paths|help>")
 }
 func daemonCommand() int {
 	if os.Geteuid() != 0 {
@@ -221,6 +224,14 @@ func daemonCommand() int {
 		return 1
 	}
 	engine := daemon.EngineWithObservability(j, cfg, mountEngine, cacheEngine, supervisorEngine, func() policy.Facts { return policy.SampleAndroidFacts(paths.StateRoot + "/cache") }, namespaceEngine, rootmgr.CanonicalDetector{}, jobStore, providerEngine, rcEngine, logStore, bundleStore, doctor.Canonical())
+	// Observability is noncritical: a damaged event spool must never prevent
+	// mounting or recovery of queued offline edits.
+	eventStore, err := opevents.Open(paths.StateRoot + "/events")
+	if err != nil {
+		_ = logStore.Write("WARN", "events", "EVENT_STREAM_UNAVAILABLE", "operation event storage unavailable")
+	} else if err = daemon.RegisterOperationEvents(engine, jobStore, eventStore); err != nil {
+		_ = logStore.Write("WARN", "events", "EVENT_STREAM_UNAVAILABLE", "operation event registration unavailable")
+	}
 	if err = daemon.RegisterUISettings(engine, uiStore); err != nil {
 		fmt.Fprintln(os.Stderr, "UI settings registry:", err)
 		return 1

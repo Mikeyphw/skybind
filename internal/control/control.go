@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"skybind/internal/journal"
+	"skybind/internal/opevents"
 	"skybind/internal/protocol"
 	"strings"
 	"sync"
@@ -22,11 +23,12 @@ type entry struct {
 	handler    Handler
 }
 type Engine struct {
-	mu           sync.RWMutex
-	entries      map[string]entry
-	audit        func(string, string)
-	failureAudit func(string, string)
-	journal      *journal.Journal
+	mu            sync.RWMutex
+	entries       map[string]entry
+	audit         func(string, string)
+	failureAudit  func(string, string)
+	journal       *journal.Journal
+	eventObserver func(opevents.Event)
 }
 
 func New() *Engine { return &Engine{entries: make(map[string]entry)} }
@@ -49,6 +51,23 @@ func (e *Engine) Register(name string, class protocol.Class, fn Handler) error {
 
 // SetJournal installs the durable mutation boundary. Failed reservations block effects.
 func (e *Engine) SetJournal(j *journal.Journal) { e.mu.Lock(); defer e.mu.Unlock(); e.journal = j }
+
+// SetEventObserver receives server-authored lifecycle events only, never
+// user arguments, raw errors or provider stdout. Event delivery is best-effort;
+// failed event storage cannot roll back an already committed mutation.
+func (e *Engine) SetEventObserver(fn func(opevents.Event)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.eventObserver = fn
+}
+func (e *Engine) emitEvent(event opevents.Event) {
+	e.mu.RLock()
+	fn := e.eventObserver
+	e.mu.RUnlock()
+	if fn != nil {
+		fn(event)
+	}
+}
 
 // SetAudit attaches a bounded outcomes-only observer; it receives no raw arguments.
 func (e *Engine) SetAudit(fn func(operation, outcome string)) {
@@ -159,6 +178,9 @@ func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) (response p
 			}
 		}
 	}
+	if store != nil {
+		e.emitEvent(opevents.Event{OperationID: record.ID, Operation: req.Operation, Type: "operation.started", State: "running", Phase: "reserved"})
+	}
 	result, err := x.handler(ctx, req.Arguments)
 	if store != nil {
 		if err != nil {
@@ -193,11 +215,25 @@ func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) (response p
 		if notify != nil && (req.Operation == "mount.start" || req.Operation == "mount.restart" || req.Operation == "mount.stop") {
 			notify(req.Operation, reason)
 		}
+		if store != nil {
+			e.emitEvent(opevents.Event{OperationID: record.ID, Operation: req.Operation, Type: "operation.failed", State: "failed", Phase: "handler_failed"})
+		}
 		failure := protocol.Fail(req.RequestID, "operation_failed", "operation", "execute", false)
 		if failure.Error != nil && reason != "operation_failed" {
 			failure.Error.Message = reason
 		}
 		return failure
+	}
+	if store != nil {
+		kind := "operation.succeeded"
+		state := "succeeded"
+		phase := "finished"
+		if record.RunID != "" {
+			kind = "operation.accepted"
+			state = "accepted"
+			phase = "job_claimed"
+		}
+		e.emitEvent(opevents.Event{OperationID: record.ID, RunID: record.RunID, Operation: req.Operation, Type: kind, State: state, Phase: phase})
 	}
 	return protocol.Success(req.RequestID, result)
 }
