@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {makeB3Draft,updateB3,b3Spec,acceptB3,b3Ready,validRemoteObject,validExchangeSubfolder} from '../../module/webroot/remote_b3_ui.js';
+for(const value of ['alpha:','alpha:/abs','alpha:../evil','alpha:dir/../escape','alpha:dir\\escape','alpha:hi\nno'])assert.equal(validRemoteObject(value),false,value);
+for(const value of ['../etc','/etc','a//b','a/./b','a\\b','a:passwd'])assert.equal(validExchangeSubfolder(value),false,value);
+assert.equal(validRemoteObject('alpha:Folder/File.txt'),true);
+assert.equal(validExchangeSubfolder('out/photos'),true);
+const d=makeB3Draft('media');updateB3(d,'direction','download');updateB3(d,'remote','alpha:photos');updateB3(d,'local','incoming');
+let spec=b3Spec(d);assert.equal(spec.direction,'download');
+let rev=d.revision;const proof='a'.repeat(64);assert.equal(acceptB3(d,rev,spec,{...spec,proof,expires_seconds:120,skip_existing:true}),true);assert.equal(b3Ready(d).proof,proof);
+updateB3(d,'local','another');assert.equal(b3Ready(d),null);assert.equal(acceptB3(d,rev,spec,{...spec,proof,expires_seconds:120,skip_existing:true}),false);
+const m=makeB3Draft('move');updateB3(m,'source','alpha:folder/f.txt');updateB3(m,'destination','beta:folder/f.txt');assert.equal(b3Spec(m),null);updateB3(m,'destination','alpha:other/f.txt');assert.ok(b3Spec(m));
+assert.equal(acceptB3(m,m.revision,b3Spec(m),{...b3Spec(m),proof,expires_seconds:120,file_only:true,skip_existing:true,source_deleted_after_success:true}),true);
+assert.ok(b3Ready(m));

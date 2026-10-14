@@ -194,6 +194,14 @@ func (execRunner) ExecuteWithDetailedProgress(ctx context.Context, j Job, update
 	if err := validateLocalExisting(j.Destination); err != nil {
 		return err
 	}
+	if j.Kind != "copy" && j.Kind != "check" && j.Kind != "sync" && j.Kind != "moveto" {
+		return errors.New("unsupported job execution kind")
+	}
+	if j.Kind == "moveto" {
+		if err := execMoveGuard(j); err != nil {
+			return err
+		}
+	}
 	args := []string{"--config", paths.RcloneConfig, j.Kind, j.Source, j.Destination, "--stats", "1s", "--stats-log-level", "NOTICE", "--use-json-log", "--log-level", "NOTICE"}
 	if j.IgnoreExisting {
 		args = append(args, "--ignore-existing")

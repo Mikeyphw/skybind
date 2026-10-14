@@ -248,6 +248,30 @@
         <div id="remoteTransferPreviewText" class="remote-transfer-preview" aria-live="polite"></div>
         <div class="button-row"><button id="remoteTransferPreview" type="button">Preview transfer policy</button><button id="remoteTransferStart" class="primary" type="button" disabled>Confirm and start</button></div>
       </section>
+      <section class="card remote-transfer-panel" aria-labelledby="b3MediaHeading">
+        <h3 id="b3MediaHeading">Upload / download without mounting</h3>
+        <p class="muted">Transfers only use <code>Download/Skybind-Transfers</code> on this Android device. Create that directory in your file manager or Termux first. Existing destination files are skipped.</p>
+        <div class="remote-transfer-form">
+          <label>Direction<select id="b3MediaDirection"><option value="upload">Upload to remote</option><option value="download">Download to device</option></select></label>
+          <label>Remote folder<input id="b3MediaRemote" readonly placeholder="Select open folder"></label>
+          <label>Device exchange subfolder<input id="b3MediaLocal" placeholder="incoming or outgoing/photos" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <div class="button-row"><button id="b3MediaUseFolder" type="button">Use open remote folder</button><button id="b3MediaPreview" type="button">Preview upload/download</button><button id="b3MediaStart" type="button" class="primary" disabled>Confirm and start</button></div>
+        <p id="b3MediaNotice" class="notice compact" hidden aria-live="polite"></p>
+      </section>
+      <section class="card remote-transfer-panel" aria-labelledby="b3MkdirHeading">
+        <h3 id="b3MkdirHeading">Create remote folder</h3>
+        <div class="remote-transfer-form"><label>Parent folder<input id="b3MkdirParent" readonly placeholder="Browse a remote parent"></label><label>New folder name<input id="b3MkdirName" placeholder="New Folder" autocomplete="off" spellcheck="false"></label></div>
+        <div class="button-row"><button id="b3MkdirUseParent" type="button">Use open parent</button><button id="b3MkdirPreview" type="button">Preview creation</button><button id="b3MkdirStart" type="button" class="primary" disabled>Confirm and create</button></div>
+        <p id="b3MkdirNotice" class="notice compact" hidden aria-live="polite"></p>
+      </section>
+      <section class="card remote-transfer-panel" aria-labelledby="b3MoveHeading">
+        <h3 id="b3MoveHeading">Rename or move a remote file</h3>
+        <p class="muted">File only, within the same configured remote. Existing destination files are never overwritten; the source is removed after a successful move. Do not select offline-queued files.</p>
+        <div class="remote-transfer-form"><label>Source file<input id="b3MoveSource" readonly placeholder="Select file from its action menu"></label><label>Destination file path (remote:path)<input id="b3MoveDestination" placeholder="remote:Folder/NewName.ext" autocomplete="off" spellcheck="false"></label></div>
+        <div class="button-row"><button id="b3MovePreview" type="button">Preview file move</button><button id="b3MoveStart" type="button" class="primary" disabled>Confirm and move</button></div>
+        <p id="b3MoveNotice" class="notice compact" hidden aria-live="polite"></p>
+      </section>
       <div id="remoteTransferLive" class="phase-a-live-panel" aria-label="Live remote and job progress" aria-live="polite"></div>
     </section>
   </main>
@@ -404,6 +428,7 @@
         <button id="remoteUseMount" type="button"><span>◫</span><span><strong>Use as mount source</strong><small>Open Add Mount with this folder selected.</small></span></button>
         <button id="remoteUseTransferSource" type="button"><span>→</span><span><strong>Use as transfer source</strong><small>Choose this folder for a mountless copy/check</small></span></button>
         <button id="remoteUseTransferDestination" type="button"><span>←</span><span><strong>Use as transfer destination</strong><small>Choose this folder for a mountless copy/check</small></span></button>
+        <button id="remoteUseB3Move" type="button"><span>✎</span><span><strong>Rename or move this file</strong><small>Proof-confirmed file move within the same remote.</small></span></button>
         <button id="remoteUseJobSource" type="button"><span>⇥</span><span><strong>Use as job source</strong><small>Fill a job source with this path.</small></span></button>
         <button id="remoteUseJobDestination" type="button"><span>⇤</span><span><strong>Use as job destination</strong><small>Fill a job destination with this path.</small></span></button>
         <button id="remoteProtectCrypt" type="button"><span>🔒</span><span><strong>Protect with rclone crypt</strong><small>Create a new encrypted remote backed by this location.</small></span></button>

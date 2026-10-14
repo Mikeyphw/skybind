@@ -144,6 +144,18 @@ func translateDomain(args []string, input io.Reader) (string, []byte, error) {
 			return inputObj("remote.transfer.preview")
 		case "transfer-start":
 			return inputObj("remote.transfer.start")
+		case "media-preview":
+			return inputObj("remote.media.preview")
+		case "media-start":
+			return inputObj("remote.media.start")
+		case "mkdir-preview":
+			return inputObj("remote.mkdir.preview")
+		case "mkdir-run":
+			return inputObj("remote.mkdir.run")
+		case "move-preview":
+			return inputObj("remote.file.move.preview")
+		case "move-start":
+			return inputObj("remote.file.move.start")
 		case "list":
 			return empty("provider.remotes")
 		case "status":

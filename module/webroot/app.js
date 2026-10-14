@@ -1,4 +1,5 @@
 import { createTransferDraft, changeTransfer, transferSpec, acceptTransferPreview, readyTransfer, redactRunId, validFolderEndpoint } from './remote_transfer_ui.js';
+import { makeB3Draft, updateB3, b3Spec, acceptB3, b3Ready, validRemoteObject } from './remote_b3_ui.js';
 import { createLiveFeed, consumeLivePage, latestLiveJobs, formatLiveProgress, throughputSeries, cancellableLiveRun } from './live_progress.js';
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, saveSupportBundleToDownloads, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
@@ -18,6 +19,7 @@ const state = {
   mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountConfirmRequest: 0, mountPathReturnFocus: null,
   liveFeed: createLiveFeed(), liveTimer: null, liveEpoch: 0, liveStatus: 'Connecting to progress feed…', liveStates: new Map(), liveStatusAt: 0, liveCancelling: new Set(),
   remoteTransfer: createTransferDraft(), remoteTransferBusy: false, remoteTransferLastRun: '',
+  b3Media:makeB3Draft('media'),b3Mkdir:makeB3Draft('mkdir'),b3Move:makeB3Draft('move'),b3Busy:new Set(),
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
 };
@@ -1739,7 +1741,7 @@ function closeRemoteActions(){const focus=state.remoteActionReturnFocus;byId('re
 function openRemoteActions(remote,entry,currentPath,trigger){
   const itemPath=entry?.path||currentPath||''; const objectEndpoint=`${remote}:${itemPath}`; const mountEndpoint=`${remote}:${entry?.is_dir?itemPath:(currentPath||'')}`;
   state.remoteAction={remote,entry,currentPath,objectEndpoint,mountEndpoint};state.remoteActionReturnFocus=trigger||document.activeElement;
-  text('remoteActionTitle',entry?.name||`${remote}:`);text('remoteActionPath',objectEndpoint);const encrypted=remoteDetail(remote)?.encryption==='rclone-crypt';byId('remoteProtectCrypt').hidden=encrypted;byId('remoteUseTransferSource').hidden=Boolean(entry && !entry.is_dir);byId('remoteUseTransferDestination').hidden=Boolean(entry && !entry.is_dir);byId('remoteActionBackdrop').hidden=false;queueMicrotask(()=>byId('remoteUseMount')?.focus());
+  text('remoteActionTitle',entry?.name||`${remote}:`);text('remoteActionPath',objectEndpoint);const encrypted=remoteDetail(remote)?.encryption==='rclone-crypt';byId('remoteProtectCrypt').hidden=encrypted;byId('remoteUseB3Move').hidden=!entry || Boolean(entry.is_dir);byId('remoteUseTransferSource').hidden=Boolean(entry && !entry.is_dir);byId('remoteUseTransferDestination').hidden=Boolean(entry && !entry.is_dir);byId('remoteActionBackdrop').hidden=false;queueMicrotask(()=>byId('remoteUseMount')?.focus());
 }
 function cryptSpecValue(){return {name:byId('crypt-name').value.trim(),remote:byId('crypt-remote').value.trim(),filename_encryption:byId('crypt-filename-mode').value,directory_name_encryption:byId('crypt-directory-names').checked,filename_encoding:byId('crypt-filename-encoding').value};}
 function suggestCryptName(endpoint){const parsed=parseRemoteEndpoint(endpoint);const base=(parsed.remote||'Secure').replace(/[^A-Za-z0-9._-]/g,'')||'Secure';let name=`${base}Crypt`;const used=new Set((state.remoteDetails||[]).map((item)=>item.name));for(let i=2;used.has(name);i++)name=`${base}Crypt${i}`;return name;}
@@ -1770,6 +1772,72 @@ async function browseRemote(remote,path=''){
     }
     if(value.truncated)root.append(paragraph('This listing is truncated. Open a narrower folder to continue.','muted'));
   }catch(error){root.append(paragraph(`Browse failed: ${String(error?.message||error)}`,'notice error'));}
+}
+// Phase B3 uses the B1/A1 job engine; credentials and proof tokens never persist.
+function b3Refresh(which){
+ const d=state[which];const spec=b3Spec(d);
+ const name=which==='b3Media'?'b3Media':which==='b3Mkdir'?'b3Mkdir':'b3Move';
+ byId(name+'Preview').disabled=!spec||state.b3Busy.has(which);
+ byId(name+'Start').disabled=!b3Ready(d)||state.b3Busy.has(which);
+}
+function b3Change(which,key,value){updateB3(state[which],key,value);hideNotice(byId(which+'Notice'));b3Refresh(which);}
+let b3Parent='';
+function b3CurrentFolder(which){
+ if(!state.remote){showNotice(byId(which+'Notice'),'Browse a configured remote folder first.','warn');return;}
+ const remote=endpointFor(state.remote,state.remotePath);
+ if(which==='b3Media') {b3Change(which,'remote',remote);textInput('b3MediaRemote',remote);}
+ else {b3Parent=remote;textInput('b3MkdirParent',remote);b3FolderName();}
+}
+function textInput(id,value){const el=byId(id);if(el)el.value=value;}
+function b3FolderName(){
+ const parent=b3Parent, name=byId('b3MkdirName').value;
+ const endpoint=parent&&name?`${parent.replace(/\/$/,'').replace(/:$/,':')}${parent.endsWith(':')?'':'/'}${name}`:'';
+ updateB3(state.b3Mkdir,'endpoint',endpoint);
+ // The parent must be kept separately; editing the name uses the saved parent.
+ b3Refresh('b3Mkdir');
+}
+function b3SelectMoveFile(){
+ const a=state.remoteAction;if(!a?.entry||a.entry.is_dir)return;
+ const endpoint=a.objectEndpoint;
+ closeRemoteActions();b3Change('b3Move','source',endpoint);textInput('b3MoveSource',endpoint);
+ const name=endpoint.slice(endpoint.lastIndexOf('/')+1);
+ const target=endpoint.slice(0,endpoint.lastIndexOf('/')+1)+name;
+ // Source==destination is invalid until user chooses a new name.
+ b3Change('b3Move','destination',target);textInput('b3MoveDestination',target);
+ byId('b3MoveDestination')?.focus();
+}
+async function b3Preview(which,operation){
+ const d=state[which],spec=b3Spec(d);if(!spec||state.b3Busy.has(which))return;
+ const rev=d.revision;d.proof=null;state.b3Busy.add(which);b3Refresh(which);
+ try{
+  const response=result(await preview(operation,spec));
+  if(!acceptB3(d,rev,spec,response)){
+   if(rev===d.revision)throw new Error('Backend preview did not match the requested action');
+   return;
+  }
+  showNotice(byId(which+'Notice'),'Preview authorized for 120 seconds. Confirm the destination carefully; this is not a file-by-file diff.','ok');
+ }catch(error){if(rev===d.revision){d.proof=null;showNotice(byId(which+'Notice'),`Preview failed: ${backendErrorText(error)}`,'error');}}
+ finally{state.b3Busy.delete(which);b3Refresh(which);}
+}
+async function b3Start(which,operation){
+ const d=state[which],spec=b3Ready(d);if(!spec||state.b3Busy.has(which))return;
+ const warning=which==='b3Move'?'Move the selected remote file? The source is removed on success; cancellation cannot undo a completed move.'
+  :which==='b3Mkdir'?'Create this remote folder?':'Start upload/download? Destination files that already exist will be skipped, not overwritten.';
+ if(!globalThis.confirm(warning))return;
+ d.proof=null;state.b3Busy.add(which);b3Refresh(which);
+ try{
+  const r=result(await run(operation,spec));
+  if(which==='b3Mkdir'){
+   if(r.created!==true)throw new Error('Backend did not confirm folder creation');
+   showNotice(byId(which+'Notice'),'Remote directory created. Refreshing browser.','ok');
+   if(state.remote)void browseRemote(state.remote,state.remotePath);
+  }else{
+   const id=redactRunId(r.id);if(!id||r.state!=='RUNNING')throw new Error('Backend did not confirm a managed job');
+   showNotice(byId(which+'Notice'),`Job ${id.slice(0,8)} launched. Follow live progress below or in Activity.`, 'ok');
+   startLivePoll();
+  }
+ }catch(error){showNotice(byId(which+'Notice'),`Operation failed: ${backendErrorText(error)}. Preview again before retrying.`, 'error');}
+ finally{state.b3Busy.delete(which);b3Refresh(which);}
 }
 // Phase B2 — no direct credentials or hidden shell commands. Every action
 // passes through the authenticated B1 proof/launch endpoint.
@@ -1978,6 +2046,22 @@ byId('mountConfirmApply')?.addEventListener('click',confirmMountAction);
 byId('mountFolderClose')?.addEventListener('click',closeMountFolder);
 byId('mountFolderCopy')?.addEventListener('click',()=>void copyMountFolder());
 byId('closeRemoteActionsButton')?.addEventListener('click',closeRemoteActions);byId('remoteProtectCrypt')?.addEventListener('click',()=>{const backing=state.remoteAction?.mountEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(backing)void openCryptCreator(backing,trigger);});byId('remoteUseMount')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.mountEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForMount(endpoint,trigger);});byId('remoteUseJobSource')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.objectEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForJob(endpoint,'source',trigger);});byId('remoteUseJobDestination')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.objectEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForJob(endpoint,'destination',trigger);});byId('remoteCopyPath')?.addEventListener('click',()=>void copyRemoteActionPath());byId('remoteParentButton')?.addEventListener('click',()=>{if(!state.remote)return;const parent=state.remotePath.split('/').filter(Boolean).slice(0,-1).join('/');void browseRemote(state.remote,parent);});
+byId('remoteUseB3Move')?.addEventListener('click',b3SelectMoveFile);
+byId('b3MediaDirection')?.addEventListener('change',event=>b3Change('b3Media','direction',event.target.value));
+byId('b3MediaLocal')?.addEventListener('input',event=>b3Change('b3Media','local',event.target.value));
+byId('b3MediaUseFolder')?.addEventListener('click',()=>b3CurrentFolder('b3Media'));
+byId('b3MkdirUseParent')?.addEventListener('click',()=>b3CurrentFolder('b3Mkdir'));
+byId('b3MkdirName')?.addEventListener('input',b3FolderName);
+byId('b3MoveDestination')?.addEventListener('input',event=>b3Change('b3Move','destination',event.target.value));
+for(const [which,prefix,prev,start] of [
+ ['b3Media','b3Media','remote.media.preview','remote.media.start'],
+ ['b3Mkdir','b3Mkdir','remote.mkdir.preview','remote.mkdir.run'],
+ ['b3Move','b3Move','remote.file.move.preview','remote.file.move.start']
+]){
+ byId(prefix+'Preview')?.addEventListener('click',()=>void b3Preview(which,prev));
+ byId(prefix+'Start')?.addEventListener('click',()=>void b3Start(which,start));
+ b3Refresh(which);
+}
 byId('remoteTransferKind')?.addEventListener('change',(event)=>changeRemoteTransferField('kind',event.target.value));
 byId('remoteTransferUseSource')?.addEventListener('click',()=>useCurrentRemoteForTransfer('source'));
 byId('remoteTransferUseDestination')?.addEventListener('click',()=>useCurrentRemoteForTransfer('destination'));

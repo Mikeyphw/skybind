@@ -547,6 +547,82 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 				return jobStore.RemoteTransferStart(t, fingerprint, v.Proof)
 			})
 		}
+		// B3: quick remote directory creation is proof-confirmed; long-running
+		// media transfers and file-only moves are managed by jobs/Phase A.
+		register("remote.mkdir.preview", protocol.Preview, func(ctx context.Context, a json.RawMessage) (any, error) {
+			var v provider.DirectoryCreate
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return providers.MkdirPreview(ctx, v)
+		})
+		register("remote.mkdir.run", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Endpoint string `json:"endpoint"`
+				Proof    string `json:"proof"`
+			}
+			if e := protocol.StrictBytes(a, &v); e != nil {
+				return nil, e
+			}
+			return providers.MkdirRun(ctx, provider.DirectoryCreate{Endpoint: v.Endpoint}, v.Proof)
+		})
+		if jobStore != nil {
+			register("remote.media.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
+				var v jobs.RemoteMedia
+				if e := protocol.StrictBytes(a, &v); e != nil {
+					return nil, e
+				}
+				fp, e := providers.TransferFingerprint(v.Remote, v.Remote)
+				if e != nil {
+					return nil, e
+				}
+				return jobStore.RemoteMediaPreview(v, fp)
+			})
+			register("remote.media.start", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+				var v struct {
+					Direction string `json:"direction"`
+					Remote    string `json:"remote"`
+					Local     string `json:"local"`
+					Proof     string `json:"proof"`
+				}
+				if e := protocol.StrictBytes(a, &v); e != nil {
+					return nil, e
+				}
+				spec := jobs.RemoteMedia{Direction: v.Direction, Remote: v.Remote, Local: v.Local}
+				fp, e := providers.TransferFingerprint(v.Remote, v.Remote)
+				if e != nil {
+					return nil, e
+				}
+				return jobStore.RemoteMediaStart(spec, fp, v.Proof)
+			})
+			register("remote.file.move.preview", protocol.Preview, func(ctx context.Context, a json.RawMessage) (any, error) {
+				var v jobs.RemoteFileMove
+				if e := protocol.StrictBytes(a, &v); e != nil {
+					return nil, e
+				}
+				fp, e := providers.ValidFileMove(ctx, v.Source, v.Destination)
+				if e != nil {
+					return nil, e
+				}
+				return jobStore.RemoteFileMovePreview(v, fp)
+			})
+			register("remote.file.move.start", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
+				var v struct {
+					Source      string `json:"source"`
+					Destination string `json:"destination"`
+					Proof       string `json:"proof"`
+				}
+				if e := protocol.StrictBytes(a, &v); e != nil {
+					return nil, e
+				}
+				spec := jobs.RemoteFileMove{Source: v.Source, Destination: v.Destination}
+				fp, e := providers.ValidFileMove(ctx, v.Source, v.Destination)
+				if e != nil {
+					return nil, e
+				}
+				return jobStore.RemoteFileMoveStart(spec, fp, v.Proof)
+			})
+		}
 		register("provider.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
 			if e := emptyArgs(a); e != nil {
 				return nil, e

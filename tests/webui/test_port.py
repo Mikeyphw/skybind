@@ -37,7 +37,11 @@ class Parity(unittest.TestCase):
    'remoteTransferHeading','remoteTransferKind','remoteTransferSource','remoteTransferDestination',
    'remoteTransferUseSource','remoteTransferUseDestination','remoteTransferSwap',
    'remoteTransferNotice','remoteTransferPreviewText','remoteTransferPreview','remoteTransferStart','remoteTransferLive',
-   'remoteUseTransferSource','remoteUseTransferDestination'}
+   'remoteUseTransferSource','remoteUseTransferDestination',
+   'remoteUseB3Move','b3MediaHeading','b3MediaDirection','b3MediaRemote','b3MediaLocal','b3MediaUseFolder',
+   'b3MediaPreview','b3MediaStart','b3MediaNotice','b3MkdirHeading','b3MkdirParent','b3MkdirName',
+   'b3MkdirUseParent','b3MkdirPreview','b3MkdirStart','b3MkdirNotice',
+   'b3MoveHeading','b3MoveSource','b3MoveDestination','b3MovePreview','b3MoveStart','b3MoveNotice'}
   # Verify both directions: no reference controls disappear unexpectedly,
   # and every intentional new control is still present in the current UI.
   self.assertEqual(a.ids-b.ids,excluded)
