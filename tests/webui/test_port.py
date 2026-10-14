@@ -27,7 +27,17 @@ class Parity(unittest.TestCase):
    'cryptMigrationForm','crypt-migration-source','crypt-migration-destination-remote',
    'crypt-migration-destination-path','cryptMigrationError','cryptMigrationPreview',
    'cleanupCryptMigrationButton','previewCryptMigrationButton','runCryptMigrationButton'}
-  self.assertEqual(a.ids-excluded,b.ids-set(('skybindLogin','skybindLoginForm','skybindLoginHeading','skybindLoginToken','skybindLoginError','skybindLoginButton')))
+  # The reference is frozen by test_reference_untouched(). These are the
+  # intentionally added Skybind-only UI controls; do not allow arbitrary drift.
+  added={'skybindLogin','skybindLoginForm','skybindLoginHeading','skybindLoginToken','skybindLoginError','skybindLoginButton',
+   'toastRegion','mountCount','mountFolderBackdrop','mountFolderTitle','mountFolderPath','mountFolderCopy','mountFolderClose',
+   'mountConfirmBackdrop','mountConfirmTitle','mountConfirmDetail','mountConfirmCancel','mountConfirmApply',
+   'backupHeading','backupNotice','backupPrefsButton','backupExportButton','backupImportFile',
+   'backupRestoreButton','backupPreviewButton','backupPreviewDetails'}
+  # Verify both directions: no reference controls disappear unexpectedly,
+  # and every intentional new control is still present in the current UI.
+  self.assertEqual(a.ids-b.ids,excluded)
+  self.assertEqual(b.ids-a.ids,added)
   html=(UI/'index.html').read_text()
   for entry in ('viewport-fit=cover','class="desktop-nav"','id="view-home"','id="view-mounts"','id="editorBackdrop"','id="jobBackdrop"'):
    self.assertIn(entry,html)

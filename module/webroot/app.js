@@ -1712,6 +1712,12 @@ function refreshDelay(){
   });
 }
 async function loadViewData(view,{announce=true}={}){const titles={home:'Home',mounts:'Mounts',jobs:'Jobs',activity:'Activity',more:'More',runtime:'Runtime',remotes:'Remote browser',doctor:'Doctor',logs:'Logs',settings:'Settings'};if(view==='more')return;setViewBusy(view,true,announce?`Loading ${titles[view]||view}…`:'');try{if(view==='mounts')await loadMounts();else if(view==='jobs')await loadJobs();else if(view==='activity')await loadOperations();else if(view==='runtime')await loadRuntime();else if(view==='remotes')await loadRemoteBrowser();else if(view==='doctor')await loadDoctor();else if(view==='logs')await loadLogs();else if(view==='settings')await loadSettings();else if(view==='home')await loadHome();if(announce)announceStatus(`${titles[view]||view} ready.`);}catch(error){if(announce)announceStatus(`${titles[view]||view} failed to load.`);throw error;}finally{setViewBusy(view,false);}}
+// A successful Home refresh supersedes only previous transient request errors.
+// Do not hide genuine compatibility problems or errors in other views.
+function clearTransientBackendNotice() {
+  if (!compatibility || compatibility.hidden || !compatibility.classList.contains('error')) return;
+  if (/^(?:Backend request failed:|Refresh failed:)/.test(compatibility.textContent || '')) hideNotice(compatibility);
+}
 function showHomeLoadFailure(error) {
   const message = `Home status request failed: ${backendErrorText(error)}`;
   text('homeHeadline', 'Skybind status unavailable');
@@ -1722,11 +1728,11 @@ function showHomeLoadFailure(error) {
   text('homeRuntimeDetail', message);
   showNotice(byId('homeAttention'), message, 'error');
 }
-async function refreshView(view){try{await loadViewData(view,{announce:true});}catch(error){if(view==='home')showHomeLoadFailure(error);const notices={home:'compatibility',mounts:'mountsNotice',jobs:'jobsNotice',activity:'activityNotice',runtime:'runtimeNotice',remotes:'remotesNotice',doctor:'doctorNotice',logs:'logsNotice',settings:'settingsNotice'};const node=byId(notices[view]||'compatibility');showNotice(node,`Refresh failed: ${String(error?.message||error)}`,'error');}}
+async function refreshView(view){try{await loadViewData(view,{announce:true});if(view==='home')clearTransientBackendNotice();}catch(error){if(view==='home')showHomeLoadFailure(error);const notices={home:'compatibility',mounts:'mountsNotice',jobs:'jobsNotice',activity:'activityNotice',runtime:'runtimeNotice',remotes:'remotesNotice',doctor:'doctorNotice',logs:'logsNotice',settings:'settingsNotice'};const node=byId(notices[view]||'compatibility');showNotice(node,`Refresh failed: ${String(error?.message||error)}`,'error');}}
 function scheduleRefresh() {
   stopTimer(); if (document.visibilityState !== 'visible') return;
   const delay=refreshDelay();if(delay===null)return;
-  state.timer=setTimeout(async()=>{try{if(state.activeView==='logs'&&(!state.settingsSnapshot?.settings?.log_follow||state.logPaused))return;await loadViewData(state.activeView,{announce:false});}catch(error){if(state.activeView==='home')showHomeLoadFailure(error);}finally{scheduleRefresh();}},delay);
+  state.timer=setTimeout(async()=>{try{if(state.activeView==='logs'&&(!state.settingsSnapshot?.settings?.log_follow||state.logPaused))return;await loadViewData(state.activeView,{announce:false});if(state.activeView==='home')clearTransientBackendNotice();}catch(error){if(state.activeView==='home')showHomeLoadFailure(error);}finally{scheduleRefresh();}},delay);
 }
 async function setView(view) {
   const names=['home','mounts','jobs','activity','more','runtime','remotes','doctor','logs','settings'];
@@ -1738,7 +1744,7 @@ async function setView(view) {
   for(const nav of document.querySelectorAll('.nav-item')){const active=nav.dataset.view===primary;nav.classList.toggle('active',active);if(active)nav.setAttribute('aria-current','page');else nav.removeAttribute('aria-current');}
   for(const nav of document.querySelectorAll('.nav-secondary,.more-card,.settings-link')){const active=nav.dataset.view===view;nav.classList.toggle('active',active);if(active)nav.setAttribute('aria-current','page');else nav.removeAttribute('aria-current');}
   text('pageTitle',titles[view]||'Home');
-  try{await loadViewData(view,{announce:true});}catch(error){if(view==='home')showHomeLoadFailure(error);compatibility.hidden=false;compatibility.className='notice error';compatibility.textContent=`Backend request failed: ${backendErrorText(error)}`;}scheduleRefresh();
+  try{await loadViewData(view,{announce:true});if(view==='home')clearTransientBackendNotice();}catch(error){if(view==='home')showHomeLoadFailure(error);compatibility.hidden=false;compatibility.className='notice error';compatibility.textContent=`Backend request failed: ${backendErrorText(error)}`;}scheduleRefresh();
 }
 const skybindLogin = byId('skybindLogin');
 byId('skybindLoginForm')?.addEventListener('submit', async (event) => {
