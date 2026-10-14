@@ -231,6 +231,24 @@
         <div><p class="eyebrow">Configured remotes</p><div id="remoteButtons" class="remote-choice-row" aria-label="Configured remotes"></div></div>
         <div class="remote-browser"><div class="remote-browser-head"><button id="remoteParentButton" class="icon-button remote-parent" type="button" aria-label="Open parent folder">↑</button><p id="remoteBreadcrumb" class="code remote-breadcrumb">Choose a remote</p></div><div id="remoteEntries" class="remote-object-list"></div></div>
       </div>
+      <section class="card remote-transfer-panel" aria-labelledby="remoteTransferHeading">
+        <div class="remote-transfer-head"><div><h3 id="remoteTransferHeading">Mountless remote transfer</h3><p class="muted">Copy missing objects or compare folders directly through rclone. No FUSE mount required.</p></div></div>
+        <div class="remote-transfer-form">
+          <label>Operation<select id="remoteTransferKind"><option value="copy">Copy (skip existing)</option><option value="check">Check (read-only)</option></select></label>
+          <label>Source folder<input id="remoteTransferSource" readonly placeholder="Choose a remote folder above" autocomplete="off"></label>
+          <label>Destination folder<input id="remoteTransferDestination" readonly placeholder="Choose a remote folder above" autocomplete="off"></label>
+        </div>
+        <div class="button-row remote-transfer-pickers">
+          <button id="remoteTransferUseSource" type="button">Use open folder as source</button>
+          <button id="remoteTransferUseDestination" type="button">Use open folder as destination</button>
+          <button id="remoteTransferSwap" type="button">Swap folders</button>
+        </div>
+        <p class="muted">Browse to a non-root folder and choose it as source or destination. File menus can also select a folder. Copy never overwrites existing objects, but will create new objects in the destination. Check makes no changes. Do not use folders with pending offline edits.</p>
+        <div id="remoteTransferNotice" class="notice compact" hidden aria-live="polite"></div>
+        <div id="remoteTransferPreviewText" class="remote-transfer-preview" aria-live="polite"></div>
+        <div class="button-row"><button id="remoteTransferPreview" type="button">Preview transfer policy</button><button id="remoteTransferStart" class="primary" type="button" disabled>Confirm and start</button></div>
+      </section>
+      <div id="remoteTransferLive" class="phase-a-live-panel" aria-label="Live remote and job progress" aria-live="polite"></div>
     </section>
   </main>
 
@@ -384,6 +402,8 @@
       <div class="action-sheet-head"><div><p class="eyebrow">Use remote path</p><h2 id="remoteActionTitle">Remote item</h2><p id="remoteActionPath" class="muted code">—</p></div><button id="closeRemoteActionsButton" class="icon-button" type="button" aria-label="Close remote actions">×</button></div>
       <div class="action-sheet-list">
         <button id="remoteUseMount" type="button"><span>◫</span><span><strong>Use as mount source</strong><small>Open Add Mount with this folder selected.</small></span></button>
+        <button id="remoteUseTransferSource" type="button"><span>→</span><span><strong>Use as transfer source</strong><small>Choose this folder for a mountless copy/check</small></span></button>
+        <button id="remoteUseTransferDestination" type="button"><span>←</span><span><strong>Use as transfer destination</strong><small>Choose this folder for a mountless copy/check</small></span></button>
         <button id="remoteUseJobSource" type="button"><span>⇥</span><span><strong>Use as job source</strong><small>Fill a job source with this path.</small></span></button>
         <button id="remoteUseJobDestination" type="button"><span>⇤</span><span><strong>Use as job destination</strong><small>Fill a job destination with this path.</small></span></button>
         <button id="remoteProtectCrypt" type="button"><span>🔒</span><span><strong>Protect with rclone crypt</strong><small>Create a new encrypted remote backed by this location.</small></span></button>

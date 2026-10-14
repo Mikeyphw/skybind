@@ -1,3 +1,4 @@
+import { createTransferDraft, changeTransfer, transferSpec, acceptTransferPreview, readyTransfer, redactRunId, validFolderEndpoint } from './remote_transfer_ui.js';
 import { createLiveFeed, consumeLivePage, latestLiveJobs, formatLiveProgress, throughputSeries, cancellableLiveRun } from './live_progress.js';
 import { authenticateStandalone, capabilities, cancel, preview, query, reconcile, run, saveSupportBundleToDownloads, selectTransport, startOperation, transportName, validateCapabilities } from './bridge.js';
 import { eligibleNamespaceGroups, validateNamespaceSelection, nativeCachePreview } from './flow.js';
@@ -16,6 +17,7 @@ const state = {
   offlineOpen: new Set(), offlineInput: new Map(), offlineManifest: null, offlineTasks: [], offlinePending: false, offlineUnsupported: false, offlineConfirm: '', offlinePollId: null, offlineEdits: [], offlineReview: null, remoteDetailsUpdatedAt: 0, mountToolsOpen: new Set(),
   mountBusyNames: new Set(), mountConfirmReturnFocus: null, mountConfirmAction: null, mountConfirmName: '', mountConfirmRequest: 0, mountPathReturnFocus: null,
   liveFeed: createLiveFeed(), liveTimer: null, liveEpoch: 0, liveStatus: 'Connecting to progress feed…', liveStates: new Map(), liveStatusAt: 0, liveCancelling: new Set(),
+  remoteTransfer: createTransferDraft(), remoteTransferBusy: false, remoteTransferLastRun: '',
   jobSnapshot: null, jobOriginal: '', jobPreview: null, jobCandidates: null, jobReturnFocus: null, rollbackReturnFocus: null, settingsSnapshot: null, settingsPreview: null, logCursor: 0, logRecords: [], logPaused: false, remote: '', remotePath: '', remoteAction: null, remoteActionReturnFocus: null, remoteDetails: [], cryptPreview: null, cryptTrigger: null, cryptOnCreated: null, cryptPasswordStatus: null, cryptRecovery: null, 
   
 };
@@ -843,6 +845,7 @@ async function reconcileAll() {
 // Phase A2 observes a private, bounded backend event stream. The operation
 // journal/jobs.status remain authoritative (especially after a cursor gap).
 function livePanel(view) {
+  if (view==='remotes') return byId('remoteTransferLive');
   const host = byId(view === 'jobs' ? 'jobCards' : 'operationCards');
   if (!host) return null;
   const id = `phaseALive-${view}`;
@@ -853,7 +856,7 @@ function livePanel(view) {
 }
 function renderLivePanel() {
   const view=state.activeView;
-  if (view !== 'jobs' && view !== 'activity') return;
+  if (view !== 'jobs' && view !== 'activity' && view !== 'remotes') return;
   const root=livePanel(view); if (!root) return;
   clear(root);
   const h=document.createElement('div'); h.className='phase-a-live-heading';
@@ -867,7 +870,7 @@ function renderLivePanel() {
       'Event logging degraded; use job status for the authoritative outcome.', 'phase-a-live-warning');
     root.append(warning);
   }
-  const events=latestLiveJobs(state.liveFeed).slice(0,view==='jobs'?8:16);
+  const events=latestLiveJobs(state.liveFeed).slice(0,view==='jobs'?8:view==='remotes'?5:16);
   if (!events.length) { root.append(paragraph('No recent job progress events. Existing jobs continue to work independently of this feed.','muted'));return; }
   for (const item of events) {
     const row=document.createElement('article'); row.className='phase-a-live-row';
@@ -911,7 +914,7 @@ function renderLivePanel() {
 function stopLivePoll() { state.liveEpoch++; if (state.liveTimer !== null) clearTimeout(state.liveTimer); state.liveTimer=null; }
 function liveViewActive(epoch) {
   return epoch===state.liveEpoch && document.visibilityState === 'visible' &&
-    (state.activeView==='jobs' || state.activeView==='activity');
+    (state.activeView==='jobs' || state.activeView==='activity' || state.activeView==='remotes');
 }
 async function refreshLiveStates(epoch) {
   // A progress event alone does not prove a run is still running. Only the
@@ -919,8 +922,10 @@ async function refreshLiveStates(epoch) {
   const snapshot=result(await query('jobs.status'));
   if (!liveViewActive(epoch)) return;
   const statuses=new Map();
-  for (const job of snapshot.jobs||[]) if (job.last_run_id && /^[a-f0-9]{32}$/.test(job.last_run_id))
-    statuses.set(job.last_run_id,job.last_state);
+  // jobs.status returns {registry,runs}. Ephemeral mountless jobs have no
+  // registry entry; cancellation must use the authoritative runs list.
+  for (const run of snapshot.runs||[]) if (redactRunId(run.id))
+    statuses.set(run.id,run.state);
   state.liveStates=statuses; state.liveStatusAt=Date.now();
   for (const runId of state.liveCancelling) if (statuses.get(runId) !== 'RUNNING') state.liveCancelling.delete(runId);
 }
@@ -932,7 +937,7 @@ async function cancelLiveRun(runId) {
   try { result(await cancel('operation.cancel', { run_id: runId }));
     state.liveStatus='Cancellation requested; waiting for backend outcome.';
   } catch (error) { state.liveCancelling.delete(runId);
-    showNotice(byId(state.activeView==='jobs'?'jobsNotice':'activityNotice'),`Cancellation failed: ${backendErrorText(error)}`,'error'); }
+    showNotice(byId(state.activeView==='jobs'?'jobsNotice':state.activeView==='remotes'?'remoteTransferNotice':'activityNotice'),`Cancellation failed: ${backendErrorText(error)}`,'error'); }
   renderLivePanel();
 }
 async function pollLiveEvents(epoch) {
@@ -962,7 +967,7 @@ async function pollLiveEvents(epoch) {
 }
 function startLivePoll() {
   stopLivePoll();
-  if (document.visibilityState !== 'visible' || !['jobs','activity'].includes(state.activeView)) return;
+  if (document.visibilityState !== 'visible' || !['jobs','activity','remotes'].includes(state.activeView)) return;
   renderLivePanel();
   const epoch=state.liveEpoch;
   void pollLiveEvents(epoch);
@@ -1734,7 +1739,7 @@ function closeRemoteActions(){const focus=state.remoteActionReturnFocus;byId('re
 function openRemoteActions(remote,entry,currentPath,trigger){
   const itemPath=entry?.path||currentPath||''; const objectEndpoint=`${remote}:${itemPath}`; const mountEndpoint=`${remote}:${entry?.is_dir?itemPath:(currentPath||'')}`;
   state.remoteAction={remote,entry,currentPath,objectEndpoint,mountEndpoint};state.remoteActionReturnFocus=trigger||document.activeElement;
-  text('remoteActionTitle',entry?.name||`${remote}:`);text('remoteActionPath',objectEndpoint);const encrypted=remoteDetail(remote)?.encryption==='rclone-crypt';byId('remoteProtectCrypt').hidden=encrypted;byId('remoteActionBackdrop').hidden=false;queueMicrotask(()=>byId('remoteUseMount')?.focus());
+  text('remoteActionTitle',entry?.name||`${remote}:`);text('remoteActionPath',objectEndpoint);const encrypted=remoteDetail(remote)?.encryption==='rclone-crypt';byId('remoteProtectCrypt').hidden=encrypted;byId('remoteUseTransferSource').hidden=Boolean(entry && !entry.is_dir);byId('remoteUseTransferDestination').hidden=Boolean(entry && !entry.is_dir);byId('remoteActionBackdrop').hidden=false;queueMicrotask(()=>byId('remoteUseMount')?.focus());
 }
 function cryptSpecValue(){return {name:byId('crypt-name').value.trim(),remote:byId('crypt-remote').value.trim(),filename_encryption:byId('crypt-filename-mode').value,directory_name_encryption:byId('crypt-directory-names').checked,filename_encoding:byId('crypt-filename-encoding').value};}
 function suggestCryptName(endpoint){const parsed=parseRemoteEndpoint(endpoint);const base=(parsed.remote||'Secure').replace(/[^A-Za-z0-9._-]/g,'')||'Secure';let name=`${base}Crypt`;const used=new Set((state.remoteDetails||[]).map((item)=>item.name));for(let i=2;used.has(name);i++)name=`${base}Crypt${i}`;return name;}
@@ -1765,6 +1770,79 @@ async function browseRemote(remote,path=''){
     }
     if(value.truncated)root.append(paragraph('This listing is truncated. Open a narrower folder to continue.','muted'));
   }catch(error){root.append(paragraph(`Browse failed: ${String(error?.message||error)}`,'notice error'));}
+}
+// Phase B2 — no direct credentials or hidden shell commands. Every action
+// passes through the authenticated B1 proof/launch endpoint.
+function renderRemoteTransferDraft(){
+  const draft=state.remoteTransfer;
+  byId('remoteTransferKind').value=draft.kind;
+  byId('remoteTransferSource').value=draft.source;
+  byId('remoteTransferDestination').value=draft.destination;
+  const valid=transferSpec(draft);
+  byId('remoteTransferPreview').disabled=!valid || state.remoteTransferBusy;
+  byId('remoteTransferStart').disabled=!readyTransfer(draft) || state.remoteTransferBusy;
+  if(!draft.proof)text('remoteTransferPreviewText',valid?'Review the copy/check policy before starting. No files are changed during preview.':'Choose two different non-root remote folders; overlapping paths are not allowed.');
+}
+function changeRemoteTransferField(field,value){
+  changeTransfer(state.remoteTransfer,field,value);
+  hideNotice(byId('remoteTransferNotice'));
+  renderRemoteTransferDraft();
+}
+function useCurrentRemoteForTransfer(field){
+  if(!state.remote){showNotice(byId('remoteTransferNotice'),'Browse a configured remote folder first.','warn');return;}
+  const endpoint=endpointFor(state.remote,state.remotePath);
+  if(!validFolderEndpoint(endpoint)){showNotice(byId('remoteTransferNotice'),'Choose a non-root remote folder; transferring a remote root is not permitted.','warn');return;}
+  changeRemoteTransferField(field,endpoint);
+  byId('remoteTransferPreview')?.focus();
+}
+function useActionFolderForTransfer(field){
+  const a=state.remoteAction;
+  if(!a)return;
+  const endpoint= a.entry && !a.entry.is_dir ? '' : a.mountEndpoint;
+  closeRemoteActions();
+  if(!validFolderEndpoint(endpoint)){showNotice(byId('remoteTransferNotice'),'Only non-root folders can be selected for direct transfers.','warn');return;}
+  changeRemoteTransferField(field,endpoint);
+}
+async function previewRemoteTransfer(){
+  const draft=state.remoteTransfer, spec=transferSpec(draft);
+  if(!spec || state.remoteTransferBusy)return;
+  // A preview may resolve after the user changed the folders. Never retain
+  // such a proof, even if B1 would reject it when used.
+  const revision=draft.revision;
+  state.remoteTransferBusy=true;draft.proof=null;renderRemoteTransferDraft();
+  setButtonBusy(byId('remoteTransferPreview'),true,'Previewing…');
+  try {
+    const response=result(await preview('remote.transfer.preview',spec));
+    if(!acceptTransferPreview(draft,revision,spec,response)) {
+      if (revision===draft.revision) throw new Error('Backend preview contract mismatch');
+      return;
+    }
+    const action=spec.kind==='check'?'Read-only comparison; differences report a check failure.':'Copy missing destination objects only; existing destination files are skipped.';
+    text('remoteTransferPreviewText',`${action}\nSource: ${spec.source}\nDestination: ${spec.destination}\nSingle-use proof valid for ${response.expires_seconds}s. This is a policy preview, not a file-by-file diff.`);
+    showNotice(byId('remoteTransferNotice'),'Preview accepted. Confirm only if both folders are disposable or safely backed up.','ok');
+  }catch(error){if(revision===draft.revision){draft.proof=null;showNotice(byId('remoteTransferNotice'),`Preview failed: ${backendErrorText(error)}`,'error');}}
+  finally{state.remoteTransferBusy=false;setButtonBusy(byId('remoteTransferPreview'),false);renderRemoteTransferDraft();}
+}
+async function startRemoteTransfer(){
+  const draft=state.remoteTransfer, payload=readyTransfer(draft);
+  if(!payload || state.remoteTransferBusy)return;
+  const message=payload.kind==='copy'
+    ?`Start mountless copy from ${payload.source} to ${payload.destination}? Existing objects are skipped, but new objects will be created. Changes already completed cannot be undone by cancellation.`
+    :`Start read-only check between ${payload.source} and ${payload.destination}? No files will be changed.`;
+  if(!globalThis.confirm(message))return;
+  // Consume local proof before the RPC so repeated taps can't replay it.
+  draft.proof=null;state.remoteTransferBusy=true;renderRemoteTransferDraft();
+  setButtonBusy(byId('remoteTransferStart'),true,'Starting…');
+  try {
+    const started=result(await run('remote.transfer.start',payload));
+    const runId=redactRunId(started.id);
+    if(!runId || started.state!=='RUNNING')throw new Error('Backend did not acknowledge a running job');
+    state.remoteTransferLastRun=runId;
+    showNotice(byId('remoteTransferNotice'),`Started ${payload.kind} job ${runId.slice(0,8)}. Live progress appears below and in Jobs/Activity.`, 'ok');
+    state.liveStatus='Remote transfer launched; awaiting live events.';
+    startLivePoll();
+  }catch(error){showNotice(byId('remoteTransferNotice'),`Could not start transfer: ${backendErrorText(error)}. Preview again before retrying.`, 'error');}
+  finally{state.remoteTransferBusy=false;setButtonBusy(byId('remoteTransferStart'),false);renderRemoteTransferDraft();}
 }
 async function useRemoteForJob(endpoint,field,trigger=null){if(!state.jobSnapshot){state.jobSnapshot=result(await query('jobs.snapshot'));}openJob(null,trigger||document.activeElement);byId(field==='source'?'job-source':'job-destination').value=endpoint;invalidateJobPreview();renderJobEncryptionNotice();}
 async function loadRemotes(){const value=result(await query('provider.remotes'));state.remoteDetails=value.details||[];state.remoteDetailsUpdatedAt=Date.now();const root=byId('remoteButtons');clear(root);for(const name of value.remotes||[]){const detail=remoteDetail(name);const encrypted=detail?.encryption==='rclone-crypt';const chip=button(`${encrypted?'🔒':'△'} ${name}:`,()=>void browseRemote(name,''),'remote-choice');if(encrypted){const provenance=detail.managed_by_skybind?` · Skybind generation ${detail.password_revision||'?'}${detail.password_current?' current':' older'}`:' · external crypt';chip.title=`Encrypted via rclone crypt → ${detail.backing_remote||'backing remote'}${provenance}`;if(detail.managed_by_skybind&&!detail.password_current)chip.classList.add('provenance-old');}else chip.title='Not protected by rclone crypt';chip.setAttribute('aria-pressed',String(state.remote===name));root.append(chip);}if(!(value.remotes||[]).length){root.append(paragraph('No configured remotes were returned.','muted'));byId('remoteBreadcrumb').textContent='No remotes configured';}else if(!state.remote){byId('remoteBreadcrumb').textContent='Choose a remote';}}
@@ -1900,6 +1978,15 @@ byId('mountConfirmApply')?.addEventListener('click',confirmMountAction);
 byId('mountFolderClose')?.addEventListener('click',closeMountFolder);
 byId('mountFolderCopy')?.addEventListener('click',()=>void copyMountFolder());
 byId('closeRemoteActionsButton')?.addEventListener('click',closeRemoteActions);byId('remoteProtectCrypt')?.addEventListener('click',()=>{const backing=state.remoteAction?.mountEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(backing)void openCryptCreator(backing,trigger);});byId('remoteUseMount')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.mountEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForMount(endpoint,trigger);});byId('remoteUseJobSource')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.objectEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForJob(endpoint,'source',trigger);});byId('remoteUseJobDestination')?.addEventListener('click',()=>{const endpoint=state.remoteAction?.objectEndpoint;const trigger=state.remoteActionReturnFocus;closeRemoteActions();if(endpoint)void useRemoteForJob(endpoint,'destination',trigger);});byId('remoteCopyPath')?.addEventListener('click',()=>void copyRemoteActionPath());byId('remoteParentButton')?.addEventListener('click',()=>{if(!state.remote)return;const parent=state.remotePath.split('/').filter(Boolean).slice(0,-1).join('/');void browseRemote(state.remote,parent);});
+byId('remoteTransferKind')?.addEventListener('change',(event)=>changeRemoteTransferField('kind',event.target.value));
+byId('remoteTransferUseSource')?.addEventListener('click',()=>useCurrentRemoteForTransfer('source'));
+byId('remoteTransferUseDestination')?.addEventListener('click',()=>useCurrentRemoteForTransfer('destination'));
+byId('remoteTransferSwap')?.addEventListener('click',()=>{const d=state.remoteTransfer,source=d.source,destination=d.destination;changeTransfer(d,'source',destination);changeRemoteTransferField('destination',source);});
+byId('remoteUseTransferSource')?.addEventListener('click',()=>useActionFolderForTransfer('source'));
+byId('remoteUseTransferDestination')?.addEventListener('click',()=>useActionFolderForTransfer('destination'));
+byId('remoteTransferPreview')?.addEventListener('click',()=>void previewRemoteTransfer());
+byId('remoteTransferStart')?.addEventListener('click',()=>void startRemoteTransfer());
+renderRemoteTransferDraft();
 byId('addJobButton')?.addEventListener('click',()=>openJob());byId('job-source')?.addEventListener('input',renderJobEncryptionNotice);byId('job-source')?.addEventListener('change',renderJobEncryptionNotice);byId('job-destination')?.addEventListener('input',renderJobEncryptionNotice);byId('job-destination')?.addEventListener('change',renderJobEncryptionNotice);byId('closeJobButton')?.addEventListener('click',closeJob);byId('previewJobButton')?.addEventListener('click',()=>void previewJob(false));byId('deleteJobButton')?.addEventListener('click',()=>void previewJob(true));byId('applyJobButton')?.addEventListener('click',()=>void applyJob());byId('jobForm')?.addEventListener('input',invalidateJobPreview);byId('jobForm')?.addEventListener('change',invalidateJobPreview);
 byId('createCryptRemoteButton')?.addEventListener('click',()=>void openCryptCreator());byId('closeCryptButton')?.addEventListener('click',closeCryptCreator);byId('previewCryptButton')?.addEventListener('click',()=>void previewCryptCreation());byId('createCryptButton')?.addEventListener('click',()=>void createCryptRemote());byId('cryptForm')?.addEventListener('input',invalidateCryptPreview);byId('cryptForm')?.addEventListener('change',invalidateCryptPreview);byId('setInlineCryptPasswordButton')?.addEventListener('click',()=>void setSkybindCryptPassword('crypt-inline-password','setInlineCryptPasswordButton','cryptError'));byId('setCryptPasswordButton')?.addEventListener('click',()=>void setSkybindCryptPassword('setting-crypt-password','setCryptPasswordButton','cryptPasswordNotice'));
 byId('backupExportButton')?.addEventListener('click',()=>void savePersonalBackup());byId('backupPreviewButton')?.addEventListener('click',()=>void previewPersonalBackup());byId('backupRestoreButton')?.addEventListener('click',()=>void restorePersonalMounts());byId('backupPrefsButton')?.addEventListener('click',()=>void restorePersonalPreferences());byId('backupImportFile')?.addEventListener('change',()=>{backupImportDoc=null;resetBackupPreview();});

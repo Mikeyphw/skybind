@@ -1032,3 +1032,14 @@ button:not(.primary):not(.danger):not(.nav-item):not(.nav-secondary):not(.remote
 .phase-a-live-progress>span{display:block;height:100%;max-width:100%;background:#80abc6;transition:width .25s ease-out}
 .phase-a-live-sparkline{display:block;width:100%;max-width:250px;height:32px;color:#8dbbd2;margin:.2rem 0 .4rem}
 @media (prefers-reduced-motion:reduce){.phase-a-live-progress>span{transition:none}}
+
+/* Phase B2: direct remote transfer panel, narrow-Termux/Android WebView friendly. */
+.remote-transfer-panel { margin-top: 1rem; }
+.remote-transfer-head { display:flex; justify-content:space-between; gap:.65rem; margin-bottom:.8rem; }
+.remote-transfer-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr)); gap:.7rem; margin-bottom:.75rem; }
+.remote-transfer-form label { display:grid; gap:.35rem; font-size:.83rem; color:#c7d2e3; min-width:0; }
+.remote-transfer-form input,.remote-transfer-form select { width:100%; min-width:0; padding:.6rem .7rem; border:1px solid #53627a; border-radius:10px; background:#121822; color:#f5f5f5; }
+.remote-transfer-preview { margin:.7rem 0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:.84rem; line-height:1.5; }
+.remote-transfer-panel .button-row { margin:.6rem 0; }
+#remoteTransferLive { margin-top:1rem; }
+@media (max-width:480px) { .remote-transfer-panel .button-row button { flex:1 1 100%; } }

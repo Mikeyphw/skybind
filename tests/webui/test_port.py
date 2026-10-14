@@ -33,7 +33,11 @@ class Parity(unittest.TestCase):
    'toastRegion','mountCount','mountFolderBackdrop','mountFolderTitle','mountFolderPath','mountFolderCopy','mountFolderClose',
    'mountConfirmBackdrop','mountConfirmTitle','mountConfirmDetail','mountConfirmCancel','mountConfirmApply',
    'backupHeading','backupNotice','backupPrefsButton','backupExportButton','backupImportFile',
-   'backupRestoreButton','backupPreviewButton','backupPreviewDetails'}
+   'backupRestoreButton','backupPreviewButton','backupPreviewDetails',
+   'remoteTransferHeading','remoteTransferKind','remoteTransferSource','remoteTransferDestination',
+   'remoteTransferUseSource','remoteTransferUseDestination','remoteTransferSwap',
+   'remoteTransferNotice','remoteTransferPreviewText','remoteTransferPreview','remoteTransferStart','remoteTransferLive',
+   'remoteUseTransferSource','remoteUseTransferDestination'}
   # Verify both directions: no reference controls disappear unexpectedly,
   # and every intentional new control is still present in the current UI.
   self.assertEqual(a.ids-b.ids,excluded)
