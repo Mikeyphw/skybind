@@ -28,6 +28,8 @@ func supervisorAuditEvent(h supervisor.Health) (string, string) {
 		reason, code = "retry_budget_exhausted", "RECONCILE_EXHAUSTED"
 	case h.Reason == "policy_deferred":
 		reason, code = "policy_deferred", "RECONCILE_POLICY_DEFERRED"
+	case h.Reason == "android_storage_deferred":
+		reason, code = "android_storage_deferred", "RECONCILE_STORAGE_DEFERRED"
 	case h.Reason == "recovery_cooldown":
 		reason, code = "recovery_cooldown", "RECONCILE_RECOVERY_COOLDOWN"
 	case h.Reason == "backoff":

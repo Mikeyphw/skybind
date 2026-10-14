@@ -35,6 +35,11 @@ var nameRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,62}$`)
 // Other start errors remain subject to the strict retry budget.
 var ErrResourcePolicyDeferred = errors.New("resource policy blocked")
 
+// ErrAndroidUserStorageDeferred is a pre-spawn deferral, not a provider failure.
+// A root service can run before Android unlocks user 0's encrypted storage.
+// It must not consume a mount-start retry while that storage is unavailable.
+var ErrAndroidUserStorageDeferred = errors.New("android user storage not yet available")
+
 type Ownership struct {
 	Name        string `json:"name"`
 	PID         int    `json:"pid"`
@@ -623,6 +628,12 @@ func (e *Engine) startLocked(m config.Mount) (State, error) {
 		return State{}, err
 	}
 	if e.dir == filepath.Join(paths.StateRoot, "desired") {
+		// This is a pre-spawn guard for user-0 emulated storage only.
+		// Android's boot-completed property can precede CE unlock by minutes.
+		// Do not charge failed-start tokens or launch a provider while locked.
+		if androidUserStorageLocked(m.Mountpoint) {
+			return State{}, ErrAndroidUserStorageDeferred
+		}
 		if err = verifyDestination(m.Mountpoint); err != nil {
 			return State{}, err
 		}

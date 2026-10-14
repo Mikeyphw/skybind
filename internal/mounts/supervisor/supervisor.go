@@ -227,6 +227,16 @@ func (s *Supervisor) Reconcile(ctx context.Context) ([]Health, error) {
 			continue
 		}
 		v, startErr := s.engine.Start(name)
+		if errors.Is(startErr, lifecycle.ErrAndroidUserStorageDeferred) {
+			// Android reports boot completion before user-0 credential-encrypted
+			// storage is necessarily accessible. This is not a failed spawn.
+			// Only a real Start error after unlock may consume retry tokens.
+			r.next = s.now().Add(30 * time.Second)
+			r.deferred = false // Network notifications must not expedite CE checks.
+			s.retry[name] = r
+			out = append(out, Health{Name: name, State: "RETRYING", Reason: "android_storage_deferred", Attempts: r.attempts, RecoveryProbes: r.probes, FailureClass: r.failureClass, RetryAt: r.next})
+			continue
+		}
 		if errors.Is(startErr, lifecycle.ErrResourcePolicyDeferred) {
 			// Pre-spawn policy denials consume neither ordinary attempts nor
 			// long-delay recovery probes. Persist a regular policy recheck.
