@@ -46,8 +46,8 @@ func TestFailureBounded(t *testing.T) {
 		s.Reconcile(context.Background())
 		clock = clock.Add(2 * time.Minute)
 	}
-	if f.calls != 5 {
-		t.Fatalf("unbounded retries %d", f.calls)
+	if f.calls != 7 || s.retry["cloud"].attempts != 5 || s.retry["cloud"].probes != 2 {
+		t.Fatalf("unbounded retries %d state=%+v", f.calls, s.retry["cloud"])
 	}
 }
 func TestHealthyNoRestart(t *testing.T) {

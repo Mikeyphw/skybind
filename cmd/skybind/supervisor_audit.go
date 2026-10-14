@@ -28,6 +28,8 @@ func supervisorAuditEvent(h supervisor.Health) (string, string) {
 		reason, code = "retry_budget_exhausted", "RECONCILE_EXHAUSTED"
 	case h.Reason == "policy_deferred":
 		reason, code = "policy_deferred", "RECONCILE_POLICY_DEFERRED"
+	case h.Reason == "recovery_cooldown":
+		reason, code = "recovery_cooldown", "RECONCILE_RECOVERY_COOLDOWN"
 	case h.Reason == "backoff":
 		reason, code = "backoff", "RECONCILE_BACKOFF"
 	case strings.HasPrefix(h.Reason, "start_blocked:"):
@@ -46,7 +48,17 @@ func supervisorAuditEvent(h supervisor.Health) (string, string) {
 	if h.Attempts < 0 || h.Attempts > 100000 {
 		return "RECONCILE_INVALID", fmt.Sprintf("mount_hash=%s reason=invalid_count", mountHash)
 	}
-	return code, fmt.Sprintf("mount_hash=%s attempts=%d state=%s reason=%s", mountHash, h.Attempts, state, reason)
+	// All extra fields are fixed tokens or bounded integers. Do not trust
+	// unknown FailureClass strings even if another caller constructs Health.
+	class := "unknown"
+	if supervisor.AllowedFailureClass(h.FailureClass) && h.FailureClass != "" {
+		class = h.FailureClass
+	}
+	probes := h.RecoveryProbes
+	if probes < 0 || probes > 2 {
+		return "RECONCILE_INVALID", fmt.Sprintf("mount_hash=%s reason=invalid_count", mountHash)
+	}
+	return code, fmt.Sprintf("mount_hash=%s attempts=%d recovery_probes=%d state=%s reason=%s failure_class=%s", mountHash, h.Attempts, probes, state, reason, class)
 }
 
 // supervisorAuditor is owned by the reconciliation goroutine; it retains only

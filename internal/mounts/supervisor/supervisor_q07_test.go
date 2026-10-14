@@ -102,15 +102,15 @@ func TestQ07BudgetPersistsAcrossPolicyDeferAndDaemonRestart(t *testing.T) {
 	}
 	after.now = func() time.Time { return clock }
 	f.nowError = errors.New("persistent failure")
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 40; i++ {
 		_, err = after.Reconcile(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
 		clock = clock.Add(time.Minute)
 	}
-	if after.retry["cloud"].attempts != 5 || f.starts != 13 { // 1 real + 8 deferred + 4 real
-		t.Fatalf("hard failures must still exhaust at five; attempts=%+v starts=%d", after.retry, f.starts)
+	if after.retry["cloud"].attempts != 5 || after.retry["cloud"].probes != 2 || f.starts != 15 { // 1 real + 8 deferred + 4 real + 2 delayed probes
+		t.Fatalf("hard failures must stop after 5+2 bounded starts; attempts=%+v starts=%d", after.retry, f.starts)
 	}
 }
 func TestQ07ExplicitStopRemainsStopped(t *testing.T) {
