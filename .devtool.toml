@@ -163,6 +163,8 @@ inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
 metadata = { read_only = true, device_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_android_device.workflows]
+api-device-readonly = ["job:api-device-readonly"]
+api-device-disposable = ["job:api-device-disposable"]
 device-matrix-source = ["job:device-matrix-source"]
 physical-app-probe = ["job:physical-app-probe"]
 bootstrap = ["job:bootstrap-device-plan"]
@@ -1024,3 +1026,31 @@ outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
 metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = false }
 
 # Existing Devtool native build stays the single build authority. No CFS1 edits.
+
+# A1-B3 physical-device RAW evidence collection. The Devtool wrapper is the
+# sole launcher; neither job issues a release seal or rebuilds the module.
+[targets.skybind_android_device.jobs.api-device-readonly]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../../scripts/dev/device/api_acceptance.py", "--mode", "readonly"]
+inputs = ["../../scripts/dev/device/api_acceptance.py", "../../tests/device/test_api_acceptance.py", "../../internal/opevents/**", "../../internal/jobs/**", "../../module/webroot/**"]
+outputs = ["../../build/evidence/android/api/**"]
+metadata = { qualification = "raw-physical-device-observations-only", read_only = true, independent_attestation = false, release_seal = false, embedded_webui_acceptance = false }
+
+[targets.skybind_android_device.jobs.api-device-disposable]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../../scripts/dev/device/api_acceptance.py", "--mode", "disposable"]
+inputs = ["../../scripts/dev/device/api_acceptance.py", "../../tests/device/test_api_acceptance.py", "../../internal/jobs/**", "../../internal/provider/**", "../../module/webroot/**"]
+outputs = ["../../build/evidence/android/api/**"]
+metadata = { qualification = "raw-disposable-device-operations-only", read_only = false, independent_attestation = false, release_seal = false, embedded_webui_acceptance = false }
+
+[wrapper.commands.api-device-readonly]
+description = "A1-B3 installed-module read-only RPC and event diagnostics; RAW evidence only"
+workflow = "api-device-readonly"
+target = "skybind_android_device"
+
+[wrapper.commands.api-device-disposable]
+description = "A1-B3 disposable remote transfers using explicit environment authorization; RAW evidence only"
+workflow = "api-device-disposable"
+target = "skybind_android_device"
