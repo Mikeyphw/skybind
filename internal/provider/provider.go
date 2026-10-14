@@ -5,6 +5,8 @@ package provider
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -516,4 +518,80 @@ func (m *Manager) CryptCreate(s CryptSpec, proof string) (any, error) {
 		return nil, errors.New("crypt remote published but provenance write failed; recover before retry")
 	}
 	return map[string]any{"created": s.Name, "encrypted": true}, nil
+}
+
+// TransferFingerprint only accepts a pair of configured rclone remotes. It
+// binds operation previews to the current rclone configuration, so a config
+// replacement invalidates an outstanding mutation proof. No secrets escape.
+func (m *Manager) TransferFingerprint(source, destination string) (string, error) {
+	a, _, err := splitEndpoint(source)
+	if err != nil {
+		return "", err
+	}
+	b, _, err := splitEndpoint(destination)
+	if err != nil {
+		return "", err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	configBytes, remotes, err := m.config()
+	if err != nil {
+		return "", err
+	}
+	seenA, seenB := false, false
+	for _, r := range remotes {
+		if r.Name == a {
+			seenA = true
+		}
+		if r.Name == b {
+			seenB = true
+		}
+	}
+	if !seenA || !seenB {
+		return "", errors.New("unconfigured transfer remote")
+	}
+	digest := sha256.Sum256(configBytes)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// Stat reads an object or directory directly from a configured remote.
+// rclone's --stat may report a synthetic directory on bucket backends;
+// consumers must not treat this as an existence guarantee.
+func (m *Manager) Stat(ctx context.Context, endpoint string) (Entry, error) {
+	name, path, err := splitEndpoint(endpoint)
+	if err != nil || path == "" {
+		return Entry{}, errors.New("invalid remote stat path")
+	}
+	m.mu.Lock()
+	_, remotes, err := m.config()
+	m.mu.Unlock()
+	if err != nil {
+		return Entry{}, err
+	}
+	found := false
+	for _, remote := range remotes {
+		if remote.Name == name {
+			found = true
+		}
+	}
+	if !found {
+		return Entry{}, errors.New("unknown remote")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := m.runner.Run(ctx, nil, "--config", paths.RcloneConfig, "lsjson", "--stat", "--", endpoint)
+	if err != nil {
+		return Entry{}, err
+	}
+	if len(out) > 8192 {
+		return Entry{}, errors.New("remote stat oversized")
+	}
+	var item Entry
+	if err = json.Unmarshal(out, &item); err != nil {
+		return Entry{}, errors.New("invalid remote stat")
+	}
+	if item.Name == "" || strings.ContainsAny(item.Name, "/\\\x00\r\n") || item.Size < 0 || !validPath(item.Path) {
+		return Entry{}, errors.New("invalid remote stat entry")
+	}
+	return item, nil
 }

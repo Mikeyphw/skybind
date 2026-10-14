@@ -7,6 +7,10 @@ import "skybind/internal/protocol"
 // to the historical catalog or represented as CFS1-qualified operations.
 var offlineExtension = map[string]protocol.Class{
 	"operation.events":          protocol.Query,
+	"remote.list":               protocol.Query,
+	"remote.stat":               protocol.Query,
+	"remote.transfer.preview":   protocol.Preview,
+	"remote.transfer.start":     protocol.Run,
 	"backup.export":             protocol.Query,
 	"backup.save":               protocol.Run,
 	"backup.preview":            protocol.Preview,

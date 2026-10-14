@@ -131,6 +131,19 @@ func translateDomain(args []string, input io.Reader) (string, []byte, error) {
 		}
 	case "remotes":
 		switch sub {
+		case "ls", "stat":
+			if len(tail) != 1 || strings.HasPrefix(tail[0], "-") {
+				return "", nil, errors.New("expected configured remote:path")
+			}
+			b, _ := json.Marshal(map[string]string{"endpoint": tail[0]})
+			if sub == "ls" {
+				return "remote.list", b, nil
+			}
+			return "remote.stat", b, nil
+		case "transfer-preview":
+			return inputObj("remote.transfer.preview")
+		case "transfer-start":
+			return inputObj("remote.transfer.start")
 		case "list":
 			return empty("provider.remotes")
 		case "status":

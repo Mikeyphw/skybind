@@ -17,6 +17,8 @@ func TestDomainCLIHasFixedOperations(t *testing.T) {
 		{[]string{"jobs", "list"}, "jobs.snapshot"},
 		{[]string{"job", "preview", "backup"}, "job.run.preview"},
 		{[]string{"remotes", "browse", "drive:foo"}, "provider.browse"},
+		{[]string{"remotes", "ls", "drive:foo"}, "remote.list"},
+		{[]string{"remotes", "stat", "drive:foo/item"}, "remote.stat"},
 		{[]string{"crypt", "recovery"}, "provider.crypt.recovery.status"},
 		{[]string{"doctor", "report"}, "doctor.report"},
 		{[]string{"platform", "status"}, "platform.status"},
@@ -60,6 +62,27 @@ func TestSecretOnlyFromBoundedStdin(t *testing.T) {
 	for _, password := range []string{"short", strings.Repeat("x", 1030), "secret\nextra\n", "abcd\r123456789"} {
 		if _, _, err = translateDomain([]string{"crypt", "password", "set", "--stdin"}, strings.NewReader(password)); err == nil {
 			t.Fatal("unsafe stdin accepted")
+		}
+	}
+}
+
+func TestB1RemoteTransferCLIUsesBoundedJSON(t *testing.T) {
+	payload := `{"kind":"copy","source":"alpha:src","destination":"beta:dst"}`
+	for _, tc := range []struct {
+		args []string
+		op   string
+	}{
+		{[]string{"remotes", "transfer-preview", "--stdin"}, "remote.transfer.preview"},
+		{[]string{"remotes", "transfer-start", "--stdin"}, "remote.transfer.start"},
+	} {
+		name, raw, err := translateDomain(tc.args, strings.NewReader(payload))
+		if err != nil || name != tc.op || string(raw) != payload {
+			t.Fatalf("bad B1 command: %q %v", name, err)
+		}
+	}
+	for _, v := range [][]string{{"remotes", "transfer-start", "--exec"}, {"remotes", "ls", "--flag"}, {"remotes", "stat"}} {
+		if _, _, err := translateDomain(v, strings.NewReader("")); err == nil {
+			t.Fatalf("accepted unknown flags %v", v)
 		}
 	}
 }

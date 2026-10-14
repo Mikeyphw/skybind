@@ -499,6 +499,54 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 		})
 	}
 	if providers != nil {
+		register("remote.list", protocol.Query, func(ctx context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Endpoint string `json:"endpoint"`
+			}
+			if err := protocol.StrictBytes(a, &v); err != nil {
+				return nil, err
+			}
+			return providers.Browse(ctx, v.Endpoint)
+		})
+		register("remote.stat", protocol.Query, func(ctx context.Context, a json.RawMessage) (any, error) {
+			var v struct {
+				Endpoint string `json:"endpoint"`
+			}
+			if err := protocol.StrictBytes(a, &v); err != nil {
+				return nil, err
+			}
+			return providers.Stat(ctx, v.Endpoint)
+		})
+		if jobStore != nil {
+			register("remote.transfer.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
+				var t jobs.RemoteTransfer
+				if err := protocol.StrictBytes(a, &t); err != nil {
+					return nil, err
+				}
+				fingerprint, err := providers.TransferFingerprint(t.Source, t.Destination)
+				if err != nil {
+					return nil, err
+				}
+				return jobStore.RemoteTransferPreview(t, fingerprint)
+			})
+			register("remote.transfer.start", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+				var v struct {
+					Kind        string `json:"kind"`
+					Source      string `json:"source"`
+					Destination string `json:"destination"`
+					Proof       string `json:"proof"`
+				}
+				if err := protocol.StrictBytes(a, &v); err != nil {
+					return nil, err
+				}
+				t := jobs.RemoteTransfer{Kind: v.Kind, Source: v.Source, Destination: v.Destination}
+				fingerprint, err := providers.TransferFingerprint(t.Source, t.Destination)
+				if err != nil {
+					return nil, err
+				}
+				return jobStore.RemoteTransferStart(t, fingerprint, v.Proof)
+			})
+		}
 		register("provider.status", protocol.Query, func(_ context.Context, a json.RawMessage) (any, error) {
 			if e := emptyArgs(a); e != nil {
 				return nil, e

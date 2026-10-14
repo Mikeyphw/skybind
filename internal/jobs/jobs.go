@@ -115,6 +115,7 @@ type Job struct {
 	MinBatteryPercent int    `json:"min_battery_percent"`
 	NextUnix          int64  `json:"next_unix"`
 	LastRunID         string `json:"last_run_id,omitempty"`
+	IgnoreExisting    bool   `json:"-"` // transient mountless copy: never overwrite an existing object
 }
 type Registry struct {
 	SchemaVersion int    `json:"schema_version"`
@@ -194,6 +195,9 @@ func (execRunner) ExecuteWithDetailedProgress(ctx context.Context, j Job, update
 		return err
 	}
 	args := []string{"--config", paths.RcloneConfig, j.Kind, j.Source, j.Destination, "--stats", "1s", "--stats-log-level", "NOTICE", "--use-json-log", "--log-level", "NOTICE"}
+	if j.IgnoreExisting {
+		args = append(args, "--ignore-existing")
+	}
 	c := exec.CommandContext(ctx, paths.Engine, args...)
 	c.Env = []string{"PATH=/system/bin:/system/xbin", "HOME=/data/adb/skybind"}
 	c.Stdin = nil
@@ -808,4 +812,76 @@ func (s *Store) Tick() (int, error) {
 		count++
 	}
 	return count, nil
+}
+
+// RemoteTransfer is an ephemeral managed job: it is never added to the
+// scheduled registry. Only non-deleting, non-overwriting copy and read-only
+// check are offered in Phase B1. The source/destination must be configured
+// remotes, checked separately through provider.Manager before both calls.
+type RemoteTransfer struct {
+	Kind        string `json:"kind"`
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+}
+
+func validRemoteTransfer(t RemoteTransfer) error {
+	if t.Kind != "copy" && t.Kind != "check" {
+		return errors.New("unsupported remote transfer kind")
+	}
+	if !validEndpoint(t.Source) || !validEndpoint(t.Destination) ||
+		strings.HasPrefix(t.Source, "/") || strings.HasPrefix(t.Destination, "/") || t.Source == t.Destination {
+		return errors.New("invalid remote transfer endpoints")
+	}
+	src := strings.SplitN(t.Source, ":", 2)
+	dst := strings.SplitN(t.Destination, ":", 2)
+	if src[1] == "" || dst[1] == "" {
+		return errors.New("remote root transfers require a separate preview workflow")
+	}
+	if src[0] == dst[0] && (strings.HasPrefix(src[1], dst[1]+"/") || strings.HasPrefix(dst[1], src[1]+"/")) {
+		return errors.New("overlapping source and destination folders")
+	}
+	return nil
+}
+func remoteTransferBinding(t RemoteTransfer, fingerprint string) previewproof.Binding {
+	b, _ := json.Marshal(t)
+	return previewproof.Binding{Action: "remote.transfer.start", Subject: "remote_transfer", Digest: previewproof.Digest(append(b, fingerprint...))}
+}
+func (s *Store) RemoteTransferPreview(t RemoteTransfer, configFingerprint string) (any, error) {
+	if err := validRemoteTransfer(t); err != nil {
+		return nil, err
+	}
+	if len(configFingerprint) != 64 {
+		return nil, errors.New("remote configuration fingerprint missing")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	proof, err := s.proofs.Issue(remoteTransferBinding(t, configFingerprint), 2*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"proof": proof, "kind": t.Kind, "source": t.Source, "destination": t.Destination,
+		"copies_skip_existing": t.Kind == "copy", "read_only": t.Kind == "check", "expires_seconds": 120}, nil
+}
+func (s *Store) RemoteTransferStart(t RemoteTransfer, fingerprint, proof string) (Run, error) {
+	if err := validRemoteTransfer(t); err != nil {
+		return Run{}, err
+	}
+	if len(fingerprint) != 64 {
+		return Run{}, errors.New("remote configuration fingerprint missing")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.proofs.Consume(proof, remoteTransferBinding(t, fingerprint)); err != nil {
+		return Run{}, err
+	}
+	if err := s.canRun(Job{NetworkMode: "any"}); err != nil {
+		return Run{}, err
+	}
+	unique := make([]byte, 8)
+	if _, err := rand.Read(unique); err != nil {
+		return Run{}, err
+	}
+	j := Job{Name: "Remote" + hex.EncodeToString(unique), Kind: t.Kind, Source: t.Source, Destination: t.Destination,
+		IgnoreExisting: t.Kind == "copy", Enabled: true, NetworkMode: "any"}
+	return s.claim(j)
 }

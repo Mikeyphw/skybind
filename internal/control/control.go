@@ -191,7 +191,7 @@ func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) (response p
 			record.State = journal.Succeeded
 			record.Stage = "handler_returned"
 			// A job launch returns RUNNING, not a terminal transfer outcome.
-			if req.Operation == "job.run" {
+			if req.Operation == "job.run" || req.Operation == "remote.transfer.start" {
 				var run struct {
 					ID    string `json:"id"`
 					State string `json:"state"`
