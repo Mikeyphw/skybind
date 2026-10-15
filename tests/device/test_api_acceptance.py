@@ -43,6 +43,31 @@ class Unit(unittest.TestCase):
     def test_sanitize_event(self):
         got=qa.safe_event({'sequence':7,'type':'job.progress','operation_id':'untrusted','progress':{'bytes':10,'total_bytes':20,'source':'private','files_done':1},'secret':'NO'})
         self.assertEqual(got,{'sequence':7,'type':'job.progress','progress':{'bytes':10,'total_bytes':20,'files_done':1}})
+    def test_jobs_status_empty_array(self):
+        q=qa.Qualifier(FixtureRPC(),'readonly',None,Path(tempfile.mkdtemp()))
+        self.assertEqual(q.running_jobs(),{'historical_runs_count':0,'currently_active_count':0,'numeric_contract_checked':True})
+    def test_jobs_status_null_is_a_real_failure(self):
+        class NullRPC(FixtureRPC):
+            def call(self,op,cls='query',args=None,expect_ok=True,timeout=40):
+                if op=='jobs.status':return {'ok':True,'result':{'runs':None}}
+                return super().call(op,cls,args,expect_ok,timeout)
+        q=qa.Qualifier(NullRPC(),'readonly',None,Path(tempfile.mkdtemp()))
+        with self.assertRaisesRegex(qa.TestFail,'null or missing'):q.running_jobs()
+    def test_jobs_status_numeric_contract(self):
+        class RunRPC(FixtureRPC):
+            def __init__(self,run):self.run=run
+            def call(self,op,cls='query',args=None,expect_ok=True,timeout=40):
+                if op=='jobs.status':return {'ok':True,'result':{'runs':[self.run]}}
+                return super().call(op,cls,args,expect_ok,timeout)
+        base={'id':'0'*32,'state':'RUNNING','bytes':4,'total_bytes':10,'percent':40,
+              'files_done':1,'files_total':2,'errors':0,'retry_error':False}
+        q=qa.Qualifier(RunRPC(base),'readonly',None,Path(tempfile.mkdtemp()))
+        self.assertEqual(q.running_jobs()['currently_active_count'],1)
+        for invalid in [dict(base,percent=200),dict(base,bytes=-1),dict(base,retry_error='yes'),
+                        dict(base,percent=50,total_bytes=None)]:
+            q=qa.Qualifier(RunRPC(invalid),'readonly',None,Path(tempfile.mkdtemp()))
+            with self.assertRaises(qa.TestFail):q.running_jobs()
+
     def test_cursor_contract(self):
         r=FixtureRPC();q=qa.Qualifier(r,'readonly',None,Path(tempfile.mkdtemp()))
         result=q.events_contract()

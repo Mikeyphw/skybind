@@ -499,7 +499,8 @@ func (s *Store) RunStatus(id string) (Run, error) {
 func (s *Store) Status() (any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return map[string]any{"registry": clone(s.state.Registry), "runs": append([]Run(nil), s.state.Runs...)}, nil
+	// Keep the public jobs.status contract stable: an empty history is [], not null.
+	return map[string]any{"registry": clone(s.state.Registry), "runs": append([]Run{}, s.state.Runs...)}, nil
 }
 func candidate(raw []byte) (Registry, error) {
 	if len(raw) > 1<<18 {

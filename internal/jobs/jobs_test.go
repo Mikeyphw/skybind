@@ -49,6 +49,35 @@ func proof(t *testing.T, result any) string {
 	}
 	return m["proof"].(string)
 }
+
+// The device qualification client (and WebUI) requires a stable JSON array
+// when there are no persisted runs. A nil Go slice would serialize as null.
+func TestEmptyStatusRunsSerializesAsArray(t *testing.T) {
+	s, _, _ := fixture(t)
+	raw, err := s.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(result, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var runs []map[string]any
+	if string(envelope["runs"]) != "[]" {
+		t.Fatalf("empty jobs.status.runs must serialize as [], got %s", envelope["runs"])
+	}
+	if err := json.Unmarshal(envelope["runs"], &runs); err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("expected zero runs, got %d", len(runs))
+	}
+}
+
 func TestTransactionalJobsAndDestructiveProof(t *testing.T) {
 	s, r, _ := fixture(t)
 	b := registry("sync")

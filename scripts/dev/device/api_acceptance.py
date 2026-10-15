@@ -160,9 +160,39 @@ class Qualifier:
         return {'events_returned':len(seq),'last_cursor':cursor,'gap_reported':bool(p.get('gap')),'degraded':bool(p.get('degraded'))}
     def running_jobs(self):
         r=self.rpc_result('jobs.status')
-        if not isinstance(r,dict) or not isinstance(r.get('runs'),list):raise TestFail('jobs.status.runs missing')
-        active=sum(x.get('state') in ('QUEUED','RUNNING','CANCELLING') for x in r['runs'] if isinstance(x,dict))
-        return {'historical_runs_count':len(r['runs']),'currently_active_count':active}
+        if not isinstance(r,dict):
+            raise TestFail('jobs.status result is not an object')
+        runs=r.get('runs')
+        if runs is None:
+            raise TestFail('jobs.status.runs is null or missing; expected [] for empty history')
+        if not isinstance(runs,list):
+            raise TestFail('jobs.status.runs is not an array')
+        active=0
+        for item in runs:
+            if not isinstance(item,dict):
+                raise TestFail('jobs.status.runs contains a non-object entry')
+            if item.get('state') in ('QUEUED','RUNNING','CANCELLING'):
+                active+=1
+            if not isinstance(item.get('id'),str) or not HEX_ID.fullmatch(item['id']):
+                raise TestFail('job run identity is invalid')
+            if item.get('state') not in TERMINAL | {'QUEUED','RUNNING','CANCELLING'}:
+                raise TestFail('job run state is invalid')
+            numeric=('bytes','speed_bytes_per_second','eta_seconds','total_bytes',
+                     'percent','files_done','files_total','checks_done','checks_total',
+                     'errors','transfer_retries')
+            for key in numeric:
+                if key not in item or item[key] is None:
+                    continue
+                value=item[key]
+                if isinstance(value,bool) or not isinstance(value,(int,float)) or value < 0:
+                    raise TestFail('job numeric field invalid: '+key)
+            if item.get('percent') is not None:
+                if item.get('total_bytes') is None or item['percent']>100:
+                    raise TestFail('job percent provided without a valid total')
+            if item.get('retry_error') is not None and not isinstance(item['retry_error'],bool):
+                raise TestFail('job retry_error is not boolean')
+        return {'historical_runs_count':len(runs),'currently_active_count':active,
+                'numeric_contract_checked':True}
     def negative(self):
         bad=[('remote.transfer.preview','preview',dict(kind='sync',source='unused:src',destination='unused:dst')),
              ('remote.transfer.start','run',dict(kind='sync',source='unused:src',destination='unused:dst',proof='invalid')),
