@@ -22,6 +22,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/dev/integration'))
 import local_build
+import module_install
 
 NAME = re.compile(r'^skybind-(bclone|newfuture)-CANDIDATE-UNQUALIFIED\.zip$')
 MAX_ZIP_BYTES = 512 * 1024 * 1024
@@ -58,6 +59,41 @@ def _check_parent(parent: Path) -> None:
     if not os.access(parent, os.W_OK | os.X_OK):
         raise PersonalError('Downloads destination is not writable: ' + str(parent))
 
+
+
+PERSONAL_NAME = re.compile(r'^Skybind-Personal-(?:bclone|newfuture)-\d{8}T\d{6}Z-[0-9a-f]{12}$')
+
+
+def prune_personal_exports(dest: Path, *, keep: Path) -> int:
+    """Remove old *verified-layout* personal outputs, never unrelated files."""
+    if dest.is_symlink() or not dest.is_dir() or keep.parent != dest:
+        raise PersonalError('unsafe personal export retention directory')
+    count = 0
+    for old in dest.iterdir():
+        if old == keep or old.is_symlink() or not old.is_dir() or not PERSONAL_NAME.fullmatch(old.name):
+            continue
+        receipt = old / 'PERSONAL_BUILD.json'
+        if receipt.is_symlink() or not receipt.is_file():
+            continue
+        try:
+            meta = json.loads(receipt.read_bytes())
+            archive = meta['archive']
+            if (meta.get('track') != 'PERSONAL' or meta.get('product') != 'skybind'
+                    or meta.get('formal_cfs1_seal') != 'NOT_ISSUED'
+                    or not re.fullmatch(r'Skybind-(?:bclone|newfuture)-PERSONAL\.zip', archive)):
+                continue
+            names = {archive, 'PERSONAL_BUILD.json', 'SHA256SUMS', 'README.txt'}
+            if {p.name for p in old.iterdir()} != names:
+                continue
+            if any((old / n).is_symlink() or not (old / n).is_file() for n in names):
+                continue
+            shutil.rmtree(old)
+            count += 1
+        except (KeyError, ValueError, TypeError, OSError):
+            continue
+    if count:
+        local_build.progress(f'Personal retention: removed {count} older Skybind personal export(s)')
+    return count
 
 def package(candidate: Path, receipt: Path, *, provider: str,
             dest: Path = DEFAULT_DOWNLOAD, timestamp: str | None = None) -> dict:
@@ -128,6 +164,7 @@ def package(candidate: Path, receipt: Path, *, provider: str,
             'Installing a module may restart mounts; back up configuration first.\n'
         )
         os.rename(stage, output)  # unique target; no collisions / replacement
+        prune_personal_exports(dest, keep=output)
     finally:
         if stage.exists():
             shutil.rmtree(stage)
@@ -136,7 +173,7 @@ def package(candidate: Path, receipt: Path, *, provider: str,
             'provider': provider, 'formal_cfs1_seal': 'NOT_ISSUED'}
 
 
-def personal_build(provider: str = 'bclone', dest: Path = DEFAULT_DOWNLOAD) -> dict:
+def personal_build(provider: str = 'bclone', dest: Path = DEFAULT_DOWNLOAD, *, install: bool = False) -> dict:
     _check_parent(dest)
     # Local build already runs the full Go suite, WebUI syntax/regressions,
     # verifies pinned Q04 inputs and validates the ARM64 output and ZIP.
@@ -146,8 +183,12 @@ def personal_build(provider: str = 'bclone', dest: Path = DEFAULT_DOWNLOAD) -> d
     local_build.checked_command([os.environ.get('SKYBIND_LOCAL_GO_BIN', 'go'), 'vet', './...'], env=env, label='go vet', show_output=True)
     report = local_build.build(provider=provider, go_bin=os.environ.get('SKYBIND_LOCAL_GO_BIN', 'go'))
     folder = Path(report['local_output'])
-    return package(folder / report['candidates'][provider]['file'], folder / 'candidate-evidence.json',
-                   provider=provider, dest=dest)
+    result = package(folder / report['candidates'][provider]['file'], folder / 'candidate-evidence.json',
+                     provider=provider, dest=dest)
+    if install:
+        module_install.install_verified_zip(Path(result['zip']), provider=provider,
+                                            release_verify=local_build.q05.release.verify_release)
+    return result
 
 
 def main() -> int:
@@ -156,14 +197,15 @@ def main() -> int:
     t = sub.add_parser('test'); t.add_argument('--go-bin', default=os.environ.get('SKYBIND_LOCAL_GO_BIN', 'go'))
     b = sub.add_parser('build'); b.add_argument('--provider', choices=['bclone','newfuture'], default='bclone')
     b.add_argument('--downloads', type=Path, default=DEFAULT_DOWNLOAD)
+    b.add_argument('-i', '--install', action='store_true', help='Install the verified personal ZIP using KernelSU')
     args = p.parse_args()
     try:
         if args.cmd == 'test':
             run_test(args.go_bin)
         else:
-            print(json.dumps(personal_build(args.provider, args.downloads), sort_keys=True), flush=True)
+            print(json.dumps(personal_build(args.provider, args.downloads, install=args.install), sort_keys=True), flush=True)
         return 0
-    except (PersonalError, local_build.LocalBuildError, local_build.q05.Rejected,
+    except (PersonalError, module_install.ModuleInstallError, local_build.LocalBuildError, local_build.q05.Rejected,
             local_build.q05.release.Reject, OSError, TypeError, ValueError, KeyError) as exc:
         print('SKYBIND_PERSONAL_BLOCKED: ' + str(exc), file=sys.stderr, flush=True)
         return 3

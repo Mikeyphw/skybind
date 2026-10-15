@@ -78,7 +78,8 @@ class LocalWrappers(unittest.TestCase):
         for version, matches in (('1.27.1', False), ('1.27.2', True)):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
                 report = {'final_seal':'NOT_ISSUED','gate_g01':'BLOCKED',
-                          'independent_attestation':False,'physical_device_tested':False}
+                          'independent_attestation':False,'physical_device_tested':False,
+                          'candidates':{}}
                 local.record_local_toolchain(Path(tmp),report,version,'1.27.2')
                 disk = json.loads((Path(tmp)/'candidate-evidence.json').read_text())
                 self.assertEqual(disk['toolchain'],'go'+version)

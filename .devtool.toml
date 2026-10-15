@@ -73,9 +73,13 @@ metadata = { read_only = true, qualification = "bootstrap-plan-only" }
 personal-tests = ["job:personal-tests"]
 personal-release-bclone = ["job:personal-release-bclone"]
 personal-release-newfuture = ["job:personal-release-newfuture"]
+personal-release-bclone-install = ["job:personal-release-bclone-install"]
+personal-release-newfuture-install = ["job:personal-release-newfuture-install"]
 local-build-newfuture = ["job:local-build-newfuture"]
 local-build-bclone = ["job:local-build-bclone"]
 local-build-both = ["job:local-build-both"]
+local-build-newfuture-install = ["job:local-build-newfuture-install"]
+local-build-bclone-install = ["job:local-build-bclone-install"]
 local-runtime-newfuture = ["job:local-runtime-newfuture"]
 local-runtime-bclone = ["job:local-runtime-bclone"]
 native = ["job:foundation-go"]
@@ -844,6 +848,21 @@ inputs = ["go.mod", "cmd/**", "internal/**", "module/**", "scripts/dev/integrati
 outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
 metadata = { read_only = false, transaction_root_aware = true, qualification = "candidate-only", independent_attestation = false, final_seal = false }
 
+# Opt-in installation jobs use the same pinned build authority, then ksud.
+[targets.skybind.jobs.local-build-newfuture-install]
+runner = "command"
+command = ["python3", "scripts/dev/integration/local_build.py", "--provider", "newfuture", "--install"]
+inputs = ["go.mod", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
+outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
+metadata = { read_only = false, transaction_root_aware = true, qualification = "candidate-only", final_seal = false, installed_module_mutation = true }
+
+[targets.skybind.jobs.local-build-bclone-install]
+runner = "command"
+command = ["python3", "scripts/dev/integration/local_build.py", "--provider", "bclone", "--install"]
+inputs = ["go.mod", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
+outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
+metadata = { read_only = false, transaction_root_aware = true, qualification = "candidate-only", final_seal = false, installed_module_mutation = true }
+
 [targets.skybind.jobs.local-build-both]
 runner = "command"
 command = ["python3", "scripts/dev/integration/local_build.py", "--provider", "both"]
@@ -878,6 +897,21 @@ target = "skybind"
 [wrapper.commands.build-bclone]
 description = "Build local unqualified Skybind candidate with pinned Q04 bclone binary"
 workflow = "local-build-bclone"
+target = "skybind"
+
+[wrapper.commands.build-install]
+description = "Build and install the verified NewFuture candidate with KernelSU; reboot separately"
+workflow = "local-build-newfuture-install"
+target = "skybind"
+
+[wrapper.commands.build-newfuture-install]
+description = "Build and install the verified NewFuture candidate with KernelSU; reboot separately"
+workflow = "local-build-newfuture-install"
+target = "skybind"
+
+[wrapper.commands.build-bclone-install]
+description = "Build and install the verified bclone candidate with KernelSU; reboot separately"
+workflow = "local-build-bclone-install"
 target = "skybind"
 
 [wrapper.commands.build-both]
@@ -1005,6 +1039,16 @@ description = "Build and export verified NewFuture Personal KernelSU ZIP to Andr
 workflow = "personal-release-newfuture"
 target = "skybind"
 
+[wrapper.commands.personal-release-install]
+description = "Build, export and install verified bclone Personal ZIP using KernelSU"
+workflow = "personal-release-bclone-install"
+target = "skybind"
+
+[wrapper.commands.personal-release-newfuture-install]
+description = "Build, export and install verified NewFuture Personal ZIP using KernelSU"
+workflow = "personal-release-newfuture-install"
+target = "skybind"
+
 [targets.skybind.jobs.personal-tests]
 runner = "command"
 command = ["python3", "scripts/dev/integration/personal_release.py", "test"]
@@ -1024,6 +1068,20 @@ command = ["python3", "scripts/dev/integration/personal_release.py", "build", "-
 inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
 outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
 metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = false }
+
+[targets.skybind.jobs.personal-release-bclone-install]
+runner = "command"
+command = ["python3", "scripts/dev/integration/personal_release.py", "build", "--provider", "bclone", "--install"]
+inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
+outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
+metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = true }
+
+[targets.skybind.jobs.personal-release-newfuture-install]
+runner = "command"
+command = ["python3", "scripts/dev/integration/personal_release.py", "build", "--provider", "newfuture", "--install"]
+inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
+outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
+metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = true }
 
 # Existing Devtool native build stays the single build authority. No CFS1 edits.
 

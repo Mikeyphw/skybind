@@ -22,6 +22,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'scripts/dev/integration'))
 import q05_candidate as q05
+import module_install
 
 RUN_ID = 38110749243  # selected immutable Q04 evidence, verified again by q05
 REPOSITORY = 'Mikeyphw/skybind'
@@ -229,6 +230,38 @@ def record_local_toolchain(output: Path, report: dict, actual_go: str, ci_pin: s
     (output / 'candidate-evidence.json').write_bytes(q05.rt.canonical(report))
 
 
+
+def prune_managed_candidates(output_parent: Path, *, keep: Path) -> int:
+    """Retain only the newest owned candidate folder; protect unrelated data."""
+    if output_parent.is_symlink() or not output_parent.is_dir() or keep.parent != output_parent:
+        raise LocalBuildError('unsafe candidate retention parent')
+    removed = 0
+    for old in output_parent.iterdir():
+        if old == keep or old.is_symlink() or not old.is_dir() or not old.name.startswith('candidate-'):
+            continue
+        receipt = old / 'candidate-evidence.json'
+        if receipt.is_symlink() or not receipt.is_file():
+            continue
+        try:
+            data = json.loads(receipt.read_bytes())
+            if data.get('build_kind') != 'LOCAL_DEVELOPMENT_UNQUALIFIED' or data.get('final_seal') != 'NOT_ISSUED':
+                continue
+            names = {item['file'] for item in data['candidates'].values()}
+            if not names or any(not re.fullmatch(r'skybind-(bclone|newfuture)-CANDIDATE-UNQUALIFIED\.zip', n) for n in names):
+                continue
+            contents = {p.name for p in old.iterdir()}
+            if contents != names | {'candidate-evidence.json'}:
+                continue  # user-added data: leave untouched
+            if any((old / n).is_symlink() or not (old / n).is_file() for n in names):
+                continue
+            shutil.rmtree(old)
+            removed += 1
+        except (KeyError, ValueError, TypeError, OSError):
+            continue
+    if removed:
+        progress(f'Build retention: removed {removed} older managed candidate folder(s)')
+    return removed
+
 def build(*, provider: str, existing_evidence: Path | None = None, go_bin: str = 'go',
           verify_only: bool = False, output_parent: Path = OUTPUT_BASE) -> dict:
     if provider not in ('newfuture', 'bclone', 'both'):
@@ -292,6 +325,7 @@ def build(*, provider: str, existing_evidence: Path | None = None, go_bin: str =
                         raise LocalBuildError('local candidate qualification mismatch')
             report['local_output'] = str(out)
             record_local_toolchain(out, report, version, ci_pin)
+            prune_managed_candidates(output_parent, keep=out)
             progress('SUCCESS: local, unqualified module(s) built with Go ' + version +
                      ' (CI pin remains Go ' + ci_pin + ') at ' + str(out))
             print(json.dumps(report, sort_keys=True), flush=True)
@@ -305,17 +339,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--provider', choices=['newfuture', 'bclone', 'both'], default='newfuture')
     parser.add_argument('--verify-only', action='store_true')
+    parser.add_argument('-i', '--install', action='store_true', help='Install the single verified candidate via ksud after building')
     parser.add_argument('--evidence-root', type=Path, default=Path(os.environ['SKYBIND_Q04_EVIDENCE_ROOT']) if os.environ.get('SKYBIND_Q04_EVIDENCE_ROOT') else None)
     parser.add_argument('--go-bin', default=os.environ.get('SKYBIND_LOCAL_GO_BIN', 'go'))
     parser.add_argument('--output-parent', type=Path, default=OUTPUT_BASE)
     args = parser.parse_args()
+    if args.install and (args.verify_only or args.provider == 'both'):
+        parser.error('--install requires one build provider and cannot be combined with --verify-only')
     try:
         result = build(provider=args.provider, existing_evidence=args.evidence_root, go_bin=args.go_bin,
                        verify_only=args.verify_only, output_parent=args.output_parent)
         if args.verify_only:
             print(json.dumps(result, sort_keys=True))
+        if args.install:
+            provider = args.provider
+            archive = Path(result['local_output']) / result['candidates'][provider]['file']
+            module_install.install_verified_zip(archive, provider=provider,
+                                                release_verify=q05.release.verify_release)
         return 0
-    except (LocalBuildError, q05.Rejected, q05.rt.Reject, q05.release.Reject, ValueError, OSError,
+    except (LocalBuildError, module_install.ModuleInstallError, q05.Rejected, q05.rt.Reject, q05.release.Reject, ValueError, OSError,
             json.JSONDecodeError, KeyError, TypeError) as exc:
         print('SKYBIND_LOCAL_BUILD_BLOCKED: ' + str(exc), file=sys.stderr, flush=True)
         return 3

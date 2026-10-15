@@ -18,6 +18,32 @@ fi
 script_dir=$(dirname -- "$script")
 repo_root=$(CDPATH= cd -- "$script_dir" 2>/dev/null && pwd -P) || exit 1
 
+# Skybind-owned ergonomics for install-after-build. Devtool workflow options
+# cannot be forwarded to job commands; rewrite only this explicit opt-in to
+# declared wrapper commands, then use Devtool's normal resolver/executor.
+case "${1:-}" in
+  build|build-newfuture|build-bclone|personal-release|personal-release-newfuture|build-both)
+    skybind_build_command=$1
+    shift
+    case "${1:-}" in
+      -i|--install)
+        shift
+        if [ "$#" -ne 0 ]; then
+            printf '%s\n' 'SKYBIND_WRAPPER_USAGE: install flag takes no additional arguments' >&2
+            exit 2
+        fi
+        if [ "$skybind_build_command" = build-both ]; then
+            printf '%s\n' 'SKYBIND_WRAPPER_USAGE: build-both cannot auto-install two module providers; choose build-bclone or build-newfuture' >&2
+            exit 2
+        fi
+        set -- "${skybind_build_command}-install"
+        ;;
+      '') set -- "$skybind_build_command" ;;
+      *) set -- "$skybind_build_command" "$@" ;;
+    esac
+    ;;
+esac
+
 # Explicit executable identity wins.  This is a path/executable override, not a
 # shell fragment, so argv remains structured and no eval boundary is introduced.
 if [ -n "${DEVTOOL_WRAPPER_EXECUTABLE:-}" ]; then
