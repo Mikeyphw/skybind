@@ -169,6 +169,9 @@ metadata = { read_only = true, device_qualification = false, qualification = "pl
 [targets.skybind_android_device.workflows]
 api-device-readonly = ["job:api-device-readonly"]
 api-device-disposable = ["job:api-device-disposable"]
+api-webview-gate = ["job:api-webview-gate"]
+api-boot-prepare = ["job:api-boot-prepare"]
+api-boot-verify = ["job:api-boot-verify"]
 device-matrix-source = ["job:device-matrix-source"]
 physical-app-probe = ["job:physical-app-probe"]
 bootstrap = ["job:bootstrap-device-plan"]
@@ -1111,4 +1114,45 @@ target = "skybind_android_device"
 [wrapper.commands.api-device-disposable]
 description = "A1-B3 disposable remote transfers using explicit environment authorization; RAW evidence only"
 workflow = "api-device-disposable"
+target = "skybind_android_device"
+
+# Source-bound follow-up physical-device gates, independent of A1-B3 backend
+# success. They never run the old 14-case suite or initiate an Android reboot.
+[targets.skybind_android_device.jobs.api-webview-gate]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../../scripts/dev/device/webview_device_gate.py"]
+inputs = ["../../scripts/dev/device/webview_device_gate.py", "../../scripts/dev/device/boot_journal_gate.py", "../../module/webroot/api_qa_probe.js", "../../module/webroot/index.html", "../../tests/device/test_api_gate_followup.py"]
+outputs = ["../../build/evidence/android/webview/**"]
+metadata = { qualification = "raw-physical-webview-partial", independent_attestation = false, release_seal = false, offline_queue_mutation = false }
+
+[targets.skybind_android_device.jobs.api-boot-prepare]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../../scripts/dev/device/boot_journal_gate.py", "prepare"]
+inputs = ["../../scripts/dev/device/boot_journal_gate.py", "../../tests/device/test_api_gate_followup.py"]
+outputs = ["../../build/evidence/android/boot/**"]
+metadata = { qualification = "raw-pre-reboot-only", requires_explicit_reboot = true, automatic_reboot = false, offline_queue_mutation = false }
+
+[targets.skybind_android_device.jobs.api-boot-verify]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../../scripts/dev/device/boot_journal_gate.py", "verify"]
+inputs = ["../../scripts/dev/device/boot_journal_gate.py", "../../tests/device/test_api_gate_followup.py"]
+outputs = ["../../build/evidence/android/boot/**"]
+metadata = { qualification = "raw-post-reboot-only", requires_explicit_reboot = true, automatic_reboot = false, offline_queue_mutation = false }
+
+[wrapper.commands.api-webview-gate]
+description = "Capture real KernelSU foreground plus in-WebView ksu.exec evidence; incomplete cases stay BLOCKED"
+workflow = "api-webview-gate"
+target = "skybind_android_device"
+
+[wrapper.commands.api-boot-prepare]
+description = "Stage read-only boot/journal/offline metadata and module fingerprints; never reboot"
+workflow = "api-boot-prepare"
+target = "skybind_android_device"
+
+[wrapper.commands.api-boot-verify]
+description = "After operator-authorized reboot, compare read-only event/queue/job state against preboot receipt"
+workflow = "api-boot-verify"
 target = "skybind_android_device"

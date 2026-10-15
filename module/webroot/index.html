@@ -136,6 +136,13 @@
         <button class="more-card" data-view="logs" type="button"><strong>Logs</strong><span>Bounded technical diagnostics</span><span class="more-chevron" aria-hidden="true">›</span></button>
         <button class="more-card" data-view="settings" type="button"><strong>Settings</strong><span>WebUI presentation and behavior preferences</span><span class="more-chevron" aria-hidden="true">›</span></button>
       </div>
+      <details id="apiQaProbe" class="card" aria-label="Android qualification probe">
+        <summary>Device qualification (read-only probe)</summary>
+        <p class="muted">Only inside the actual KernelSU embedded WebView. This observes live typed queries through ksu.exec and NEVER qualifies visual interactions, cancellation, restart, or release readiness by itself. No remote path or credential is captured.</p>
+        <div class="button-row"><button type="button" id="apiQaProbeStart">Observe embedded transport</button><button type="button" id="apiQaProbeCopy">Copy sanitized receipt</button></div>
+        <p role="status" id="apiQaProbeStatus" class="muted">Not run.</p>
+        <textarea id="apiQaProbeOutput" readonly rows="8" aria-label="Sanitized device probe JSON"></textarea>
+      </details>
     </section>
 
     <section id="view-runtime" class="view" hidden>
@@ -504,5 +511,6 @@
   </nav>
 
   <script type="module" src="app.js"></script>
+  <script type="module" src="api_qa_probe.js"></script>
 </body>
 </html>
