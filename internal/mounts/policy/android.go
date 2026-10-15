@@ -16,9 +16,11 @@ import (
 	"time"
 )
 
-// AndroidFacts is a conservative observer. It reports network facts only when
-// the live kernel route and corresponding link type can be corroborated.
-// It never guesses metering (which requires Android connectivity APIs).
+// AndroidFacts is a conservative observer. It first checks the kernel route.
+// Android may hide that route from root processes; in that case it accepts
+// only a unique, validated, non-VPN active default network reported by
+// Android connectivity service. Unknown or ambiguous facts remain unknown.
+// Metering is never guessed from the interface name.
 func AndroidFacts(cachePath string) Facts {
 	f := Facts{Network: Unknown}
 	route, err := os.Open("/proc/net/route")
@@ -78,9 +80,11 @@ func AndroidFacts(cachePath string) Facts {
 			}
 		}
 	}
-	// Metered state is obtained from Android's *active default network* only.
-	// A Wi-Fi interface by itself does not prove an unmetered connection.
-	if runtime.GOOS == "android" && f.Network != Unknown && f.Network != Offline {
+	// Metering is taken only from Android's active default network. When
+	// kernel route visibility is restricted, Android's validated active
+	// network is also authoritative for basic Wi-Fi/cellular classification.
+	// A VPN, unknown transport, stale agent or incomplete dump stays unknown.
+	if runtime.GOOS == "android" {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, "/system/bin/dumpsys", "connectivity")
@@ -94,7 +98,11 @@ func AndroidFacts(cachePath string) Facts {
 			}
 			waitErr := cmd.Wait()
 			if e == nil && waitErr == nil && ctx.Err() == nil && len(out) <= 1<<20 {
-				f.Metered = parseActiveMetered(out)
+				if f.Network == Unknown {
+					f.Network, f.Metered = parseValidatedActiveNetwork(out)
+				} else if f.Network != Offline {
+					f.Metered = parseActiveMetered(out)
+				}
 			}
 		}
 	}
@@ -197,4 +205,79 @@ func parseActiveMetered(raw []byte) *bool {
 		return nil
 	}
 	return &result
+}
+
+// parseValidatedActiveNetwork is a deliberately narrow Android route fallback.
+// Android 13+ devices may expose no usable /proc/net/route even to root. A
+// validated default network in ConnectivityService is sufficient to classify
+// Wi-Fi vs. cellular only if exactly one active agent and an unambiguous
+// transport/capability pair can be proven. It does not use nearby agents,
+// underlying VPN networks, interface names or non-default capabilities.
+var activeTransportRE = regexp.MustCompile(`\bTransports:\s*([A-Z_]+(?:[|&][A-Z_]+)*)\b`)
+var activeCapabilitiesRE = regexp.MustCompile(`\bCapabilities:\s*([A-Z_]+(?:[&|][A-Z_]+)*)\b`)
+
+func parseValidatedActiveNetwork(raw []byte) (Network, *bool) {
+	if len(raw) == 0 || len(raw) > 1<<20 {
+		return Unknown, nil
+	}
+	text := string(raw)
+	active := activeDefaultRE.FindAllStringSubmatch(text, -1)
+	if len(active) != 1 {
+		return Unknown, nil
+	}
+	// Never inspect capability fragments outside the single current network
+	// agent block. A second matching agent makes the result ambiguous.
+	var match string
+	for _, block := range strings.Split(text, "NetworkAgentInfo{")[1:] {
+		ids := agentIDRE.FindAllStringSubmatch(block, -1)
+		if len(ids) == 0 || ids[0][1] != active[0][1] {
+			continue
+		}
+		if match != "" {
+			return Unknown, nil
+		}
+		match = block
+	}
+	if match == "" {
+		return Unknown, nil
+	}
+	nc := strings.Index(match, "nc{")
+	if nc == -1 {
+		return Unknown, nil
+	}
+	// Transport and capabilities must be from the same agent's explicit
+	// network-capability stanza, not from a child or requested network.
+	capabilities := match[nc:]
+	if pos := strings.Index(capabilities, "Requests:"); pos >= 0 {
+		capabilities = capabilities[:pos]
+	}
+	transport := activeTransportRE.FindAllStringSubmatch(capabilities, -1)
+	caps := activeCapabilitiesRE.FindAllStringSubmatch(capabilities, -1)
+	if len(transport) != 1 || len(caps) != 1 {
+		return Unknown, nil
+	}
+	// Refuse mixed, VPN, Ethernet, VCN and unknown transports even if a
+	// secondary underlying connection is known to be Wi-Fi/cellular.
+	var network Network
+	switch transport[0][1] {
+	case "WIFI":
+		network = WiFi
+	case "CELLULAR":
+		network = Cellular
+	default:
+		return Unknown, nil
+	}
+	has := func(token string) bool {
+		for _, item := range strings.FieldsFunc(caps[0][1], func(r rune) bool { return r == '&' || r == '|' }) {
+			if item == token {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("INTERNET") || !has("VALIDATED") || !has("NOT_VPN") {
+		return Unknown, nil
+	}
+	metered := !has("NOT_METERED")
+	return network, &metered
 }
