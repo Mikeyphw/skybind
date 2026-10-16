@@ -7,6 +7,21 @@ const EMBEDDED_BINARY = '/data/adb/modules/skybind/system/bin/skybind';
 const CLASS_PATH = Object.freeze({ query: 'query', preview: 'preview', run: 'run', reconcile: 'reconcile', cancel: 'cancel' });
 let requestCounter = 0;
 let selected = null;
+// Explicitly armed QA-only fault. Only a single READ-ONLY operation.events
+// query can consume it. No run/preview/cancel/reconcile request is altered.
+let qaEventsFault = 0;
+let qaFaultCount = 0;
+let qaMutationDispatchCount = 0;
+export function armQaReadOnlyEventsFault() {
+  if (selected !== 'embedded' || !embeddedAvailable() || qaEventsFault) return false;
+  qaEventsFault = 1;
+  return true;
+}
+export function disarmQaReadOnlyEventsFault() { qaEventsFault = 0; }
+export function qaBridgeCounters() {
+  return {pending_readonly_fault: qaEventsFault, injected_faults: qaFaultCount,
+    mutation_dispatches: qaMutationDispatchCount};
+}
 
 function bounded(value, limit = 4096) {
   const text = String(value ?? '');
@@ -185,6 +200,18 @@ export async function capabilities() {
 }
 
 async function sendEnvelope(envelope) {
+  if (envelope.operation.class === 'run' || envelope.operation.class === 'cancel') {
+    qaMutationDispatchCount += 1;
+  }
+  if (selected === 'embedded' && qaEventsFault &&
+      envelope.operation.class === 'query' &&
+      envelope.operation.name === 'operation.events') {
+    qaEventsFault = 0;
+    qaFaultCount += 1;
+    // Simulate a failed embedded callback before any native request is sent.
+    // This explicitly does NOT claim an actual KernelSU transport outage.
+    throw new Error('QA injected one-shot read-only bridge callback failure');
+  }
   if (selected === 'standalone') {
     const token = csrf();
     if (!token) throw new Error('Standalone CSRF token is unavailable');

@@ -172,6 +172,8 @@ api-device-disposable = ["job:api-device-disposable"]
 api-webview-gate = ["job:api-webview-gate"]
 api-boot-prepare = ["job:api-boot-prepare"]
 api-boot-verify = ["job:api-boot-verify"]
+api-webui-interactive-prep = ["job:api-webui-interactive-prep"]
+api-webui-interactive-gate = ["job:api-webui-interactive-gate"]
 device-matrix-source = ["job:device-matrix-source"]
 physical-app-probe = ["job:physical-app-probe"]
 bootstrap = ["job:bootstrap-device-plan"]
@@ -1155,4 +1157,32 @@ target = "skybind_android_device"
 [wrapper.commands.api-boot-verify]
 description = "After operator-authorized reboot, compare read-only event/queue/job state against preboot receipt"
 workflow = "api-boot-verify"
+target = "skybind_android_device"
+
+# V9 interactive WebUI X qualification is independent of previously accepted
+# backend and passive reboot gates. Test-owned fixture setup is opt-in only.
+[targets.skybind_android_device.jobs.api-webui-interactive-prep]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../../scripts/dev/device/interactive_webui_gate.py", "prepare"]
+inputs = ["../../scripts/dev/device/interactive_webui_gate.py", "../../tests/device/test_interactive_webui_gate.py"]
+outputs = ["../../build/evidence/android/interactive/**"]
+metadata = { qualification = "raw-test-owned-fixture-only", requires_explicit_authorization = true, no_automatic_cancel = true, no_reboot = true, release_seal = false }
+
+[targets.skybind_android_device.jobs.api-webui-interactive-gate]
+runner = "command"
+execution_environment = "native-termux"
+command = ["python3", "../../scripts/dev/device/interactive_webui_gate.py", "collect"]
+inputs = ["../../scripts/dev/device/interactive_webui_gate.py", "../../module/webroot/interactive_qa.js", "../../module/webroot/bridge.js", "../../module/webroot/index.html", "../../tests/device/test_interactive_webui_gate.py"]
+outputs = ["../../build/evidence/android/interactive/**"]
+metadata = { qualification = "raw-webuix-four-case", read_only = true, no_auto_cancel = true, no_reboot = true, release_seal = false }
+
+[wrapper.commands.api-webui-interactive-prep]
+description = "Create a uniquely owned disposable WebUI X test workspace only with explicit consent"
+workflow = "api-webui-interactive-prep"
+target = "skybind_android_device"
+
+[wrapper.commands.api-webui-interactive-gate]
+description = "Collect sanitized actual WebUI X navigation, reload, owned cancellation and read-only recovery evidence"
+workflow = "api-webui-interactive-gate"
 target = "skybind_android_device"

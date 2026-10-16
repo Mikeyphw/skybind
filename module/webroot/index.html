@@ -143,6 +143,25 @@
         <p role="status" id="apiQaProbeStatus" class="muted">Not run.</p>
         <textarea id="apiQaProbeOutput" readonly rows="8" aria-label="Sanitized device probe JSON"></textarea>
       </details>
+      <details id="apiInteractiveQa" class="card" aria-label="V9 Android interactive qualification">
+        <summary>V9: Interactive device qualification (disposable-only)</summary>
+        <p class="muted">Opt-in qualification only. Navigation and a one-shot read-only bridge fault are safe. No QA button starts or cancels a transfer. For operation checks, create a unique disposable workspace and use the ordinary Skybind controls; only independently verified test-owned jobs qualify.</p>
+        <div class="button-row">
+          <button id="apiV9Navigation" type="button">Inspect actual navigation</button>
+          <button id="apiV9Fault" type="button">Exercise read-only recovery</button>
+        </div>
+        <label>Disposable job ID (32 hex characters, never an unrelated run)
+          <input id="apiV9OwnedRun" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="32" placeholder="Enter test-owned run ID after starting it through Skybind">
+        </label>
+        <div class="button-row">
+          <button id="apiV9Before" type="button">Capture owned progress before reopening</button>
+          <button id="apiV9After" type="button">Verify after WebUI X reopen</button>
+          <button id="apiV9Cancellation" type="button">Verify test-owned cancellation</button>
+          <button id="apiV9Export" type="button">Copy sanitized V9 receipt</button>
+        </div>
+        <p id="apiV9Status" class="muted" role="status">No acceptance observations yet.</p>
+        <textarea id="apiV9Output" readonly rows="8" aria-label="Sanitized interactive QA receipt"></textarea>
+      </details>
     </section>
 
     <section id="view-runtime" class="view" hidden>
@@ -512,5 +531,6 @@
 
   <script type="module" src="app.js"></script>
   <script type="module" src="api_qa_probe.js"></script>
+  <script type="module" src="interactive_qa.js"></script>
 </body>
 </html>
