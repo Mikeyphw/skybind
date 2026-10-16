@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Foreground KernelSU + in-WebView sanitized read-only receipt, RAW not a seal.
+"""Foreground actual WebUI host + in-page read-only receipt, RAW not a seal.
 
-Copy the JSON from Skybind > More > Device qualification on the real
-KernelSU WebView into a local file. Launch this collector from Termux, then
-switch BACK to the KernelSU WebView before its foreground observation.
-Never collects raw dumpsys text, screenshots, tokens, names or remote paths.
+Use the same Android WebUI host (KernelSU Manager or WebUI X Portable)
+for receipt generation and foreground observation. Does not conflate
+WebUI X ksu compatibility bridge with native KernelSU manager evidence.
+Never collects raw dumpsys text, screenshots, tokens, names or paths.
 """
 from __future__ import annotations
 import argparse
@@ -23,6 +23,18 @@ from api_acceptance import DeviceRPC
 from boot_journal_gate import OUT, source_info, utc, write_json_exclusive, root, GateError
 
 MANAGERS={'me.weishu.kernelsu','com.rifsxd.ksunext'}
+# Exact installed host IDs. Spoofed builds must be individually selected and
+# established by real Android foreground evidence; never wildcard arbitrary apps.
+WEBUI_X_HOSTS={'com.dergoogler.mmrl.wx'}
+SPOOFED_WEBUI_X_HOSTS={'vtebo2.rezdpneqo9vt.d2wjkhzv77ptrycwv': 'v438-release'}
+HOSTS=MANAGERS | WEBUI_X_HOSTS | set(SPOOFED_WEBUI_X_HOSTS)
+# No silent auto-acceptance of a spoofed package: require explicit operator selection.
+AUTO_HOSTS=MANAGERS | WEBUI_X_HOSTS
+
+def host_type(package):
+    if package in SPOOFED_WEBUI_X_HOSTS:
+        return 'webuix_spoofed_user_reported'
+    return 'webuix_portable' if package in WEBUI_X_HOSTS else ('kernelsu_manager' if package in MANAGERS else 'unknown')
 INSTALLED_JS='/data/adb/modules/skybind/webroot/api_qa_probe.js'
 CHECKS={'Actual KernelSU ksu.exec transport','Embedded operation.events read and cursor',
         'Embedded jobs.status presentation'}
@@ -40,7 +52,7 @@ def select_receipt_source(explicit=None, home=None):
     for candidate in candidates:
         if candidate.is_file() and not candidate.is_symlink():
             return str(candidate)
-    raise GateError('No WebView receipt found. In KernelSU > Skybind > More > Device qualification, '
+    raise GateError('No WebView receipt found. In your actual WebUI host > Skybind > More > Device qualification, '
                     'tap Observe embedded transport, then Copy sanitized receipt. '
                     'For Termux:API use SKYBIND_QA_WEBVIEW_RECEIPT=clipboard; '
                     'otherwise save skybind-webview-probe.json in Downloads and retry.')
@@ -77,8 +89,8 @@ RESUMED_KEYS=re.compile(r'\b(?:topResumedActivity|mTopResumedActivity|mResumedAc
 
 def foreground_manager(dump, manager):
     """Match ONLY current resumed activity records, not historical or process caches."""
-    if manager not in MANAGERS:
-        raise GateError('unrecognized KernelSU manager package')
+    if manager not in HOSTS:
+        raise GateError('unrecognized WebUI host package')
     for line in dump.splitlines():
         if not RESUMED_KEYS.search(line):
             continue
@@ -96,8 +108,8 @@ def observe_foreground(manager, *, observation_seconds=45, interval_seconds=2,
     was visible. The separate in-page, timestamped receipt is still required.
     Raw dumpsys content is never persisted or logged.
     """
-    if manager not in MANAGERS and manager != 'auto':
-        raise GateError('unrecognized KernelSU manager package')
+    if manager not in HOSTS and manager != 'auto':
+        raise GateError('unrecognized WebUI host package')
     if not (2 <= observation_seconds <= 90):
         raise GateError('foreground observation window must be 2..90 seconds')
     if not (1 <= interval_seconds <= 10):
@@ -107,8 +119,8 @@ def observe_foreground(manager, *, observation_seconds=45, interval_seconds=2,
     consecutive=0
     positive_samples=0
     matched=None
-    reason='no consecutive resumed-activity samples matched a configured KernelSU manager'
-    candidates=sorted(MANAGERS) if manager=='auto' else [manager]
+    reason='no consecutive resumed-activity samples matched a configured Android WebUI host'
+    candidates=sorted(AUTO_HOSTS) if manager=='auto' else [manager]
     while clock()-start < observation_seconds or attempts==0:
         attempts+=1
         try:
@@ -123,7 +135,8 @@ def observe_foreground(manager, *, observation_seconds=45, interval_seconds=2,
             matched=found
             if consecutive>=2:
                 return True, {'attempts':attempts,'positive_samples':positive_samples,
-                              'matched_manager_sha256':hashlib.sha256(found.encode()).hexdigest(),
+                              'matched_host_sha256':hashlib.sha256(found.encode()).hexdigest(),
+                              'matched_host_type':host_type(found),
                               'requirement':'two consecutive currently-resumed activity snapshots',
                               'status':'MATCHED'}
         else:
@@ -166,11 +179,18 @@ def parse_receipt(raw):
         if name not in out:out[name]='BLOCKED'
     return out
 
-def evaluate(parsed,fg,js_match,bin_hash):
+def evaluate(parsed,fg,js_match,bin_hash, observed_host_type='kernelsu_manager'):
     outcomes=[]
     def case(name,status,detail):outcomes.append({'test':name,'status':status,'detail':detail})
-    case('KernelSU foreground Activity', 'PASS' if fg else 'BLOCKED',
-         'physical foreground manager captured' if fg else 'foreground KernelSU WebView not proven')
+    spoofed=observed_host_type=='webuix_spoofed_user_reported'
+    webuix=observed_host_type in ('webuix_portable','webuix_spoofed_user_reported')
+    host_label=('Spoofed WebUI X foreground Activity (package match only)' if spoofed else
+                'WebUI X foreground Activity' if webuix else
+                'KernelSU foreground Activity' if observed_host_type=='kernelsu_manager'
+                else 'Android WebUI host foreground Activity')
+    case(host_label, 'PASS' if fg else 'BLOCKED',
+         'two foreground Activity samples for the selected Android WebUI host' if fg
+         else 'foreground Android WebUI host not proven')
     case('Installed QA WebView asset matches source', 'PASS' if js_match else 'BLOCKED',
          'exact installed script digest compared to source' if js_match else 'asset missing or differs from source')
     case('Installed Skybind ELF digest observable', 'PASS' if bin_hash else 'BLOCKED',
@@ -178,7 +198,11 @@ def evaluate(parsed,fg,js_match,bin_hash):
     for name in sorted(CHECKS):
         reported=parsed.get(name,'BLOCKED')
         status=reported if (fg and js_match) or reported=='FAIL' else 'BLOCKED'
-        case(name,status,'WebView-produced sanitized callback observation; not independently attested')
+        display_name=('WebUI X ksu.exec-compatible transport (in-page report)'
+                      if webuix and name=='Actual KernelSU ksu.exec transport' else name)
+        case(display_name,status,'WebView-produced sanitized callback observation; not independently attested; '
+             + ('WebUI X compatibility bridge; spoofed host authenticity NOT attested' if spoofed else
+                'WebUI X compatibility bridge, NOT native KernelSU manager' if webuix else 'native manager host'))
     for name in ('Visual navigation/preview/confirmation','Live progress and cursor after close/reopen',
                  'Owned job cancellation','Transient ksu.exec failure and safe recovery'):
         case(name,'BLOCKED','requires separate UI interaction and sanitized device evidence')
@@ -187,7 +211,10 @@ def evaluate(parsed,fg,js_match,bin_hash):
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--receipt-file',help='Sanitized WebView JSON file, or clipboard with Termux:API')
-    p.add_argument('--manager-package',choices=['auto',*sorted(MANAGERS)],default=os.environ.get('SKYBIND_QA_MANAGER_PACKAGE','auto'))
+    p.add_argument('--host-package','--manager-package',dest='host_package',
+                   choices=['auto',*sorted(HOSTS)],
+                   default=os.environ.get('SKYBIND_QA_WEBVIEW_HOST',os.environ.get('SKYBIND_QA_MANAGER_PACKAGE','auto')),
+                   help='Exact Android WebUI host; spoofed builds require explicit selection (auto only recognizes stock hosts)')
     p.add_argument('--foreground-delay',type=int,default=0,help='Optional pre-observation delay (0..60 s)')
     p.add_argument('--foreground-window',type=int,default=45,help='Bounded live foreground observation window (2..90 s)')
     p.add_argument('--output-dir',type=Path,default=OUT)
@@ -199,32 +226,41 @@ def main(argv=None):
         try:
             data=json.loads(raw_bytes.decode('utf-8'))
         except (UnicodeError, json.JSONDecodeError):
-            raise GateError('Receipt is not valid JSON; copy the sanitized probe output from the real KernelSU WebView')
+            raise GateError('Receipt is not valid JSON; copy the sanitized probe output from the actual Skybind WebView')
         parsed=parse_receipt(data)
         if not 2 <= a.foreground_window <= 90:
             raise GateError('foreground observation window must be 2..90 seconds')
-        print('Receipt verified. Switch to Skybind in KernelSU now; watching resumed Activity '
+        print('Receipt verified. Return to Skybind in your actual WebUI host (e.g. WebUI X); watching resumed Activity '
               'for up to '+str(a.foreground_window)+' seconds.',flush=True)
         if a.foreground_delay:
             time.sleep(a.foreground_delay)
-        fg,foreground_evidence=observe_foreground(a.manager_package,
+        fg,foreground_evidence=observe_foreground(a.host_package,
                             observation_seconds=a.foreground_window)
         repo=Path(__file__).resolve().parents[3]
         local=repo/'module/webroot/api_qa_probe.js'
         installed=installed_js_sha()
         js_match=bool(installed and local.is_file() and installed==hashlib.sha256(local.read_bytes()).hexdigest())
         bin_hash=DeviceRPC().installed_binary_hash()
-        outcomes=evaluate(parsed,fg,js_match,bin_hash)
+        # A non-matching host cannot be inferred from the receipt or from a manager inventory.
+        observed_type=foreground_evidence.get('matched_host_type','unproven') if fg else 'unproven'
+        display_type=observed_type if fg else (host_type(a.host_package) if a.host_package!='auto' else 'unproven')
+        outcomes=evaluate(parsed,fg,js_match,bin_hash,observed_host_type=display_type)
         counts={x:sum(c['status']==x for c in outcomes) for x in ('PASS','FAIL','BLOCKED')}
         session=hashlib.sha256((str(data['recorded_at_utc'])+str(time.monotonic_ns())).encode()).hexdigest()[:32]
         report={'schema_version':1,'kind':'SKYBIND_KSU_WEBVIEW_RAW_GATE',
                 'captured_at_utc':utc(),'qualification':'RAW_UNATTESTED_NOT_RELEASE_QUALIFIED',
                 'source':source_info(),'foreground_evidence':foreground_evidence,'installed_binary_sha256':bin_hash,
                 'installed_qa_js_sha256':installed,
-                'manager_package_sha256':hashlib.sha256(a.manager_package.encode()).hexdigest(),
+                'selected_host_package_sha256':hashlib.sha256(a.host_package.encode()).hexdigest(),
+                'selected_host_type':host_type(a.host_package) if a.host_package != 'auto' else 'auto',
+                'host_version_user_reported':SPOOFED_WEBUI_X_HOSTS.get(a.host_package),
+                'host_app_authenticity':'NOT_ATTESTED_PACKAGE_MATCH_ONLY' if a.host_package in SPOOFED_WEBUI_X_HOSTS else 'NOT_ATTESTED',
+                'observed_host_type':observed_type,
                 'receipt_sha256':hashlib.sha256(raw_bytes).hexdigest(),
                 'observations':outcomes,'counts':counts,
-                'limitations':['Foreground manager snapshots do not prove the WebView page identity',
+                'limitations':['Foreground Android host snapshots do not prove the WebView page identity',
+                               'A WebUI X ksu.exec-compatible bridge is not native KernelSU manager proof',
+                               'Spoofed host package/version and signing authenticity are not attested by foreground observation',
                                'No direct screenshot or view-layout verification',
                                'In-page JSON is untrusted client-reported material',
                                'No screenshot, transfer, operation cancel, or mutation attempted',
