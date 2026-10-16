@@ -65,24 +65,75 @@ def check_receipt(value):
     return obs
 
 
-def attested_ui_structure(package: str, *, command=root):
-    """Android accessibility hierarchy, sanitized in memory. Never persist raw XML."""
+# UIAutomator sometimes writes only a file destination notice to stdout when
+# asked for /dev/tty.  Capture to a root-owned, random, private temporary file,
+# consume it in memory and remove it before returning. No raw XML is exported.
+UI_CAPTURE_COMMAND = (
+    'umask 077; '
+    'f=$(/system/bin/mktemp /data/local/tmp/skybind-v10-ui.XXXXXXXX) || exit 40; '
+    'trap \'/system/bin/rm -f "$f"\' EXIT HUP INT TERM; '
+    '/system/bin/uiautomator dump "$f" >/dev/null 2>&1 || exit 41; '
+    '/system/bin/cat "$f"'
+)
+
+
+def _ui_structure_result(package: str, raw: str):
+    result={'valid_hierarchy':False, 'host_package_present':False,
+            'skybind_page':False, 'preview_control':False,
+            'capture_method':'private_temporary_xml', 'capture_status':'XML_MISSING',
+            'node_count':0, 'host_node_count':0}
+    start=raw.find('<?xml')
+    if start<0:
+        # UIAutomator can emit XML without a declaration, but never accept the
+        # printed file-destination line as structured hierarchy evidence.
+        start=raw.find('<hierarchy')
+    end=raw.rfind('</hierarchy>')
+    if start<0 or end<start:return result
+    raw=raw[start:end+len('</hierarchy>')]
     try:
-        value=command('/system/bin/uiautomator dump /dev/tty',timeout=20,max_bytes=131072)
-        start=value.find('<?xml')
-        if start<0: return {'valid_hierarchy':False,'skybind_page':False,'preview_control':False}
-        xml=value[start:]
-        xml=xml[:xml.rfind('</hierarchy>')+len('</hierarchy>')]
-        hierarchy=ET.fromstring(xml)
-        nodes=list(hierarchy.iter('node'))
-        return {'valid_hierarchy':True,
-                'host_package_present':any(n.attrib.get('package')==package for n in nodes),
-                'skybind_page':any('Skybind' in n.attrib.get('text','') for n in nodes),
-                'preview_control':any(('Preview transfer policy' in n.attrib.get('text','') or
-                                        'V9: Interactive device qualification' in n.attrib.get('text',''))
-                                       for n in nodes)}
-    except (GateError,OSError,ET.ParseError,ValueError):
-        return {'valid_hierarchy':False,'skybind_page':False,'preview_control':False}
+        hierarchy=ET.fromstring(raw)
+    except (ET.ParseError,ValueError):
+        result['capture_status']='XML_PARSE_FAILED'
+        return result
+    if hierarchy.tag!='hierarchy':
+        result['capture_status']='XML_UNEXPECTED_ROOT'
+        return result
+    nodes=list(hierarchy.iter('node'))
+    owned=[n for n in nodes if n.attrib.get('package')==package]
+    result['valid_hierarchy']=True
+    result['node_count']=len(nodes)
+    result['host_node_count']=len(owned)
+    result['host_package_present']=bool(owned)
+    # Do not use nodes from another foreground overlay as proof of Skybind.
+    labels=[(n.attrib.get('text','')+' '+n.attrib.get('content-desc','')) for n in owned]
+    result['skybind_page']=any('Skybind' in v for v in labels)
+    result['preview_control']=any(('Preview transfer policy' in v or
+                                   'V9: Interactive device qualification' in v)
+                                  for v in labels)
+    result['capture_status'] = (
+        'STRUCTURE_VERIFIED' if (result['skybind_page'] and result['preview_control'])
+        else 'HOST_NODES_WITHOUT_SKYBIND_CONTROLS' if owned
+        else 'HOST_NODES_MISSING'
+    )
+    return result
+
+
+def attested_ui_structure(package: str, *, command=root):
+    """Read an Android UI hierarchy once, exporting *only* sanitized booleans.
+
+    A temporary XML is owned by the root shell (umask 077) and removed with a
+    shell trap. The collector receives the XML in process memory, not its ZIP.
+    If Android WebView accessibility isn't exposed, return BLOCKED evidence.
+    """
+    try:
+        value=command(UI_CAPTURE_COMMAND,timeout=25,max_bytes=512*1024)
+    except (GateError,OSError,ValueError):
+        return {'valid_hierarchy':False,'host_package_present':False,
+                'skybind_page':False,'preview_control':False,
+                'capture_method':'private_temporary_xml',
+                'capture_status':'ANDROID_DUMP_UNAVAILABLE_OR_OVERSIZED',
+                'node_count':0,'host_node_count':0}
+    return _ui_structure_result(package,value)
 
 
 def root_asset_hash():
