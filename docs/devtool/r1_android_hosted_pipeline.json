@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "name": "skybind-r1-android-hosted",
+  "nodes": [
+    {"id": "source", "kind": "local-git"},
+    {"id": "policy", "kind": "local-invoke", "needs": ["source"], "action": "build-policy", "target": "skybind_android_app"},
+    {"id": "build", "kind": "github-dispatch", "needs": ["source", "policy"], "workflow": "skybind-android-apks.yml", "ref": "main", "inputs": {}},
+    {"id": "result", "kind": "github-result", "from": "build", "needs": ["build"]},
+    {"id": "archive", "kind": "github-archive", "from": "build", "artifact_name": "skybind-android-debug-apks-unqualified", "needs": ["build", "result"]}
+  ]
+}

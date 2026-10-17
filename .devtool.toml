@@ -206,6 +206,8 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+r1-hosted-source = ["job:r1-hosted-source"]
+
 r1-scheduler-plan = ["job:r1-scheduler-plan"]
 q16-source = ["job:q16-source"]
 q17-negative-run = ["job:q17-negative-run"]
@@ -1330,3 +1332,17 @@ name = "B1-A read-only broker transport source tests"
 runner = "command"
 timeout_seconds = 60
 command = ["go", "test", "-count=1", "./internal/brokeripc", "./internal/brokergrant"]
+
+# B1-QW3 source gate. Hosted run/download uses native Devtool Actions-06/04,
+# and paired APK inspection uses the native Devtool package inspector.
+[targets.skybind_release.jobs.r1-hosted-source]
+runner = "command"
+command = ["python3", "../scripts/dev/android/r1_hosted_source.py"]
+inputs = ["../docs/devtool/r1_android_hosted_pipeline.json", "../.github/workflows/skybind-android-apks.yml", "../scripts/dev/android/r1_hosted_source.py", "../scripts/dev/android/r1_hosted_apk_attest.py", "../scripts/dev/android/apk_manifest.py"]
+metadata = { read_only = true, qualification = "hosted-pipeline-source-contract-only", android_build_location = "github-actions-only" }
+
+[wrapper.commands.r1-hosted-source]
+description = "Check hosted APK pipeline source contract (no GitHub dispatch or local APK build)"
+workflow = "r1-hosted-source"
+target = "skybind_release"
+
