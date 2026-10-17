@@ -192,6 +192,13 @@ root = "release"
 inputs = ["../docs/roadmap/**", "../scripts/devtool/**", "**/*"]
 outputs = ["../dist/**", "../build/evidence/release/**"]
 
+# B1-QW2: read-only planner guard; real A/B runs are explicit script stages.
+[targets.skybind_release.jobs.r1-scheduler-plan]
+runner = "command"
+command = ["python3", "../scripts/dev/qualification/r1_scheduler_ab.py", "plan"]
+inputs = ["../.devtool.toml", "../scripts/dev/qualification/r1_scheduler_ab.py"]
+metadata = { read_only = true, qualification = "scheduler-plan-only-no-workload" }
+
 [targets.skybind_release.jobs.bootstrap-release-plan]
 runner = "command"
 command = ["python3", "../scripts/devtool/check_bootstrap.py", "release"]
@@ -199,6 +206,7 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+r1-scheduler-plan = ["job:r1-scheduler-plan"]
 q16-source = ["job:q16-source"]
 q17-negative-run = ["job:q17-negative-run"]
 q15-readiness = ["job:q15-readiness"]
@@ -1299,6 +1307,11 @@ build-policy = ["job:build-policy"]
 [wrapper.commands.r1-transport]
 description = "R1 broker policy, read-only transport and GitHub-only Android build policy (source-only)"
 workflow = "r1-transport-source"
+target = "skybind_release"
+
+[wrapper.commands.r1-scheduler-plan]
+description = "Safely inspect R1 sequential vs 3-worker scheduler plans (does not run Go tests)"
+workflow = "r1-scheduler-plan"
 target = "skybind_release"
 
 [wrapper.commands.r1-regression]
