@@ -1,28 +1,27 @@
 """SB-Q10R2 native Devtool Android project contract and receipt checks."""
-import importlib.util,hashlib,json,os,subprocess,tempfile,tomllib,unittest,zipfile
+import importlib.util,hashlib,json,os,subprocess,sys,tempfile,tomllib,unittest,zipfile
 from pathlib import Path
 from unittest import mock
 ROOT=Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('q10', ROOT/'scripts/devtool/skybind_app_probe.py')
 mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
 class Q10NativeTargetTests(unittest.TestCase):
-    def test_native_target_matches_devtool_hud(self):
+    def test_legacy_local_apk_build_is_retired(self):
         c=tomllib.loads((ROOT/'.devtool.toml').read_text());t=c['targets']['skybind_app_probe']
-        self.assertEqual(t['runner'],'android');self.assertEqual(t['platform'],'android')
-        self.assertEqual(t['execution_environment'],'chroot');self.assertEqual(t['chroot_name'],'androidos')
+        self.assertEqual(t['runner'],'command')
+        self.assertEqual(t['platform'],'android')
         self.assertEqual(t['root'],'tests/device/probe-app')
-        self.assertEqual(t['tasks']['build'],[':app:assembleDebug'])
-        self.assertEqual(t['android']['aapt2_provider'],'auto')
-        self.assertEqual(t['android']['prefer_native_termux'],False)
-        self.assertEqual(t['bootstrap'],{'downloads':'missing','network':'allow'})
-        self.assertEqual(t['gradle']['max_workers'],2)
-        self.assertEqual(t['workflows']['app-probe-build'],['runner:android#build','job:stage'])
-        self.assertEqual(t['workflows']['app-probe-build-install'],['runner:android#build','job:stage','job:install'])
-        self.assertEqual(t['jobs']['stage']['execution_environment'],'native-termux')
-        self.assertEqual(t['jobs']['install']['execution_environment'],'native-termux')
+        self.assertEqual(t['workflows']['app-probe-build'],['job:legacy-cloud-only-block'])
+        self.assertEqual(t['workflows']['app-probe-install'],['job:legacy-cloud-only-block'])
+        self.assertEqual(t['workflows']['app-probe-build-install'],['job:legacy-cloud-only-block'])
+        self.assertNotIn('gradle',t)
+        self.assertNotIn('tasks',t)
         for name in ('build-app-probe','app-probe','install-app-probe'):
             self.assertEqual(c['wrapper']['commands'][name]['target'],'skybind_app_probe')
         self.assertIn('physical-app-probe',c['targets']['skybind_android_device']['workflows'])
+        r=subprocess.run([sys.executable, str(ROOT/'scripts/dev/android/retired_local_apk_build.py')],capture_output=True,text=True)
+        self.assertEqual(r.returncode,2)
+        self.assertEqual(json.loads(r.stdout)['status'],'BLOCKED_BY_POLICY')
     def test_android_versions_are_hud_versions(self):
         project=ROOT/'tests/device/probe-app'
         self.assertIn("version '9.3.1'",(project/'build.gradle').read_text())

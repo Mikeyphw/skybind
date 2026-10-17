@@ -1,0 +1,74 @@
+{
+  "commands": {
+    "cat": {
+      "flags": [
+        "--use-json-log",
+        "--stats",
+        "--stats-log-level",
+        "--log-level",
+        "--config"
+      ],
+      "paths": [
+        "stream.go"
+      ]
+    },
+    "deletefile": {
+      "flags": [
+        "--config"
+      ],
+      "paths": [
+        "stream.go"
+      ]
+    },
+    "lsjson": {
+      "flags": [
+        "--max-depth",
+        "--stat",
+        "--no-mimetype",
+        "--config"
+      ],
+      "paths": [
+        "list.go"
+      ]
+    },
+    "moveto": {
+      "flags": [
+        "--immutable",
+        "--retries",
+        "--low-level-retries",
+        "--config"
+      ],
+      "paths": [
+        "stream.go"
+      ]
+    },
+    "rcat": {
+      "flags": [
+        "--retries",
+        "--low-level-retries",
+        "--config"
+      ],
+      "paths": [
+        "stream.go"
+      ]
+    },
+    "version": {
+      "flags": [],
+      "paths": [
+        "runtime.go"
+      ]
+    }
+  },
+  "runtime_invocation_enabled": false,
+  "schema_version": 1,
+  "sha256": {
+    "internal/rcloneops/list.go": "6887c96a5bde3a247de2be999458b0bb5fb63b89f27802d4af0cf8cee7735368",
+    "internal/rcloneops/location.go": "580d56866b7b5403ce8bd32d75ce31190c587767a134479cb0c14c691cf6c879",
+    "internal/rcloneops/runtime.go": "9403ae4d15840fd5d7086053d3dd668c7878146d5f82b5a84ec17d7b6392fcb6",
+    "internal/rcloneops/runtime_test.go": "9ca245026885035bb62955e843a3b1e088f8c4e3ae2647f47a1eaf279c308b49",
+    "internal/rcloneops/stream.go": "15470cfbc5e59e018e0f0e6518637d63f871bd2d90b7d84f064fb17ebc1fc55b",
+    "internal/rcloneops/stream_progress_test.go": "80f52a00728e8fbd3460708db6daeb9b9643f06adc23f3a41592a96253f1af28"
+  },
+  "source_repository": "chroot-ctl archive 20261015-205232-256052",
+  "status": "NOT_IMPLEMENTED"
+}

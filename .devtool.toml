@@ -226,6 +226,31 @@ bootstrap = [
   { id = "plan", ref = "job:bootstrap-release-plan", depends_on = ["webui", "runtime", "android"] },
 ]
 validate = ["job:bootstrap-release-plan"]
+# Non-mutating source DAG; no Android APK builds or device changes.
+# Fast source-contract DAG: independent R0 consumer contracts and R1 broker
+# policy are checked without requiring the unrelated full Go regression suite.
+# This is not a full-source qualification or a device acceptance gate.
+r0-compat = [
+  { id = "bkx", ref = "target:skybind_bkx_compat#offline", depends_on = [] },
+  { id = "chrootctl", ref = "target:skybind_chrootctl_compat#offline", depends_on = [] },
+]
+r1-source = [
+  { id = "r0", ref = "target:skybind_release#r0-compat", depends_on = [] },
+  { id = "grant", ref = "target:skybind_api_contracts#r1-policy", depends_on = [] },
+]
+# Required complete source-regression gate for B0/B1 acceptance. Fails if
+# either the fast contract set or any Go package fails; never promotes
+# fast-source PASS as full qualification.
+r1-full-regression = [
+  { id = "contracts", ref = "target:skybind_release#r1-source", depends_on = [] },
+  { id = "go", ref = "target:skybind_go#isolated-regression", depends_on = [] },
+]
+
+# Unchanged native GoRunner retained for reproducing Go/Termux WaitDelay.
+# Not an acceptance gate while this intermittent host/tool failure is triaged.
+r1-go-runner-diagnostic = [
+  { id = "go-monolithic", ref = "target:skybind_go#test", depends_on = [] },
+]
 
 # First-class targeted test name used by Devtool test selectors and overlays.
 [[test]]
@@ -468,61 +493,20 @@ description = "SB-C06 reproducible candidate and blocked release gates; NOT rele
 workflow = "release-candidate-source"
 target = "skybind_release"
 
-# SB-Q10R2: native Devtool Android project (same executor/toolchain as android_hud).
-# Gradle and Android SDK provisioning are Devtool-owned, not invoked through a Python build helper.
+# B0 migration: legacy Q10 local Android build target RETIRED (pre-release).
+# Source and old helper retained for historical regression/provenance only.
+# No Devtool target may compile APKs locally. Use github Actions APK workflow.
 [targets.skybind_app_probe]
-runner = "android"
+runner = "command"
 platform = "android"
 root = "tests/device/probe-app"
-execution_environment = "chroot"
-chroot_name = "androidos"
-inputs = ["**/*", "../../../scripts/devtool/skybind_app_probe.py", "../../../scripts/dev/runtime/source.selection.json"]
-outputs = ["app/build/outputs/apk/debug/**", "../../../build/app-probe/**"]
+inputs = ["**/*", "../../../scripts/dev/android/verify_cloud_build_only.py"]
+outputs = []
 
-[targets.skybind_app_probe.android]
-variant = "debug"
-aapt2_provider = "auto"
-instrumentation = "never"
-prefer_native_termux = false
-
-[targets.skybind_app_probe.bootstrap]
-downloads = "missing"
-network = "allow"
-
-[targets.skybind_app_probe.gradle]
-max_workers = 2
-parallel = true
-no_daemon = false
-daemon_idle_timeout_ms = 900000
-build_cache = true
-offline = false
-args = ["-Dorg.gradle.parallel=true", "-Dorg.gradle.vfs.watch=false"]
-
-[targets.skybind_app_probe.tasks]
-build = [":app:assembleDebug"]
-test = [":app:assembleDebug"]
-clean = [":app:clean"]
-
-[targets.skybind_app_probe.artifacts]
-required = true
-external_verification = "auto"
-
-# Build is a native Android runner action. Staging and installation are scoped
-# native-Termux jobs, executed only after successful compilation.
-[targets.skybind_app_probe.jobs.stage]
+[targets.skybind_app_probe.jobs.legacy-cloud-only-block]
 runner = "command"
-execution_environment = "native-termux"
-command = ["python3", "../../../scripts/devtool/skybind_app_probe.py", "stage"]
-inputs = ["**/*", "../../../scripts/devtool/skybind_app_probe.py"]
-outputs = ["../../../build/app-probe/**"]
-metadata = { device_qualification = false, qualification = "debug-app-build-only" }
-
-[targets.skybind_app_probe.jobs.install]
-runner = "command"
-execution_environment = "native-termux"
-command = ["python3", "../../../scripts/devtool/skybind_app_probe.py", "install"]
-inputs = ["**/*", "../../../scripts/devtool/skybind_app_probe.py", "../../../build/app-probe/**"]
-metadata = { device_qualification = false, qualification = "ordinary-app-install-only" }
+command = ["python3", "../../../scripts/dev/android/retired_local_apk_build.py"]
+metadata = { read_only = true, qualification = "BLOCKED_LOCAL_BUILD_BY_POLICY" }
 
 [targets.skybind_app_probe.jobs.bootstrap-probe-contract]
 runner = "command"
@@ -533,22 +517,22 @@ metadata = { read_only = true, qualification = "bootstrap-planning-only", device
 
 [targets.skybind_app_probe.workflows]
 bootstrap = ["job:bootstrap-probe-contract"]
-app-probe-build = ["runner:android#build", "job:stage"]
-app-probe-install = ["job:install"]
-app-probe-build-install = ["runner:android#build", "job:stage", "job:install"]
+app-probe-build = ["job:legacy-cloud-only-block"]
+app-probe-install = ["job:legacy-cloud-only-block"]
+app-probe-build-install = ["job:legacy-cloud-only-block"]
 
 [wrapper.commands.build-app-probe]
-description = "Build ordinary debug probe with native Devtool Android target, SDK 36/Java 21"
+description = "Retired: Android probe build is GitHub Actions only; this entrypoint fails closed"
 workflow = "app-probe-build"
 target = "skybind_app_probe"
 
 [wrapper.commands.install-app-probe]
-description = "Install checked debug APK from native Devtool Android build"
+description = "Retired: Q10 local build-derived install disabled until CI APK proof exists"
 workflow = "app-probe-install"
 target = "skybind_app_probe"
 
 [wrapper.commands.app-probe]
-description = "Build and install unprivileged Android UID probe (no release seal)"
+description = "Retired: requires a source-bound GitHub APK and device verifier"
 workflow = "app-probe-build-install"
 target = "skybind_app_probe"
 
@@ -557,7 +541,7 @@ runner = "command"
 command = ["bash", "../../scripts/devtool/run_c06_device_matrix.sh"]
 inputs = ["../../scripts/dev/device/**", "../../scripts/devtool/run_c06_device_matrix.sh", "../../tests/device/probe-app/**"]
 outputs = ["../../build/evidence/android/**"]
-metadata = { device_qualification = false, qualification = "raw-device-receipt-only-needs-independent-attestation", read_only = false }
+metadata = { device_qualification = false, resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], qualification = "raw-device-receipt-only-needs-independent-attestation", read_only = false }
 
 # SB-CG1: independent read-only evidence evaluators, one per original milestone.
 # Successful source validation means definitions work, never that any gate passes.
@@ -1098,7 +1082,7 @@ execution_environment = "native-termux"
 command = ["python3", "../../scripts/dev/device/api_acceptance.py", "--mode", "readonly"]
 inputs = ["../../scripts/dev/device/api_acceptance.py", "../../tests/device/test_api_acceptance.py", "../../internal/opevents/**", "../../internal/jobs/**", "../../module/webroot/**"]
 outputs = ["../../build/evidence/android/api/**"]
-metadata = { qualification = "raw-physical-device-observations-only", read_only = true, independent_attestation = false, release_seal = false, embedded_webui_acceptance = false }
+metadata = { resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], qualification = "raw-physical-device-observations-only", independent_attestation = false, release_seal = false, embedded_webui_acceptance = false }
 
 [targets.skybind_android_device.jobs.api-device-disposable]
 runner = "command"
@@ -1106,7 +1090,7 @@ execution_environment = "native-termux"
 command = ["python3", "../../scripts/dev/device/api_acceptance.py", "--mode", "disposable"]
 inputs = ["../../scripts/dev/device/api_acceptance.py", "../../tests/device/test_api_acceptance.py", "../../internal/jobs/**", "../../internal/provider/**", "../../module/webroot/**"]
 outputs = ["../../build/evidence/android/api/**"]
-metadata = { qualification = "raw-disposable-device-operations-only", read_only = false, independent_attestation = false, release_seal = false, embedded_webui_acceptance = false }
+metadata = { resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], qualification = "raw-disposable-device-operations-only", read_only = false, independent_attestation = false, release_seal = false, embedded_webui_acceptance = false }
 
 [wrapper.commands.api-device-readonly]
 description = "A1-B3 installed-module read-only RPC and event diagnostics; RAW evidence only"
@@ -1126,7 +1110,7 @@ execution_environment = "native-termux"
 command = ["python3", "../../scripts/dev/device/webview_device_gate.py"]
 inputs = ["../../scripts/dev/device/webview_device_gate.py", "../../scripts/dev/device/boot_journal_gate.py", "../../module/webroot/api_qa_probe.js", "../../module/webroot/index.html", "../../tests/device/test_api_gate_followup.py"]
 outputs = ["../../build/evidence/android/webview/**"]
-metadata = { qualification = "raw-physical-webview-partial", independent_attestation = false, release_seal = false, offline_queue_mutation = false }
+metadata = { resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], qualification = "raw-physical-webview-partial", independent_attestation = false, release_seal = false, offline_queue_mutation = false }
 
 [targets.skybind_android_device.jobs.api-boot-prepare]
 runner = "command"
@@ -1134,7 +1118,7 @@ execution_environment = "native-termux"
 command = ["python3", "../../scripts/dev/device/boot_journal_gate.py", "prepare"]
 inputs = ["../../scripts/dev/device/boot_journal_gate.py", "../../tests/device/test_api_gate_followup.py"]
 outputs = ["../../build/evidence/android/boot/**"]
-metadata = { qualification = "raw-pre-reboot-only", requires_explicit_reboot = true, automatic_reboot = false, offline_queue_mutation = false }
+metadata = { resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], qualification = "raw-pre-reboot-only", requires_explicit_reboot = true, automatic_reboot = false, offline_queue_mutation = false }
 
 [targets.skybind_android_device.jobs.api-boot-verify]
 runner = "command"
@@ -1142,7 +1126,7 @@ execution_environment = "native-termux"
 command = ["python3", "../../scripts/dev/device/boot_journal_gate.py", "verify"]
 inputs = ["../../scripts/dev/device/boot_journal_gate.py", "../../tests/device/test_api_gate_followup.py"]
 outputs = ["../../build/evidence/android/boot/**"]
-metadata = { qualification = "raw-post-reboot-only", requires_explicit_reboot = true, automatic_reboot = false, offline_queue_mutation = false }
+metadata = { resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], qualification = "raw-post-reboot-only", requires_explicit_reboot = true, automatic_reboot = false, offline_queue_mutation = false }
 
 [wrapper.commands.api-webview-gate]
 description = "Capture real KernelSU foreground plus in-WebView ksu.exec evidence; incomplete cases stay BLOCKED"
@@ -1167,7 +1151,7 @@ execution_environment = "native-termux"
 command = ["python3", "../../scripts/dev/device/interactive_webui_gate.py", "prepare"]
 inputs = ["../../scripts/dev/device/interactive_webui_gate.py", "../../tests/device/test_interactive_webui_gate.py"]
 outputs = ["../../build/evidence/android/interactive/**"]
-metadata = { qualification = "raw-test-owned-fixture-only", requires_explicit_authorization = true, no_automatic_cancel = true, no_reboot = true, release_seal = false }
+metadata = { resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], qualification = "raw-test-owned-fixture-only", requires_explicit_authorization = true, no_automatic_cancel = true, no_reboot = true, release_seal = false }
 
 [targets.skybind_android_device.jobs.api-webui-interactive-gate]
 runner = "command"
@@ -1175,7 +1159,7 @@ execution_environment = "native-termux"
 command = ["python3", "../../scripts/dev/device/interactive_webui_gate.py", "collect"]
 inputs = ["../../scripts/dev/device/interactive_webui_gate.py", "../../module/webroot/interactive_qa.js", "../../module/webroot/bridge.js", "../../module/webroot/index.html", "../../tests/device/test_interactive_webui_gate.py"]
 outputs = ["../../build/evidence/android/interactive/**"]
-metadata = { qualification = "raw-webuix-four-case", read_only = true, no_auto_cancel = true, no_reboot = true, release_seal = false }
+metadata = { resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], qualification = "raw-webuix-four-case", no_auto_cancel = true, no_reboot = true, release_seal = false }
 
 [wrapper.commands.api-webui-interactive-prep]
 description = "Create a uniquely owned disposable WebUI X test workspace only with explicit consent"
@@ -1186,3 +1170,84 @@ target = "skybind_android_device"
 description = "Collect sanitized actual WebUI X navigation, reload, owned cancellation and read-only recovery evidence"
 workflow = "api-webui-interactive-gate"
 target = "skybind_android_device"
+
+# B0+B1 source contracts: added without rewriting legacy release jobs.
+[targets.skybind_go]
+runner = "go"
+platform = "cli"
+root = "."
+inputs = ["go.mod", "go.sum", "cmd/**", "internal/**"]
+outputs = [".devtool/build/go/**"]
+[targets.skybind_go.go]
+# B01-W2: serialize Go package execution on native Termux while diagnosing
+# intermittent Go tool WaitDelay I/O failures. Keep native Devtool Go runner.
+max_workers = 1
+
+[targets.skybind_go.workflows]
+test = ["runner:go#test"]
+vet = ["runner:go#lint"]
+isolated-regression = ["job:isolated-regression"]
+
+# Execute every Go package once, separately; require a complete, uncached
+# Go test -json event stream and terminal result for each package.
+[targets.skybind_go.jobs.isolated-regression]
+runner = "command"
+command = ["python3", "scripts/dev/diagnostics/go_all_packages.py", "--timeout-seconds", "240"]
+inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "scripts/dev/diagnostics/go_all_packages.py"]
+outputs = ["build/evidence/go-regression-isolated/**"]
+metadata = { read_only = true, qualification = "complete-uncached-go-packages-only", android_build_location = "github-actions-only" }
+[targets.skybind_bkx_compat]
+runner = "command"
+platform = "cli"
+root = "."
+inputs = ["docs/contracts/rclone-compat/**", "scripts/dev/provider/rclone_compat_r0.py", "tests/test_rclone_compat_r0.py"]
+outputs = []
+[targets.skybind_bkx_compat.jobs.offline]
+runner = "command"
+command = ["python3", "-m", "unittest", "tests.test_rclone_compat_r0", "-v"]
+inputs = ["docs/contracts/rclone-compat/**", "scripts/dev/provider/rclone_compat_r0.py", "tests/test_rclone_compat_r0.py"]
+metadata = { read_only = true, qualification = "R0-offline-parser-not-implemented" }
+[targets.skybind_bkx_compat.workflows]
+offline = ["job:offline"]
+
+[targets.skybind_chrootctl_compat]
+runner = "command"
+platform = "cli"
+root = "."
+inputs = ["docs/contracts/rclone-compat/**", "scripts/dev/provider/chrootctl_r0.py", "tests/test_r0_chrootctl.py"]
+outputs = []
+[targets.skybind_chrootctl_compat.jobs.offline]
+runner = "command"
+command = ["python3", "-m", "unittest", "tests.test_r0_chrootctl", "-v"]
+inputs = ["docs/contracts/rclone-compat/**", "scripts/dev/provider/chrootctl_r0.py", "tests/test_r0_chrootctl.py"]
+metadata = { read_only = true, qualification = "R0-source-inventory-only" }
+[targets.skybind_chrootctl_compat.workflows]
+offline = ["job:offline"]
+
+[targets.skybind_api_contracts]
+runner = "command"
+platform = "cli"
+root = "."
+inputs = ["internal/brokergrant/**", "docs/contracts/rclone-compat/**"]
+outputs = []
+[targets.skybind_api_contracts.jobs.r1-policy]
+runner = "command"
+command = ["go", "test", "-count=1", "./internal/brokergrant", "./internal/daemon", "./internal/control"]
+inputs = ["internal/brokergrant/**", "internal/daemon/**", "internal/control/**", "go.mod"]
+metadata = { read_only = true, qualification = "R1-grant-policy-only-no-transport" }
+[targets.skybind_api_contracts.workflows]
+r1-policy = ["job:r1-policy"]
+
+[targets.skybind_android_app]
+runner = "command"
+platform = "android"
+root = "android-app"
+inputs = ["**/*", "../.github/workflows/skybind-android-apks.yml"]
+outputs = []
+[targets.skybind_android_app.jobs.build-policy]
+runner = "command"
+command = ["python3", "../scripts/dev/android/verify_cloud_build_only.py"]
+inputs = ["../.github/workflows/skybind-android-apks.yml", "**/*", "../scripts/dev/android/verify_cloud_build_only.py"]
+metadata = { read_only = true, qualification = "source-build-policy-only", android_build_location = "github-actions-only" }
+[targets.skybind_android_app.workflows]
+build-policy = ["job:build-policy"]

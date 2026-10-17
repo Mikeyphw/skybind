@@ -1,0 +1,208 @@
+{
+  "commands": {
+    "check": {
+      "bkx_sources": [
+        "internal/rcloneops/transfer.go",
+        "internal/rcloneops/remote_files.go"
+      ],
+      "effect": "verification",
+      "flags": {
+        "--config": 1,
+        "--download": 0,
+        "--log-level": 1,
+        "--one-way": 0
+      },
+      "positional": [
+        "source",
+        "destination"
+      ],
+      "runtime_qualified": false,
+      "tier": "READ_ONLY"
+    },
+    "copy": {
+      "bkx_sources": [
+        "internal/rcloneops/transfer.go"
+      ],
+      "effect": "write",
+      "flags": {
+        "--config": 1,
+        "--ignore-existing": 0,
+        "--log-level": 1,
+        "--low-level-retries": 1,
+        "--retries": 1,
+        "--stats": 1,
+        "--stats-log-level": 1,
+        "--use-json-log": 0
+      },
+      "positional": [
+        "source",
+        "destination"
+      ],
+      "runtime_qualified": false,
+      "tier": "SAFE_TRANSFER"
+    },
+    "copyto": {
+      "bkx_sources": [
+        "internal/rcloneops/transfer.go",
+        "internal/rcloneops/remote_files.go"
+      ],
+      "effect": "write_one",
+      "flags": {
+        "--config": 1,
+        "--ignore-existing": 0,
+        "--immutable": 0,
+        "--log-level": 1,
+        "--low-level-retries": 1,
+        "--retries": 1,
+        "--stats": 1,
+        "--stats-log-level": 1,
+        "--use-json-log": 0
+      },
+      "positional": [
+        "source",
+        "destination"
+      ],
+      "runtime_qualified": false,
+      "tier": "GUARDED_MUTATION"
+    },
+    "deletefile": {
+      "bkx_sources": [
+        "internal/rcloneops/remote_files.go"
+      ],
+      "effect": "delete",
+      "flags": {
+        "--config": 1
+      },
+      "positional": [
+        "path"
+      ],
+      "runtime_qualified": false,
+      "tier": "DESTRUCTIVE"
+    },
+    "listremotes": {
+      "bkx_sources": [],
+      "effect": "remote_metadata",
+      "flags": {
+        "--config": 1
+      },
+      "positional": [],
+      "runtime_qualified": false,
+      "tier": "READ_ONLY"
+    },
+    "lsjson": {
+      "bkx_sources": [
+        "internal/rcloneops/list.go",
+        "internal/rcloneops/remote_files.go"
+      ],
+      "effect": "remote_metadata",
+      "flags": {
+        "--config": 1,
+        "--files-only": 0,
+        "--max-depth": 1,
+        "--no-mimetype": 0,
+        "--recursive": 0,
+        "--stat": 0
+      },
+      "positional": [
+        "path"
+      ],
+      "runtime_qualified": false,
+      "tier": "READ_ONLY"
+    },
+    "mkdir": {
+      "bkx_sources": [
+        "internal/rcloneops/mkdir.go"
+      ],
+      "effect": "create_folder",
+      "flags": {
+        "--config": 1
+      },
+      "positional": [
+        "path"
+      ],
+      "runtime_qualified": false,
+      "tier": "GUARDED_MUTATION"
+    },
+    "serve": {
+      "bkx_sources": [
+        "internal/resticops/restic.go"
+      ],
+      "effect": "bidirectional_stdio",
+      "flags": {
+        "--config": 1,
+        "--stdio": 0
+      },
+      "positional": [
+        "mode"
+      ],
+      "runtime_qualified": false,
+      "tier": "RESTIC_STREAM"
+    },
+    "size": {
+      "bkx_sources": [
+        "internal/rcloneops/transfer.go"
+      ],
+      "effect": "remote_metadata",
+      "flags": {
+        "--config": 1,
+        "--json": 0
+      },
+      "positional": [
+        "path"
+      ],
+      "runtime_qualified": false,
+      "tier": "READ_ONLY"
+    },
+    "sync": {
+      "bkx_sources": [
+        "internal/rcloneops/transfer.go"
+      ],
+      "effect": "replace_and_delete",
+      "flags": {
+        "--config": 1,
+        "--log-level": 1,
+        "--low-level-retries": 1,
+        "--max-delete": 1,
+        "--retries": 1,
+        "--stats": 1,
+        "--stats-log-level": 1,
+        "--use-json-log": 0
+      },
+      "positional": [
+        "source",
+        "destination"
+      ],
+      "runtime_qualified": false,
+      "tier": "DESTRUCTIVE"
+    },
+    "version": {
+      "bkx_sources": [
+        "internal/rcloneops/runtime.go"
+      ],
+      "effect": "introspection",
+      "flags": {
+        "--config": 1
+      },
+      "positional": [],
+      "runtime_qualified": false,
+      "tier": "READ_ONLY"
+    }
+  },
+  "constraints": {
+    "allow_raw_root_shell": false,
+    "allow_rclone_rc": false,
+    "implicit_fallback_policy": "DENY",
+    "runtime_invocation_enabled": false,
+    "secret_config_exposure": "DENY",
+    "unknown_flag_policy": "DENY",
+    "untrusted_cli_executable": false
+  },
+  "phase": "R0_CONTRACT_ONLY",
+  "schema_version": 1,
+  "source": {
+    "bkx_snapshot": "bkx-20261016-170717-423795.tar.gz",
+    "skybind_commit": "cf4d9fc8445b3c90690e0fee3e76235d7913cbe7",
+    "skybind_snapshot": "skybind-20261016-174741-071191.tar.gz"
+  },
+  "status": "NOT_IMPLEMENTED"
+}

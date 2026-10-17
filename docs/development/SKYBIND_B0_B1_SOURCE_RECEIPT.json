@@ -1,0 +1,18 @@
+{
+  "apk_and_instrumentation": "NOT_BUILT",
+  "changed_sources": true,
+  "checkpoint": "SKYBIND_B0_B1_SOURCE_IMPLEMENTATION_R1",
+  "device_r1_acceptance": "NOT_RUN",
+  "devtool_archive": "devtool-20261015-183913-544711.tar.gz",
+  "devtool_r1_source": "PASS_4_STAGES",
+  "devtool_reported_go_tests_passed": 270,
+  "github_android_build": "NOT_RUN",
+  "go_tests": "PASS_FULL",
+  "python_r0_android_tests_passed": 19,
+  "q10_legacy_retirement_tests_passed": 8,
+  "real_cross_uid_broker": "NOT_IMPLEMENTED",
+  "release_qualified": false,
+  "schema_version": 1,
+  "skybind_base_commit": "7a1c8168fbc82603ce999ecc21d9ba791ce10779",
+  "state": "SOURCE_IMPLEMENTED_PARTIAL"
+}

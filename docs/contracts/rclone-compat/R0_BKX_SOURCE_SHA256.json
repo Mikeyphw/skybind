@@ -1,0 +1,13 @@
+{
+  "snapshot": "bkx-20261016-170717-423795.tar.gz",
+  "sha256": {
+    "internal/rcloneops/runtime.go": "f058baf102f11e82577df38daeeaec75416627b97d1cbd6149c242ce415d90bb",
+    "internal/rcloneops/list.go": "212713b25574a90f164b7e6fc827e4142c303d0993df831c0247e8dcc5a2776f",
+    "internal/rcloneops/transfer.go": "fd7b6fa96d131d459e9af5fab8605572fda91d609c18488758b685ce31b36357",
+    "internal/rcloneops/remote_files.go": "a6563f0638b5f02e4bd03064d5eee0b36da14664fdf4726a3eae5c0e7f6726e0",
+    "internal/rcloneops/mkdir.go": "894b45d947a5b874200aa570949e95ca9eee7a52a74a6c8d52a0f00b7d791bcc",
+    "internal/rcloneops/location.go": "6a0d8d3a2f96b5687c7fd0fe8290e18eca37ddbc72e644cb36891031afc5b5f0",
+    "internal/rcloneops/exec.go": "96f008e2d7c2aa66155cb9cb9f82ac7d2303911702893bd71b1db2a1f3a08d4d",
+    "internal/resticops/restic.go": "4968e6a18bb552ae1028c3d02620cd116c68ef5524c212f3ba7e2bbf68e057e7"
+  }
+}

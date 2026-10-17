@@ -1,0 +1,67 @@
+name: Skybind Android APKs (hosted-only)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android-app/**'
+      - 'scripts/dev/android/**'
+      - '.github/workflows/skybind-android-apks.yml'
+permissions:
+  contents: read
+jobs:
+  android-debug-apks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact build source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install JDK 17 on hosted runner
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned hosted Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Install hosted Android SDK build tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: |
+            platforms;android-35
+            build-tools;35.0.0
+            platform-tools
+      - name: Verify GitHub-only source policy before build
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: python3 scripts/dev/android/verify_cloud_build_only.py
+      - name: Compile app and separate instrumentation APK on GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          gradle --no-daemon --stacktrace -p android-app :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Produce and verify source-bound debug APK manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android-build-evidence
+          python3 scripts/dev/android/apk_manifest.py create \
+            --app android-app/app/build/outputs/apk/debug/app-debug.apk \
+            --test-apk android-app/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            --output android-build-evidence/android-build-manifest.json
+          python3 scripts/dev/android/apk_manifest.py verify \
+            --manifest android-build-evidence/android-build-manifest.json \
+            --app android-app/app/build/outputs/apk/debug/app-debug.apk \
+            --test-apk android-app/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          cp android-app/app/build/outputs/apk/debug/app-debug.apk android-build-evidence/
+          cp android-app/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk android-build-evidence/
+      - name: Upload app, test APK and byte manifest together
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skybind-android-debug-apks-unqualified
+          path: android-build-evidence/
+          if-no-files-found: error
+          retention-days: 30
