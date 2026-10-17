@@ -1216,7 +1216,7 @@ runner = "command"
 command = ["python3", "scripts/dev/diagnostics/go_all_packages.py", "--timeout-seconds", "240"]
 inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "scripts/dev/diagnostics/go_all_packages.py"]
 outputs = ["build/evidence/go-regression-isolated/**"]
-metadata = { read_only = true, qualification = "complete-uncached-go-packages-only", android_build_location = "github-actions-only" }
+metadata = { read_only = false, global_reservations = ["skybind-go-build-cache"], qualification = "complete-uncached-go-packages-only", android_build_location = "github-actions-only" }
 [targets.skybind_bkx_compat]
 runner = "command"
 platform = "cli"
@@ -1255,18 +1255,18 @@ outputs = []
 runner = "command"
 command = ["go", "test", "-count=1", "./internal/brokergrant", "./internal/daemon", "./internal/control"]
 inputs = ["internal/brokergrant/**", "internal/daemon/**", "internal/control/**", "go.mod"]
-metadata = { read_only = true, qualification = "R1-grant-policy-only-no-transport" }
+metadata = { read_only = true, global_reservations = ["skybind-go-build-cache"], qualification = "R1-grant-policy-only-no-transport" }
 [targets.skybind_api_contracts.jobs.r1-transport]
 runner = "command"
 command = ["go", "test", "-count=1", "./internal/brokeripc", "./internal/brokergrant"]
 inputs = ["internal/brokeripc/**", "internal/brokergrant/**", "go.mod", "go.sum"]
-metadata = { read_only = true, qualification = "R1-IPC-transport-core-only", production_listener_enabled = false, android_build_location = "github-actions-only" }
+metadata = { read_only = true, global_reservations = ["skybind-go-build-cache"], qualification = "R1-IPC-transport-core-only", production_listener_enabled = false, android_build_location = "github-actions-only" }
 
 [targets.skybind_api_contracts.jobs.r1-identity]
 runner = "command"
 command = ["go", "test", "-count=1", "./internal/brokeridentity", "./internal/brokerissue", "./internal/brokeripc", "./internal/brokergrant"]
 inputs = ["internal/brokeridentity/**", "internal/brokerissue/**", "internal/brokeripc/**", "internal/brokergrant/**", "go.mod"]
-metadata = { read_only = true, qualification = "R1-identity-policy-source-only", android_package_attestor_live = false, production_listener_enabled = false }
+metadata = { read_only = true, global_reservations = ["skybind-go-build-cache"], qualification = "R1-identity-policy-source-only", android_package_attestor_live = false, production_listener_enabled = false }
 
 [targets.skybind_api_contracts.jobs.r1b-contract]
 runner = "command"

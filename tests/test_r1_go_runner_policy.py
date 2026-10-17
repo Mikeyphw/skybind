@@ -27,7 +27,7 @@ class TermuxGoRunnerPolicy(unittest.TestCase):
         full = release['r1-full-regression']
         refs = {node['ref'] for node in full}
         self.assertEqual(refs, {
-            'target:skybind_release#r1-transport-source',
+            'target:skybind_release#r1-identity-source',
             'target:skybind_go#isolated-regression',
         })
         transport = release['r1-transport-source']
@@ -43,6 +43,31 @@ class TermuxGoRunnerPolicy(unittest.TestCase):
             'target:skybind_release#r0-compat',
             'target:skybind_api_contracts#r1-policy',
         })
+
+    def test_isolated_go_regression_declares_its_evidence_writes(self):
+        job = self.cfg['targets']['skybind_go']['jobs']['isolated-regression']
+        self.assertFalse(job['metadata']['read_only'])
+        self.assertIn('build/evidence/go-regression-isolated/**', job['outputs'])
+        self.assertEqual(job['metadata']['qualification'],
+                         'complete-uncached-go-packages-only')
+
+    def test_source_go_jobs_share_one_explicit_reservation(self):
+        go = self.cfg['targets']['skybind_go']['jobs']['isolated-regression']
+        contracts = self.cfg['targets']['skybind_api_contracts']['jobs']
+        all_jobs = (go, contracts['r1-policy'], contracts['r1-transport'],
+                    contracts['r1-identity'])
+        for job in all_jobs:
+            with self.subTest(command=job['command']):
+                self.assertEqual(job['metadata']['global_reservations'],
+                                 ['skybind-go-build-cache'])
+        self.assertTrue(all(job['metadata']['read_only'] for job in all_jobs[1:]))
+
+    def test_scheduler_stays_sequential_by_default(self):
+        scheduler = self.cfg['workspace']['scheduler']
+        self.assertFalse(scheduler['parallel'])
+        self.assertEqual(scheduler['max_parallel_nodes'], 3)
+        self.assertEqual(scheduler['max_android_device'], 1)
+        self.assertEqual(scheduler['max_gradle_nodes'], 1)
 
     def test_original_go_runner_retained_for_diagnostics(self):
         workflows = self.cfg['targets']['skybind_release']['workflows']
