@@ -225,7 +225,11 @@ bootstrap = [
   { id = "android", ref = "target:skybind_android_device#bootstrap", depends_on = ["contracts"] },
   { id = "plan", ref = "job:bootstrap-release-plan", depends_on = ["webui", "runtime", "android"] },
 ]
-validate = ["job:bootstrap-release-plan"]
+# Upgrade default validation from obsolete planning-only bootstrap to
+# R1 source contracts; bootstrap remains separately available by name.
+validate = [
+  { id = "r1a", ref = "target:skybind_release#r1-transport-source", depends_on = [] },
+]
 # Non-mutating source DAG; no Android APK builds or device changes.
 # Fast source-contract DAG: independent R0 consumer contracts and R1 broker
 # policy are checked without requiring the unrelated full Go regression suite.
@@ -238,11 +242,16 @@ r1-source = [
   { id = "r0", ref = "target:skybind_release#r0-compat", depends_on = [] },
   { id = "grant", ref = "target:skybind_api_contracts#r1-policy", depends_on = [] },
 ]
-# Required complete source-regression gate for B0/B1 acceptance. Fails if
-# either the fast contract set or any Go package fails; never promotes
-# fast-source PASS as full qualification.
-r1-full-regression = [
+# B1-A: source-bound, disabled-by-default read-only broker transport tests.
+# Native Android build policy is independently checked; no APK builds here.
+r1-transport-source = [
   { id = "contracts", ref = "target:skybind_release#r1-source", depends_on = [] },
+  { id = "transport", ref = "target:skybind_api_contracts#r1-transport", depends_on = [] },
+  { id = "android-policy", ref = "target:skybind_android_app#build-policy", depends_on = [] },
+]
+# Required full regression; isolated Go packages remain mandatory.
+r1-full-regression = [
+  { id = "contracts", ref = "target:skybind_release#r1-transport-source", depends_on = [] },
   { id = "go", ref = "target:skybind_go#isolated-regression", depends_on = [] },
 ]
 
@@ -1235,8 +1244,15 @@ runner = "command"
 command = ["go", "test", "-count=1", "./internal/brokergrant", "./internal/daemon", "./internal/control"]
 inputs = ["internal/brokergrant/**", "internal/daemon/**", "internal/control/**", "go.mod"]
 metadata = { read_only = true, qualification = "R1-grant-policy-only-no-transport" }
+[targets.skybind_api_contracts.jobs.r1-transport]
+runner = "command"
+command = ["go", "test", "-count=1", "./internal/brokeripc", "./internal/brokergrant"]
+inputs = ["internal/brokeripc/**", "internal/brokergrant/**", "go.mod", "go.sum"]
+metadata = { read_only = true, qualification = "R1-IPC-transport-core-only", production_listener_enabled = false, android_build_location = "github-actions-only" }
+
 [targets.skybind_api_contracts.workflows]
 r1-policy = ["job:r1-policy"]
+r1-transport = ["job:r1-transport"]
 
 [targets.skybind_android_app]
 runner = "command"
@@ -1251,3 +1267,27 @@ inputs = ["../.github/workflows/skybind-android-apks.yml", "**/*", "../scripts/d
 metadata = { read_only = true, qualification = "source-build-policy-only", android_build_location = "github-actions-only" }
 [targets.skybind_android_app.workflows]
 build-policy = ["job:build-policy"]
+
+# B1-A purpose-specific entrypoints: use Devtool's real DAG rather than
+# duplicate shell wrappers or bespoke overlay installers.
+[wrapper.commands.r1-transport]
+description = "R1 broker policy, read-only transport and GitHub-only Android build policy (source-only)"
+workflow = "r1-transport-source"
+target = "skybind_release"
+
+[wrapper.commands.r1-regression]
+description = "Complete source regression: R0/R1 contracts plus all uncached Go packages"
+workflow = "r1-full-regression"
+target = "skybind_release"
+
+[wrapper.commands.android-cloud-policy]
+description = "Check Android APK builds are hosted-only (does not build APKs)"
+workflow = "build-policy"
+target = "skybind_android_app"
+
+[[test]]
+id = "sb-r1-transport-overlay"
+name = "B1-A read-only broker transport source tests"
+runner = "command"
+timeout_seconds = 60
+command = ["go", "test", "-count=1", "./internal/brokeripc", "./internal/brokergrant"]

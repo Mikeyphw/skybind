@@ -27,8 +27,14 @@ class TermuxGoRunnerPolicy(unittest.TestCase):
         full = release['r1-full-regression']
         refs = {node['ref'] for node in full}
         self.assertEqual(refs, {
-            'target:skybind_release#r1-source',
+            'target:skybind_release#r1-transport-source',
             'target:skybind_go#isolated-regression',
+        })
+        transport = release['r1-transport-source']
+        self.assertEqual({node['ref'] for node in transport}, {
+            'target:skybind_release#r1-source',
+            'target:skybind_api_contracts#r1-transport',
+            'target:skybind_android_app#build-policy',
         })
         fast = release['r1-source']
         fast_refs = {node['ref'] for node in fast}
@@ -45,6 +51,17 @@ class TermuxGoRunnerPolicy(unittest.TestCase):
         go = self.cfg['targets']['skybind_go']
         self.assertEqual(go['workflows']['isolated-regression'],
                          ['job:isolated-regression'])
+
+    def test_r1_transport_broker_not_activated(self):
+        ipc = ROOT / 'internal/brokeripc/server.go'
+        self.assertTrue(ipc.is_file())
+        text = ipc.read_text()
+        self.assertIn('SO_PEERCRED', text)
+        self.assertNotIn('net.Listen(', text)
+        self.assertNotIn('net.ListenUnix(', text)
+        job = self.cfg['targets']['skybind_api_contracts']['jobs']['r1-transport']
+        self.assertFalse(job['metadata']['production_listener_enabled'])
+        self.assertIn('./internal/brokeripc', job['command'])
 
     def test_cloud_only_android_policy_preserved(self):
         android = ROOT / '.github/workflows/skybind-android-apks.yml'
