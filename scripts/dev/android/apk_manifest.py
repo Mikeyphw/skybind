@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Hosted APK manifest producer + local byte verifier. NEVER builds/signs APKs."""
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -9,21 +11,50 @@ import re
 import shutil
 import subprocess
 
-CERT_RE = re.compile(r'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]{64})')
+# Derive the signer digest from the certificate itself, not the human-readable
+# apksigner label. Newer Android build tools can print min/max-SDK signer labels
+# instead of "Signer #1"; that text is not a trustworthy machine interface.
+CERT_PEM_RE = re.compile(
+    r'-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+?)\s*-----END CERTIFICATE-----',
+    re.MULTILINE,
+)
+
+
+def certificate_digest_from_pem_output(output: str) -> str:
+    """Require exactly one verified signer certificate in apksigner's PEM output."""
+    blocks = CERT_PEM_RE.findall(output)
+    if len(blocks) != 1:
+        raise ValueError('expected exactly one APK signer certificate in PEM output')
+    encoded = ''.join(blocks[0].split())
+    try:
+        cert_der = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError('APK signer certificate PEM is malformed') from exc
+    # The DER-encoded X.509 certificate is an ASN.1 SEQUENCE. Reject empty,
+    # obviously truncated or unreasonable blocks even if the Base64 is valid.
+    if not (64 <= len(cert_der) <= 65536 and cert_der.startswith(b'\x30')):
+        raise ValueError('APK signer certificate DER is malformed')
+    return hashlib.sha256(cert_der).hexdigest()
+
 
 def apk_cert(path: Path):
-    apksigner=shutil.which('apksigner')
+    apksigner = shutil.which('apksigner')
     if not apksigner:
-        home=os.getenv('ANDROID_HOME') or os.getenv('ANDROID_SDK_ROOT')
+        home = os.getenv('ANDROID_HOME') or os.getenv('ANDROID_SDK_ROOT')
         if home:
-            candidates=sorted(Path(home,'build-tools').glob('*/apksigner'),reverse=True)
-            apksigner=str(candidates[0]) if candidates else None
-    if not apksigner: return None
-    result=subprocess.run([apksigner,'verify','--print-certs',str(path)],capture_output=True,text=True,timeout=60)
-    if result.returncode: raise ValueError('APK signature verification failed')
-    match=CERT_RE.search(result.stdout)
-    if not match: raise ValueError('APK certificate fingerprint unavailable')
-    return match.group(1).lower()
+            candidates = sorted(Path(home, 'build-tools').glob('*/apksigner'), reverse=True)
+            apksigner = str(candidates[0]) if candidates else None
+    if not apksigner:
+        return None
+    # Android SDK apksigner supports --print-certs-pem; the command still
+    # verifies the APK's cryptographic signature before printing certificates.
+    result = subprocess.run(
+        [apksigner, 'verify', '--print-certs-pem', str(path)],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode:
+        raise ValueError('APK signature verification failed')
+    return certificate_digest_from_pem_output(result.stdout)
 
 def record(path):
     if not path.is_file() or path.is_symlink() or path.stat().st_size<=0: raise ValueError('missing or invalid APK')
