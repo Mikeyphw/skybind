@@ -60,6 +60,27 @@ class HostedTest(unittest.TestCase):
         return {'signature_verified':True,'package':expected_package,
                 'signer_sha256':expected_cert,'sha256':digest(payload),'member':member}
 
+    def test_sdk_packages_use_single_space_delimited_input(self):
+        workflow=(ROOT/'.github/workflows/skybind-android-apks.yml').read_text()
+        self.assertEqual(r1_hosted_source.verify_sdk_packages(workflow),
+                         r1_hosted_source.SDK_PACKAGES)
+        self.assertIn("log-accepted-android-sdk-licenses: 'false'",workflow)
+
+    def test_sdk_packages_reject_original_multiline_regression(self):
+        workflow=(ROOT/'.github/workflows/skybind-android-apks.yml').read_text()
+        bad=workflow.replace(
+            "packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'",
+            "packages: |\n            platforms;android-35\n            build-tools;35.0.0\n            platform-tools")
+        self.assertNotEqual(bad, workflow)
+        with self.assertRaisesRegex(ValueError,'inline quoted scalar'):
+            r1_hosted_source.verify_sdk_packages(bad)
+
+    def test_sdk_packages_rejects_missing_package(self):
+        workflow=(ROOT/'.github/workflows/skybind-android-apks.yml').read_text()
+        bad=workflow.replace('build-tools;35.0.0 ', '')
+        with self.assertRaisesRegex(ValueError,'space-delimited'):
+            r1_hosted_source.verify_sdk_packages(bad)
+
     def test_static_source_gate(self):
         with mock.patch.object(r1_hosted_source,'ROOT',ROOT):
             self.assertEqual(r1_hosted_source.check()['status'],'PASS_B1_QW3_SOURCE_ONLY')

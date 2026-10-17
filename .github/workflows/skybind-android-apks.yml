@@ -29,10 +29,9 @@ jobs:
       - name: Install hosted Android SDK build tools
         uses: android-actions/setup-android@v4
         with:
-          packages: |
-            platforms;android-35
-            build-tools;35.0.0
-            platform-tools
+          # setup-android v4 forwards `packages` as a space-delimited string.
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+          log-accepted-android-sdk-licenses: 'false'
       - name: Verify GitHub-only source policy before build
         env:
           GITHUB_ACTIONS: 'true'
