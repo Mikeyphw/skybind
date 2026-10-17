@@ -155,7 +155,14 @@ func (s *Server) ServeConn(c *net.UnixConn) error {
 		_ = writeResponse(c, denied)
 		return errors.New("bad_request")
 	}
-	if s.Grants.Authorize(request.Token, verified, request.Operation, request.Remote, request.Path) != nil {
+	// Re-verify after bounded request parsing so a killed/reused PID cannot
+	// retain a valid lease between connection acceptance and operation.
+	current, identityErr := s.Verifier.VerifyPeer(kernel)
+	if identityErr != nil || current != verified || current.UID != kernel.UID {
+		_ = writeResponse(c, denied)
+		return errors.New("peer_identity_changed")
+	}
+	if s.Grants.Authorize(request.Token, current, request.Operation, request.Remote, request.Path) != nil {
 		_ = writeResponse(c, denied)
 		return errors.New("not_authorized")
 	}

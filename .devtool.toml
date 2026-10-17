@@ -56,6 +56,11 @@ workflow = "bootstrap"
 target = "skybind_release"
 
 # Source and CLI/daemon authority: implementation arrives in SB-O03 onward.
+[wrapper.commands.r1-identity]
+description = "B1-B source identity and grant issuance tests; no Android production trust asserted"
+workflow = "r1-identity-source"
+target = "skybind_release"
+
 [targets.skybind]
 runner = "command"
 platform = "cli"
@@ -228,7 +233,7 @@ bootstrap = [
 # Upgrade default validation from obsolete planning-only bootstrap to
 # R1 source contracts; bootstrap remains separately available by name.
 validate = [
-  { id = "r1a", ref = "target:skybind_release#r1-transport-source", depends_on = [] },
+  { id = "r1b", ref = "target:skybind_release#r1-identity-source", depends_on = [] },
 ]
 # Non-mutating source DAG; no Android APK builds or device changes.
 # Fast source-contract DAG: independent R0 consumer contracts and R1 broker
@@ -249,9 +254,16 @@ r1-transport-source = [
   { id = "transport", ref = "target:skybind_api_contracts#r1-transport", depends_on = [] },
   { id = "android-policy", ref = "target:skybind_android_app#build-policy", depends_on = [] },
 ]
+# B1-B: separate source authority tests. Android signing/binder authority still
+# requires hosted APK + physical-device verification before external listeners.
+r1-identity-source = [
+  { id = "transport", ref = "target:skybind_release#r1-transport-source", depends_on = [] },
+  { id = "identity", ref = "target:skybind_api_contracts#r1-identity", depends_on = [] },
+  { id = "source-policy", ref = "target:skybind_api_contracts#r1b-contract", depends_on = [] },
+]
 # Required full regression; isolated Go packages remain mandatory.
 r1-full-regression = [
-  { id = "contracts", ref = "target:skybind_release#r1-transport-source", depends_on = [] },
+  { id = "contracts", ref = "target:skybind_release#r1-identity-source", depends_on = [] },
   { id = "go", ref = "target:skybind_go#isolated-regression", depends_on = [] },
 ]
 
@@ -1250,9 +1262,23 @@ command = ["go", "test", "-count=1", "./internal/brokeripc", "./internal/brokerg
 inputs = ["internal/brokeripc/**", "internal/brokergrant/**", "go.mod", "go.sum"]
 metadata = { read_only = true, qualification = "R1-IPC-transport-core-only", production_listener_enabled = false, android_build_location = "github-actions-only" }
 
+[targets.skybind_api_contracts.jobs.r1-identity]
+runner = "command"
+command = ["go", "test", "-count=1", "./internal/brokeridentity", "./internal/brokerissue", "./internal/brokeripc", "./internal/brokergrant"]
+inputs = ["internal/brokeridentity/**", "internal/brokerissue/**", "internal/brokeripc/**", "internal/brokergrant/**", "go.mod"]
+metadata = { read_only = true, qualification = "R1-identity-policy-source-only", android_package_attestor_live = false, production_listener_enabled = false }
+
+[targets.skybind_api_contracts.jobs.r1b-contract]
+runner = "command"
+command = ["python3", "-m", "unittest", "tests.test_b1b_devtool_contract", "-v"]
+inputs = [".devtool.toml", "tests/test_b1b_devtool_contract.py", "android-app/app/src/main/java/io/github/mikeyphw/skybind/security/**"]
+metadata = { read_only = true, qualification = "B1B-source-contract-only" }
+
 [targets.skybind_api_contracts.workflows]
+r1b-contract = ["job:r1b-contract"]
 r1-policy = ["job:r1-policy"]
 r1-transport = ["job:r1-transport"]
+r1-identity = ["job:r1-identity"]
 
 [targets.skybind_android_app]
 runner = "command"

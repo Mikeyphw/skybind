@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func roundTrip(t *testing.T, s *Server, body string) (Response, error) {
 		t.Fatal(err)
 	}
 	_ = c.SetDeadline(time.Now().Add(6 * time.Second))
-	if _, err := c.Write([]byte(body)); err != nil {
+	if _, err := c.Write([]byte(body)); err != nil && !errors.Is(err, syscall.EPIPE) {
 		t.Fatal(err)
 	}
 	if err := c.CloseWrite(); err != nil {
