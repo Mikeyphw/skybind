@@ -1,18 +1,17 @@
-# Skybind Android — native M1 product-surface foundation
+# Skybind native Android — read-only RootService M1
 
-The repository's Android app is a real Kotlin/Compose multi-screen product surface, **not yet a connected Skybind client**. On current builds, the `UnpairedGateway` defaults to NOT_AUTHORIZED. `ReadOnlyCoordinator` always fails closed, and a disconnected state removes all stale server-derived remotes, jobs, mounts, and journal entries. Do not interpret the test-only fixture data as real daemon state.
+This repo produces app and test APKs **only through GitHub Actions**, not local Gradle. The native app has five Compose screens (Home, Browser, Jobs, Activity, More) backed by a real read-only RPC client. It is not a privileged file manager or a generic rclone executor.
 
-**Screen boundaries:** Home shows connection and summaries; Browser searches remotely supplied names when authenticated; Jobs uses the authoritative job snapshot (running/queued/interrupted, then recent completed); Activity is a separate chronological journal with severity filtering and event cursor/gap semantics; More contains connection, mount availability and device/build information. Write, transfer, cancellation and mount controls remain visibly unavailable until a trusted broker and ownership-grant enforcement exist. No root requests, local root sockets, broadly accessible localhost endpoints, or secret copying.
+## Privilege and connection model
 
-## What M1 still needs
+1. App launches **unpaired**; it does not auto-request root or access `/data/adb`.
+2. The user explicitly taps **Connect** and must approve the app through the device's supported root manager.
+3. libsu 6.0.0 starts an **app-owned RootService**; Binder checks the real UID, installed package ownership and signing information on every request. No exported Android broker component is registered. App process remains unprivileged.
+4. RootService only permits `system.capabilities`, `runtime.status`, `provider.remotes`, `mount.list`, `jobs.status`, and `operation.events`, all using RPC `class=query`. It requires a root-owned `0700` daemon socket directory, `0600` Unix socket, and root peer credentials. No endpoint override or arbitrary shell.
+5. Strict JSON and response limits; the app maps only non-secret fields. Disconnect, malformed responses, unsupported versions and root refusal leave UI unpaired/disconnected with stale data hidden. Jobs and Activity are different authoritative data sources; all controls that mutate remain disabled.
 
-The app-to-daemon trusted transport and *actual* capability/health/remotes/jobs/event handshake remain an open M1 acceptance gate. Supply a privileged **authenticated** bridge selected under M0/R1, verify Binder UID + PackageManager signing identity and signed-grant expiry/revocation, then implement a `SkybindReadOnlyGateway` that calls the installed daemon's restricted typed API without exporting root or credentials. A fabricated `ONLINE` from a test fixture never grants production access. App-owned root shell is explicitly prohibited here.
+**Security scope:** This app-owned root service is an opt-in RootService, not an independently credentialed cross-UID module broker. It does **not** establish authorization for BKX or chrootctl, nor does it qualify release security. Once the root manager grants root to an app, its privileged code is security-sensitive and must be audited as such.
 
-## How to validate
+**Outstanding device gates:** hosted GitHub Kotlin/AIDL compilation, dependency resolution, exact APK/signature provenance, authorization refusal and acceptance under KernelSU, live daemon capabilities/status/remotes/mounts/jobs/events, rebind on Activity recreation, root-service death/disconnect, journal gap, no mutation and root rollback. Do not claim these from source tests.
 
-- `python3 scripts/dev/android/m1_native_source_gate.py` — read-only source contract; no Gradle, Android SDK or device changes.
-- `python3 scripts/dev/android/r1_b1c_security_source.py` — existing source suite plus M1 contract.
-- `.github/workflows/skybind-android-apks.yml` — **sole** authorized Android APK/`androidTest` APK build. Never build with Gradle locally, including Termux/chroot.
-- `NativeUiTest` is compiled into the separately uploaded `app-debug-androidTest.apk` and covers screens, data-source separation, safe unpaired state, browser filtering, disabled writes, and Activity recreation. It must be **run on device against a separately attested new APK pair** before any device PASS claim. The earlier B1-C6 result belongs to older installed bytes and stays historical.
-
-Product roadmap remains M0–M5 from `SKYBIND_NATIVE_ANDROID_MASTER_PLAN_20261016.md`, and unified API A1–E + R0–R6 is authoritative. This change is an incremental M1 UI/state slice, not completion of M1 or M2, nor broker, device or release qualification.
+**Known deployment issue:** Hosted debug signing is ephemeral; replacing a differently signed installed app is not a routine `adb install -r`. The next qualification must introduce a persistent signing plan or use an explicitly authorized and backed-up replacement. No automatic uninstall or app-data clear.

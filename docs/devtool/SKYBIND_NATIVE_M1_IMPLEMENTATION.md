@@ -22,3 +22,10 @@ Installed *after new GitHub build and authorized device installation*: a functio
 4. Then M2 read-only metadata Browser and mounts and M3 confirmed operations. Keep WebUI fallback and BKX/chrootctl R1–R6 independent.
 
 **Not release qualified.** Future device-gate fixes (including Git SHA-1 validation) should be bundled with substantive broker work, not isolated hotfixes.
+
+
+## M1 read-only root bridge batch (2026-10-18)
+
+Implementation now includes an explicit, opt-in libsu RootService, a checked in-app Binder AIDL reader, canonical 0700/0600 daemon-socket and root-peer verification, six immutable read-only method names, versioned API capability handshake, remotes/mount-list/jobs snapshot mapping, and operation-event cursor replay with gap detection. Root approval is requested only by the Connect control. UI jobs/actions remain read-only; no external BKX/chrootctl grant or generic privileged command endpoint exists. Separate test APK source includes six fake-transport contract cases, not claimed on a device yet.
+
+The M1 source gate is `PASS_M1_READONLY_BRIDGE_SOURCE_ONLY`, **not** an authenticated-device PASS. GitHub-hosted builds are the only permitted APK builds; local validation is source-only. Android root-manager approval and live behavior must be independently tested after exact-source GitHub artifact attestation. Prior B1-C6 receipt remains historical and is not relabeled.

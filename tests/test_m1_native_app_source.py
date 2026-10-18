@@ -13,7 +13,7 @@ spec.loader.exec_module(mod)
 
 class NativeM1SourceTests(unittest.TestCase):
     def test_real_source_contract(self):
-        self.assertEqual(mod.verify(ROOT)['state'], 'PASS_M1_NATIVE_SOURCE_ONLY')
+        self.assertEqual(mod.verify(ROOT)['state'], 'PASS_M1_READONLY_BRIDGE_SOURCE_ONLY')
 
     def copy_fixture(self, files):
         d = tempfile.TemporaryDirectory()
@@ -22,7 +22,13 @@ class NativeM1SourceTests(unittest.TestCase):
             mod.MAIN / 'MainActivity.kt', mod.MAIN / 'model/SkybindReadModel.kt',
             mod.MAIN / 'ui/SkybindApp.kt', mod.TEST / 'NativeUiTest.kt', mod.TEST / 'NativeLifecycleTest.kt',
             Path('android-app/app/src/main/AndroidManifest.xml'),
-            Path('android-app/app/build.gradle.kts'),
+            Path('android-app/app/build.gradle.kts'), Path('android-app/settings.gradle.kts'),
+            Path('android-app/app/src/main/aidl/io/github/mikeyphw/skybind/bridge/IRootReadBridge.aidl'),
+            mod.MAIN / 'bridge/RootReadBridgeService.kt',
+            mod.MAIN / 'bridge/RootReadSession.kt',
+            mod.MAIN / 'bridge/SkybindSessionViewModel.kt',
+            mod.MAIN / 'bridge/LiveReadSnapshotReader.kt',
+            mod.TEST / 'LiveReadGatewayTest.kt',
             Path('.github/workflows/skybind-android-apks.yml'),
         ]
         for p in required:
@@ -43,7 +49,7 @@ class NativeM1SourceTests(unittest.TestCase):
                 mod.verify(root)
 
     def test_missing_default_deny_is_rejected(self):
-        self.rejects(mod.MAIN / 'MainActivity.kt', 'ReadOnlyCoordinator(UnpairedGateway())', 'ReadOnlyCoordinator(PermissiveGateway())')
+        self.rejects(mod.MAIN / 'MainActivity.kt', 'SkybindSessionViewModel by viewModels()', 'PermissiveViewModel by viewModels()')
 
     def test_permission_escalation_is_rejected(self):
         self.rejects(Path('android-app/app/src/main/AndroidManifest.xml'), '<application', '<uses-permission android:name="android.permission.INTERNET"/><application')

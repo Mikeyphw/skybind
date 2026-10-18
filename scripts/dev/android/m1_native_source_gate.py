@@ -30,8 +30,45 @@ def verify(root: Path = ROOT) -> dict:
     gradle = read(Path('android-app/app/build.gradle.kts'))
     workflow = read(Path('.github/workflows/skybind-android-apks.yml'))
 
-    need('ReadOnlyCoordinator(UnpairedGateway())' in activity and 'SkybindApp(snapshot = snapshot' in activity,
-         'PRODUCTION_NOT_DEFAULT_DENY')
+    need('SkybindSessionViewModel by viewModels()' in activity and
+         'onConnect = session::connect' in activity and 'onRefresh = session::refresh' in activity,
+         'PRODUCTION_CONNECT_FLOW_MISSING')
+    bridge = read(MAIN / 'bridge/RootReadBridgeService.kt')
+    session = read(MAIN / 'bridge/RootReadSession.kt')
+    viewmodel = read(MAIN / 'bridge/SkybindSessionViewModel.kt')
+    reader = read(MAIN / 'bridge/LiveReadSnapshotReader.kt')
+    aidl = read(Path('android-app/app/src/main/aidl/io/github/mikeyphw/skybind/bridge/IRootReadBridge.aidl'))
+    settings = read(Path('android-app/settings.gradle.kts'))
+    gateway_test = read(TEST / 'LiveReadGatewayTest.kt')
+    need('RootReadSession(app)' in viewmodel and 'root service' in session.lower() and
+         'suspend fun connect()' in session and 'RootService.bind' in session,
+         'EXPLICIT_ROOT_CONNECT_FLOW_MISSING')
+    need('Binder.getCallingUid()' in bridge and 'getPackagesForUid(caller)' in bridge and
+         'GET_SIGNING_CERTIFICATES' in bridge and 'Process.myUid() != 0' in bridge,
+         'BINDER_CALLER_VERIFICATION_MISSING')
+    need('Os.lstat' in bridge and 'socket.peerCredentials.uid != 0' in bridge and
+         'socket.shutdownOutput()' in bridge and '262144' in bridge and '65536' in bridge,
+         'ROOT_SOCKET_BOUNDARY_UNVERIFIED')
+    read_methods = ('system.capabilities', 'runtime.status', 'provider.remotes', 'mount.list', 'jobs.status', 'operation.events')
+    need(all('"' + method + '"' in bridge and '"' + method + '"' in reader for method in read_methods),
+         'READ_ONLY_METHOD_NOT_EXPLICIT')
+    need('"class", "query"' in bridge and 'RootService.bind' in session and
+         'root service' in session.lower() and 'Shell.cmd(' not in bridge + session,
+         'UNSAFE_ROOT_EXECUTION_PATH')
+    for forbidden in ('"mount.start"', '"job.run"', '"operation.cancel"', '"config.apply"',
+                      '"provider.crypt.password.set"', '"mount.stop"', '"remote.transfer.start"'):
+        need(forbidden not in bridge, 'MUTATING_BROKER_METHOD_' + forbidden)
+    need('withTimeout(20_000L)' in session and 'val api = remote ?:' in session and
+         'fun reset()' in reader and reader.count('optBoolean("cursor_reset")') == 2 and 'gap' in reader,
+         'FAIL_CLOSED_REPLAY_OR_CONNECT_MISSING')
+    need('interface IRootReadBridge' in aidl and 'String query(' in aidl and
+         'aidl = true' in gradle and 'com.github.topjohnwu.libsu:service:6.0.0' in gradle and
+         'https://jitpack.io' in settings,
+         'ANDROID_BINDER_DEPENDENCIES_MISSING')
+    need('fun mapsRealDaemonShapeIntoJobsAndChronologicalActivity' in gateway_test and
+         'fun rejectsFailedRpcResponse' in gateway_test and
+         'fun gapResetsPreviouslyObservedEvents' in gateway_test,
+         'LIVE_GATEWAY_DEVICE_TESTS_MISSING')
     need('suspend fun snapshot()' in model and 'fun failClosed()' in model and
          'jobs = emptyList()' in model and 'events = emptyList()' in model and
          'remotes = emptyList()' in model and 'hasEventGap = false' in model,
@@ -45,7 +82,8 @@ def verify(root: Path = ROOT) -> dict:
     for key in ('"nav-" + entry.label.lowercase()', '"action-refresh"', '"browser-search"',
                 '"activity-filter-warnings"', '"cancel-${job.id}"', '"browser-write-disabled"'):
         need(key in ui, 'UI_SEMANTIC_TAG_MISSING_' + key)
-    need('enabled = false' in ui and 'val safe = snapshot.failClosed()' in ui,
+    need('enabled = false' in ui and 'val safe = snapshot.failClosed()' in ui and
+         'connect-readonly' in ui and 'onConnect: () -> Unit' in ui,
          'UNAUTHORIZED_OPERATION_NOT_DISABLED')
     need('fun realNavigationHasFiveDistinctPages' in test and
          'fun activityIsAJournalNotAnActionableJobQueue' in test and
@@ -64,8 +102,8 @@ def verify(root: Path = ROOT) -> dict:
     need('ui-test-manifest' in gradle and 'ui-test-junit4' in gradle and
          ':app:assembleDebug :app:assembleDebugAndroidTest' in workflow,
          'ANDROID_TEST_BUILD_CONTRACT_DRIFT')
-    return {'state': 'PASS_M1_NATIVE_SOURCE_ONLY', 'screens': 5,
-            'instrumentation_source_tests': 5, 'read_only_gateway': 'UNPAIRED_DEFAULT_DENY',
+    return {'state': 'PASS_M1_READONLY_BRIDGE_SOURCE_ONLY', 'screens': 5,
+            'instrumentation_source_tests': 11, 'read_only_gateway': 'ROOT_SERVICE_EXPLICIT_OPT_IN',
             'broker_authenticated': False, 'device_tests_executed': False,
             'github_apks_built': False, 'release_qualified': False}
 

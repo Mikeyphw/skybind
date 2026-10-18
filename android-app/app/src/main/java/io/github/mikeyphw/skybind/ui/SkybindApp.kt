@@ -24,7 +24,7 @@ private enum class Tab(val label: String, val symbol: String) {
 }
 
 @Composable
-fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit) {
+fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: () -> Unit = {}) {
     var selected by rememberSaveable { mutableStateOf(Tab.HOME.name) }
     val tab = Tab.entries.firstOrNull { it.name == selected } ?: Tab.HOME
     val safe = snapshot.failClosed()
@@ -62,7 +62,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit) {
             },
         ) { inner ->
             when (tab) {
-                Tab.HOME -> HomePage(safe, Modifier.padding(inner)) { selected = it.name }
+                Tab.HOME -> HomePage(safe, Modifier.padding(inner), onConnect) { selected = it.name }
                 Tab.BROWSER -> BrowserPage(safe, Modifier.padding(inner))
                 Tab.JOBS -> JobsPage(safe, Modifier.padding(inner)) { selected = Tab.ACTIVITY.name }
                 Tab.ACTIVITY -> ActivityPage(safe, Modifier.padding(inner)) { selected = Tab.JOBS.name }
@@ -112,9 +112,14 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit) {
     InfoPanel("Connection", s.detail, Modifier.testTag("connection-status"), label)
 }
 
-@Composable private fun HomePage(s: SkybindReadSnapshot, modifier: Modifier, select: (Tab) -> Unit) {
+@Composable private fun HomePage(s: SkybindReadSnapshot, modifier: Modifier, onConnect: () -> Unit, select: (Tab) -> Unit) {
     Page("Home", "Your Skybind service at a glance", modifier) {
         ConnectionPanel(s)
+        if (s.link == LinkState.NOT_AUTHORIZED || s.link == LinkState.DISCONNECTED) {
+            Button(onClick = onConnect, modifier = Modifier.testTag("connect-readonly")) {
+                Text("Connect · root approval required")
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             InfoPanel("Remotes", if (s.online) "${s.remotes.size} configured" else "Unavailable", Modifier.weight(1f))
             InfoPanel("Jobs", if (s.online) "${s.activeJobs.size} active" else "Unavailable", Modifier.weight(1f))
@@ -125,7 +130,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit) {
             OutlinedButton(onClick = { select(Tab.BROWSER) }, modifier = Modifier.testTag("home-open-browser")) { Text("Browse") }
             OutlinedButton(onClick = { select(Tab.JOBS) }, modifier = Modifier.testTag("home-open-jobs")) { Text("Jobs") }
         }
-        if (!s.online) InfoPanel("Protected by default", "No root permission, remote credentials or write capabilities are requested by this development build.")
+        if (!s.online) InfoPanel("Protected by default", "No root approval is requested until Connect is tapped. The app never receives Skybind credentials or write capabilities.")
     }
 }
 
@@ -213,7 +218,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit) {
         if (s.online) s.mounts.take(20).forEach { mount ->
             InfoPanel(mount.displayName, "Status: ${mount.state}", Modifier.testTag("mount-${mount.id}"))
         }
-        InfoPanel("Permissions", "No root, storage-wide, exported broker, or general command permission granted.")
+        InfoPanel("Permissions", "Root approval is optional and requested only by Connect. No storage-wide, exported broker, or general command permission is granted.")
         InfoPanel("Native app", "Development build · Android API ${Build.VERSION.SDK_INT}")
         Button(onClick = {}, enabled = false, modifier = Modifier.testTag("more-mount-control-disabled")) { Text("Manage mounts · unavailable") }
     }

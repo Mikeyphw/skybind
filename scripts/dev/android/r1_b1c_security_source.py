@@ -29,6 +29,8 @@ CHECKS = [
     [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests/webui',
      '-p', 'test_port.py', '-v'],
     [sys.executable, '-B', 'scripts/dev/android/m1_native_source_gate.py'],
+    [sys.executable, '-B', '-m', 'unittest', 'tests.test_m1_native_app_source',
+     'tests.test_m1_root_read_bridge_source'],
     [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests/contracts',
      '-p', 'test_*.py', '-v'],
 ]

@@ -661,3 +661,11 @@ This addendum is based on inspected and locally executable source from both uplo
 | M1-DEVTOOL-03 | Existing `current_source_sha` erroneously checks Git SHA-1 with `HEX64`; B1-C6 used an external compatibility runner. | Fold 40-character commit validation and consistent branch/source identity into a future consolidated device-runner overlay; keep old receipts. | OPEN — DEFERRED TO CROSS-SUBSTRATE BATCH |
 
 **Next milestone:** native M1 read-only handshake and read-only observability, then M2 real remote browser, mounts, job states, event cursor, explicit offline/reconnect UX; avoid requalifying passed B1-C6 four-case Android tests just to close unrelated tasks.
+
+
+### M1-RB — Native app RootService transport and source-device boundary (2026-10-18)
+
+- **Finding:** the old native UI foundation was a permanently unpaired `UnpairedGateway`, so green UI/source checks did not establish daemon connectivity. Root manager behavior and Binder peer identity needed a source-owned implementation and separate device acceptance.
+- **Affected:** `Mikeyphw/skybind` Android app, RootService provider, signed build workflow, Devtool `skybind_android_device` qualification and API A4/D1–D3 planning.
+- **Remediation:** implemented explicit Connect opt-in and app-owned libsu RootService, per-transaction `Binder.getCallingUid()` and installed package/signing check, root-verified canonical socket path, root peer check, query-only allowlist, fixed JSON envelopes and size bounds, actual state mappers, replay cursor/gap protections, and negative source regression checks. Preserved Jobs versus Activity distinction. No server-side broker listener or mutation enablement.
+- **Status:** SOURCE IMPLEMENTED, Android compile/installation/root approval/physical connection NOT_RUN. Existing B1-C6 device PASS remains bound to the previous debug pair. RootService is not cross-app client attestation. Android signing remains ephemeral and requires a persistent secret-backed policy (no key checked in). **Devtool enhancement:** fold native UI, RootService, AIDL, Kotlin contract, real Android negatives and EXO provenance into one product-owned native-app acceptance workflow, instead of emitting an unpaired source-only PASS as device completion.
