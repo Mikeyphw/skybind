@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"skybind/internal/jobs"
 	"skybind/internal/mounts/policy"
+	"skybind/internal/opevents"
 	"skybind/internal/protocol"
 	"skybind/internal/provider"
 	"testing"
+	"time"
 )
 
 type b1StatRunner struct{}
@@ -38,6 +40,46 @@ func TestB1RPCMountlessTransferBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The job starts asynchronously. Sending it to the fake executor does not
+	// prove that the Store has finished persisting its terminal run state.
+	// This cleanup is registered AFTER t.TempDir(), so it executes first and
+	// prevents its directory removal from racing the job worker's final write.
+	started := make(chan opevents.Event, 1)
+	finished := make(chan opevents.Event, 1)
+	s.SetEventObserver(func(event opevents.Event) {
+		switch event.Type {
+		case "job.started":
+			select {
+			case started <- event:
+			default:
+			}
+		case "job.completed", "job.failed", "job.cancelled":
+			select {
+			case finished <- event:
+			default:
+			}
+		}
+	})
+	t.Cleanup(func() {
+		select {
+		case start := <-started:
+			select {
+			case end := <-finished:
+				if end.RunID != start.RunID || end.Type != "job.completed" {
+					t.Errorf("unexpected terminal job event: start=%+v end=%+v", start, end)
+				}
+				// Also serialize with the worker's final locked state transition.
+				run, err := s.RunStatus(start.RunID)
+				if err != nil || run.State != "COMPLETED" {
+					t.Errorf("job did not persist completion: run=%+v error=%v", run, err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Error("job worker did not reach terminal event before temporary directory cleanup")
+			}
+		default:
+			// Denied RPCs must not create a job; no worker exists to join.
+		}
+	})
 	p := provider.New(filepath.Join(root, "provider"), b1StatRunner{})
 	engine := EngineWithServices(nil, nil, nil, nil, nil, nil, nil, nil, s, p, nil)
 	rpc := func(name string, cls protocol.Class, args string) protocol.Response {

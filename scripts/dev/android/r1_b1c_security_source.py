@@ -14,6 +14,10 @@ OUT = ROOT / 'build/evidence/android/b1c-consolidated/source'
 CHECKS = [
     ['go', 'test', '-count=1', './internal/brokeridentity', './internal/brokeripc',
      './internal/brokergrant', './internal/brokerissue'],
+    # Deterministic terminal-job cleanup regression; stress the former
+    # TempDir-vs-worker persistence race, without running a build or ADB.
+    ['go', 'test', '-count=30', './internal/daemon',
+     '-run', '^TestB1RPCMountlessTransferBoundary$'],
     [sys.executable, '-B', '-m', 'unittest',
      'tests.test_r1_b1c_device', 'tests.test_r1_b1c3_identity',
      'tests.test_b1c_source_contract', 'tests.test_b1c_consolidated'],
