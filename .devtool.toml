@@ -172,6 +172,7 @@ inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
 metadata = { read_only = true, device_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_android_device.workflows]
+b1c3-identity-survey = ["job:b1c3-identity-survey"]
 b1c-hosted-provenance = ["job:b1c-hosted-provenance"]
 b1c-hosted-instrumentation = ["job:b1c-hosted-instrumentation"]
 api-device-readonly = ["job:api-device-readonly"]
@@ -1372,4 +1373,17 @@ target = "skybind_android_device"
 [wrapper.commands.r1-device-instrumentation]
 description = "Run two existing B1-C instrumentation tests only after installed APK hash match; never installs"
 workflow = "b1c-hosted-instrumentation"
+target = "skybind_android_device"
+
+# B1-C3: read-only UID/package enumeration, not Binder broker authentication.
+[targets.skybind_android_device.jobs.b1c3-identity-survey]
+runner = "command"
+command = ["python3", "../../scripts/dev/android/r1_b1c3_identity.py"]
+inputs = ["../../scripts/dev/android/r1_b1c3_identity.py", "../../scripts/dev/android/r1_b1c_device.py", "../../docs/devtool/SKYBIND_B1C3_IDENTITY_SURVEY.md"]
+outputs = ["../../build/evidence/android/b1c3/**"]
+metadata = { read_only = true, qualification = "observed-package-uid-not-trusted-broker-auth", resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], release_qualification = false, production_broker_enabled = false }
+
+[wrapper.commands.r1-device-identity-survey]
+description = "Observe installed Skybind UID ownership and SELinux against H4 attestation; never install or authorize broker"
+workflow = "b1c3-identity-survey"
 target = "skybind_android_device"
