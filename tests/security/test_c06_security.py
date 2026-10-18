@@ -17,7 +17,12 @@ class SecurityInvariants(unittest.TestCase):
   assert 'build-time-only' in source
   assert 'archive_sha256' in source
   assert 'is_arm64_elf' in source
-  assert 'GOTOOLCHAIN' in source
+  # Go toolchain isolation moved into the immutable offline source-build lane.
+  # Requiring its old location in the runtime packager is a stale source test.
+  builder=(ROOT/'scripts/dev/runtime/source_build.py').read_text()
+  assert "'GOTOOLCHAIN':'local'" in builder
+  assert "PIN_GO = '1.27.2'" in builder
+  assert "'GOWORK':'off'" in builder
   release=(ROOT/'scripts/dev/release/skybind_release.py').read_text()
   assert 'CANDIDATE_ONLY_NOT_SEALED' in release
   assert 'verify_package(runtime)' in release

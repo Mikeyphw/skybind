@@ -13,13 +13,21 @@ def blocked_report(repo: pathlib.Path=ROOT)->dict:
     problems=[]
     try:
         lock=json.loads((repo/'scripts/dev/runtime/source.lock.json').read_text())
-        pin=lock['newfuture'].get('archive_sha256')
+        # The audit is a denial gate, not a cryptographic upstream attestor.
+        # Malformed JSON shapes must produce a blocked report, never a traceback.
+        if not isinstance(lock,dict):
+            raise TypeError('provider lock must be an object')
+        provider=lock['newfuture']
+        b=lock['bclone']
+        if not isinstance(provider,dict) or not isinstance(b,dict):
+            raise TypeError('provider records must be objects')
+        pin=provider.get('archive_sha256')
         if not isinstance(pin,str) or not re.fullmatch(r'[0-9a-f]{64}',pin):
             problems.append('NEWFUTURE_ARCHIVE_SHA256_UNPINNED')
-        b=lock['bclone']
         if not isinstance(b.get('commit'),str) or not re.fullmatch(r'[0-9a-f]{40}',b['commit']):
             problems.append('BCLONE_COMMIT_UNPINNED')
-        if not b.get('ndk_revision') or not b.get('go_version'):
+        if any(not isinstance(b.get(key),str) or not b[key].strip()
+               for key in ('ndk_revision','go_version')):
             problems.append('BCLONE_TOOLCHAIN_UNPINNED')
     except (OSError,ValueError,KeyError,TypeError): problems.append('PROVIDER_LOCK_UNTRUSTWORTHY')
     try:

@@ -17,6 +17,15 @@ CHECKS = [
     [sys.executable, '-B', '-m', 'unittest',
      'tests.test_r1_b1c_device', 'tests.test_r1_b1c3_identity',
      'tests.test_b1c_source_contract', 'tests.test_b1c_consolidated'],
+    # Keep upstream-pin denial regressions in the regular grouped source lane.
+    [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests/seal',
+     '-p', 'test_*.py', '-v'],
+    [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests/security',
+     '-p', 'test_*.py', '-v'],
+    [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests/webui',
+     '-p', 'test_port.py', '-v'],
+    [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests/contracts',
+     '-p', 'test_*.py', '-v'],
 ]
 
 

@@ -7,7 +7,14 @@ import tomllib
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 DOCS=ROOT/'docs/roadmap'
-TARGETS={'skybind','skybind_webui','skybind_runtime_inputs','skybind_android_device','skybind_app_probe','skybind_release'}
+# Initial campaign targets plus subsequently approved product/API targets.
+# Unknown additions still require an explicit contract update; do not silently
+# treat every arbitrary Devtool target as an approved workflow.
+ORIGINAL_TARGETS={'skybind','skybind_webui','skybind_runtime_inputs',
+ 'skybind_android_device','skybind_app_probe','skybind_release'}
+ADOPTED_TARGETS={'skybind_go','skybind_bkx_compat','skybind_chrootctl_compat',
+ 'skybind_api_contracts','skybind_android_app'}
+TARGETS=ORIGINAL_TARGETS | ADOPTED_TARGETS
 def load():
  with (ROOT/'.devtool.toml').open('rb') as f: cfg=tomllib.load(f)
  data=json.loads((DOCS/'SKYBIND_DEVTOOL_OVERLAY_INDEX.json').read_text())
@@ -16,9 +23,17 @@ def check_all():
  cfg,data=load()
  assert cfg['workspace']['default_target']=='skybind'
  assert set(cfg['targets'])==TARGETS
- for item in cfg['targets'].values():
+ for name,item in cfg['targets'].items():
   assert (ROOT/item['root']).is_dir()
-  assert 'bootstrap' in item['workflows']
+  workflows=item['workflows']
+  if name in ORIGINAL_TARGETS:
+   assert 'bootstrap' in workflows
+  else:
+   # New product/API targets provide their own named workflows, not a
+   # legacy 'bootstrap'. They must remain explicitly allowlisted and routable.
+   assert workflows and all(isinstance(nodes,list) and bool(nodes)
+       and all(isinstance(ref,str) and ref.startswith(('job:','runner:'))
+               for ref in nodes) for nodes in workflows.values())
  for name in ('SKYBIND_FEATURE_SPEC.md','SKYBIND_DEVTOOL_ROADMAP.md','SKYBIND_ORIGINAL_45_ITEM_INDEX.json','SKYBIND_ORIGINAL_45_ITEM_ROADMAP.md'):
   assert (DOCS/name).is_file(),name
  assert data['product']=='skybind'

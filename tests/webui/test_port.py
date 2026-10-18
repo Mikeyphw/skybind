@@ -41,12 +41,20 @@ class Parity(unittest.TestCase):
    'remoteUseB3Move','b3MediaHeading','b3MediaDirection','b3MediaRemote','b3MediaLocal','b3MediaUseFolder',
    'b3MediaPreview','b3MediaStart','b3MediaNotice','b3MkdirHeading','b3MkdirParent','b3MkdirName',
    'b3MkdirUseParent','b3MkdirPreview','b3MkdirStart','b3MkdirNotice',
-   'b3MoveHeading','b3MoveSource','b3MoveDestination','b3MovePreview','b3MoveStart','b3MoveNotice'}
+   'b3MoveHeading','b3MoveSource','b3MoveDestination','b3MovePreview','b3MoveStart','b3MoveNotice',
+   # V9 opt-in Android QA: explicit finite controls, never arbitrary additions.
+   'apiQaProbe','apiQaProbeStart','apiQaProbeCopy','apiQaProbeStatus','apiQaProbeOutput',
+   'apiInteractiveQa','apiV9Navigation','apiV9Fault','apiV9OwnedRun','apiV9Before',
+   'apiV9After','apiV9Cancellation','apiV9Export','apiV9Status','apiV9Output'}
   # Verify both directions: no reference controls disappear unexpectedly,
   # and every intentional new control is still present in the current UI.
   self.assertEqual(a.ids-b.ids,excluded)
   self.assertEqual(b.ids-a.ids,added)
   html=(UI/'index.html').read_text()
+  # The two read-only QA entry points must remain actually bundled.
+  for module in ('api_qa_probe.js','interactive_qa.js'):
+   self.assertIn(f'src="{module}"',html)
+   self.assertTrue((UI/module).is_file())
   for entry in ('viewport-fit=cover','class="desktop-nav"','id="view-home"','id="view-mounts"','id="editorBackdrop"','id="jobBackdrop"'):
    self.assertIn(entry,html)
  def test_identity_and_exclusion(self):
