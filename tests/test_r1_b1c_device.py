@@ -101,6 +101,79 @@ class DeviceCampaignTests(unittest.TestCase):
         # The outer runner captures SubprocessError and records BLOCKED.
         self.assertTrue(issubclass(TimeoutExpired,__import__('subprocess').SubprocessError))
 
+    def test_android_absent_pm_path_exit_one_both_packages(self):
+        """Android path returns 1 for missing packages; list must confirm both."""
+        seen=[]
+        def shell(adb, serial, *args, **kwargs):
+            seen.append(args)
+            if args[:3] == ('shell', 'pm', 'path'):
+                return 1, '', ''
+            if args[:4] == ('shell', 'pm', 'list', 'packages'):
+                self.assertEqual(args[4:6], ('--user', '0'))
+                return 0, '', ''
+            self.fail(repr(args))
+        with patch.object(b1c, 'adb_call', side_effect=shell):
+            self.assertEqual(b1c.check_installed('adb', 'SERIAL', self.root, {}), 'ABSENT')
+        self.assertEqual(len(seen), 4)
+
+    def test_absence_with_successful_empty_path_requires_list(self):
+        with patch.object(b1c, 'adb_call', side_effect=[(0, '', ''), (0, '', '')]) as adb:
+            self.assertIsNone(b1c.installed_apk('adb', 's', b1c.APP, self.root/'app.apk'))
+            self.assertEqual(adb.call_count, 2)
+
+    def test_nonzero_path_is_blocked_if_list_shows_exact_package(self):
+        with patch.object(b1c, 'adb_call', side_effect=[
+            (1, '', ''), (0, f'package:{b1c.APP}\n', '')
+        ]):
+            with self.assertRaisesRegex(b1c.Blocked, 'PATH_LIST_DISAGREE'):
+                b1c.installed_apk('adb', 's', b1c.APP, self.root/'app.apk')
+
+    def test_substring_package_is_not_exact_presence(self):
+        with patch.object(b1c, 'adb_call', side_effect=[
+            (1, '', ''), (0, f'package:{b1c.APP}.another\n', '')
+        ]):
+            self.assertIsNone(b1c.installed_apk('adb', 's', b1c.APP, self.root/'app.apk'))
+
+    def test_failed_enumeration_not_counted_as_absent(self):
+        for response in ((1,'',''), (0,'','Permission denied'),
+                         (0,'Error: package manager unavailable','')):
+            with self.subTest(response=response), patch.object(b1c, 'adb_call', side_effect=[
+                (1, '', ''), response
+            ]):
+                with self.assertRaises(b1c.Blocked):
+                    b1c.installed_apk('adb', 's', b1c.APP, self.root/'app.apk')
+
+    def test_pm_path_errors_must_not_downgrade_to_absent(self):
+        for response in ((2, '', ''), (1, '', 'SecurityException'),
+                         (1, 'cmd: Can\'t find service: package', ''),
+                         (0, '', 'Warning: partial output')):
+            with self.subTest(response=response), patch.object(b1c, 'adb_call', return_value=response) as shell:
+                with self.assertRaisesRegex(b1c.Blocked, 'PACKAGE_MANAGER_QUERY_FAILED'):
+                    b1c.installed_apk('adb', 's', b1c.APP, self.root/'app.apk')
+                self.assertEqual(shell.call_count, 1)
+
+    def test_pm_list_rejects_ambiguous_or_duplicate_entries(self):
+        for lines in ('package:'+b1c.APP+'.extra\npackage:'+b1c.APP+'.extra\n',
+                      'package:invalid app\n', 'package:'+b1c.APP+'\n'):
+            with self.subTest(lines=lines), patch.object(b1c, 'adb_call', side_effect=[
+                (1, '', ''), (0, lines, '')
+            ]):
+                with self.assertRaises(b1c.Blocked):
+                    b1c.installed_apk('adb', 's', b1c.APP, self.root/'app.apk')
+
+    def test_installed_path_still_needs_pull_and_matching_bytes(self):
+        apk=self.root/'installed-app.apk'
+        data=b'known-byte-fixture'
+        def shell(adb, serial, *args, **kwargs):
+            if args[:3] == ('shell','pm','path'):
+                return 0, 'package:/data/app/~~foo/io.github.mikeyphw.skybind-foo/base.apk\n',''
+            if args[0]=='pull':
+                Path(args[2]).write_bytes(data)
+                return 0, '', ''
+            self.fail(repr(args))
+        with patch.object(b1c,'adb_call',side_effect=shell):
+            self.assertEqual(b1c.installed_apk('adb','s',b1c.APP,apk),hashlib.sha256(data).hexdigest())
+
     def test_provenance_blocks_mismatch_and_partial_install(self):
         with patch.object(b1c,'installed_apk',side_effect=['0'*64,None]):
             with self.assertRaisesRegex(b1c.Blocked,'PARTIAL'):

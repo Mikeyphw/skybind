@@ -146,19 +146,44 @@ def getprop(adb, serial, name):
     return out.strip()
 
 
+def _exactly_absent_in_package_list(adb, serial, package):
+    """Confirm absence independently without confusing `pm path` exit 1 with PM outage.
+
+    `pm path` returns 1 with no output on stock Android when the package is
+    absent. The independent, user-0, non-`-u` list must succeed and contain
+    only well-formed package entries. A substring match is NOT a package match.
+    """
+    code, out, err = adb_call(
+        adb, serial, 'shell', 'pm', 'list', 'packages', '--user', '0', package
+    )
+    need(code == 0 and not err.strip(), 'PACKAGE_MANAGER_ENUMERATION_FAILED')
+    entries = [line.strip() for line in out.splitlines() if line.strip()]
+    need(all(re.fullmatch(r'package:[A-Za-z][A-Za-z0-9_.]*', line)
+             for line in entries), 'PACKAGE_MANAGER_ENUMERATION_AMBIGUOUS')
+    need(len(entries) == len(set(entries)), 'PACKAGE_MANAGER_ENUMERATION_AMBIGUOUS')
+    need(f'package:{package}' not in entries, 'PACKAGE_MANAGER_PATH_LIST_DISAGREE')
+    return True
+
+
 def installed_apk(adb, serial, package, local):
-    code,out,err = adb_call(adb,serial,'shell','pm','path',package)
-    need(code == 0, 'PACKAGE_MANAGER_QUERY_FAILED')
-    lines=[ln.strip() for ln in out.splitlines() if ln.strip()]
-    if not lines:
-        need(not err.strip(), 'PACKAGE_MANAGER_QUERY_AMBIGUOUS')
+    code, out, err = adb_call(adb, serial, 'shell', 'pm', 'path', package)
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    if code == 1 and not lines and not err.strip():
+        # Stock Android signals absent packages with exit code 1. Treat it as
+        # absent ONLY after a second, independently successful PM query.
+        _exactly_absent_in_package_list(adb, serial, package)
         return None
-    need(len(lines)==1 and lines[0].startswith('package:'), 'INSTALLED_APK_SPLITS_OR_AMBIGUITY')
-    remote=lines[0][len('package:'):]
+    need(code == 0 and not err.strip(), 'PACKAGE_MANAGER_QUERY_FAILED')
+    if not lines:
+        _exactly_absent_in_package_list(adb, serial, package)
+        return None
+    need(len(lines) == 1 and lines[0].startswith('package:'),
+         'INSTALLED_APK_SPLITS_OR_AMBIGUITY')
+    remote = lines[0][len('package:'):]
     need(remote.startswith('/data/app/') and remote.endswith('/base.apk') and
-         re.fullmatch(r'[A-Za-z0-9_./+@=:\-~]+',remote) is not None,
+         re.fullmatch(r'[A-Za-z0-9_./+@=:\-~]+', remote) is not None,
          'INSTALLED_APK_PATH_UNTRUSTED')
-    code,_,_ = adb_call(adb,serial,'pull',remote,str(local),timeout=90)
+    code, _, _ = adb_call(adb, serial, 'pull', remote, str(local), timeout=90)
     need(code == 0 and local.is_file() and not local.is_symlink(), 'INSTALLED_APK_PULL_BLOCKED')
     return digest(local)
 
