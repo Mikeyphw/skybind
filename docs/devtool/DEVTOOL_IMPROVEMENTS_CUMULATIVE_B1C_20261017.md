@@ -608,3 +608,16 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Change:** Add source-bound B1-C3 read-only survey that checks both PackageManager-facing CLI enumerations for unique package-to-UID ownership, SELinux enforcement, and immutable hosted APK hashes. Add testable positive and fail-closed negative parsing cases.
 - **Recommendation:** Implement a trusted Binder service / authenticated platform identity channel with independent, cert-pinned package verification and OS-derived calling UID; integrate it with kernel peer credentials and PID-start binding. Never promote shell observations or app RPC payloads into privileged broker authorization; test negative cases on actual Android before opening external connections.
 - **Qualification:** Survey success will be `PASS_B1C3_UID_OBSERVATION_NOT_BROKER_AUTH`, not release/device-broker qualification. Legacy and historical receipts retained.
+
+
+## 2026-10-18 B1-C4–C7 consolidated security campaign
+
+**Evidence:** User-reported `PASS_B1C3_UID_OBSERVATION_NOT_BROKER_AUTH` follows a passing B1-C1 installed-pair instrumentation receipt. The Go peer verifier still expects an OS-trusted `PackageAttestor`, and the Android app had no Binder-derived caller authority. The Go JSON decoder accepted duplicate scalar field names; the backend was reached after only two peer checks (before and after parsing).
+
+**Implemented:** `BinderCallerGate.kt` (non-exported staging policy, OS transaction UID, locally provisioned pin, default-deny); Android instrumentation positive/negative signer cases; Go strict duplicate-key rejection and third post-grant pre-read identity check; successor new-source APK gate; one grouped Devtool command; immutable source/device evidence; security docs.
+
+**Affected projects:** Skybind Android (including future BKX and chrootctl API consumers), Skybind Go broker, Devtool Android hosted/device qualification.
+
+**Devtool improvements identified:** distinct app/test APK metadata policy (H3/H4 workaround must become native), source-bound multi-generation Android qualification without overwriting historical immutable evidence, declarative operator authorization for signer continuity or explicitly blocked reinstall, and shell-friendly workflow parameter passing of `pipeline_id` to target-local commands. Status: open for Devtool upstream; this overlay adds safe local wrappers but does not claim native fixes.
+
+**Remaining:** Android Binder gate is not yet an authenticated privileged-Go package attestor; no external cross-UID physical device test fixture; no production listener/grants; new hosted build and device acceptance pending. These are security gates, **not deferred ordinary failures**.

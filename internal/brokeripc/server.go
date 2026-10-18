@@ -83,10 +83,53 @@ func kernelPeer(c *net.UnixConn) (KernelPeer, error) {
 	return KernelPeer{UID: peer.Uid, GID: peer.Gid, PID: peer.Pid}, nil
 }
 
+// rejectDuplicateRequestFields prevents ambiguous JSON key shadowing. A caller
+// must never have two interpretations of the same token, scope, or operation.
+func rejectDuplicateRequestFields(data []byte) error {
+	d := json.NewDecoder(bytes.NewReader(data))
+	token, err := d.Token()
+	if err != nil || token != json.Delim('{') {
+		return errors.New("request_object_required")
+	}
+	seen := make(map[string]bool, 5)
+	for d.More() {
+		key, err := d.Token()
+		if err != nil {
+			return err
+		}
+		name, ok := key.(string)
+		if !ok || seen[name] {
+			return errors.New("duplicate_or_invalid_field")
+		}
+		seen[name] = true
+		// Request has only scalar string and integer fields. No nested values.
+		value, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch value.(type) {
+		case string, float64, json.Number, bool, nil:
+		default:
+			return errors.New("non_scalar_field")
+		}
+	}
+	token, err = d.Token()
+	if err != nil || token != json.Delim('}') {
+		return errors.New("invalid_request_object")
+	}
+	if _, err = d.Token(); err != io.EOF {
+		return errors.New("trailing_data")
+	}
+	return nil
+}
+
 func parseRequest(data []byte) (Request, error) {
 	var r Request
 	if len(data) == 0 || len(data) > MaxRequestBytes {
 		return r, errors.New("request_size")
+	}
+	if err := rejectDuplicateRequestFields(data); err != nil {
+		return Request{}, err
 	}
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()
@@ -165,6 +208,13 @@ func (s *Server) ServeConn(c *net.UnixConn) error {
 	if s.Grants.Authorize(request.Token, current, request.Operation, request.Remote, request.Path) != nil {
 		_ = writeResponse(c, denied)
 		return errors.New("not_authorized")
+	}
+	// Final check after grant authorization, immediately before invoking a
+	// backend. A PID / signing transition must not survive an authorized token.
+	last, identityErr := s.Verifier.VerifyPeer(kernel)
+	if identityErr != nil || last != verified || last.UID != kernel.UID {
+		_ = writeResponse(c, denied)
+		return errors.New("peer_identity_changed_before_read")
 	}
 	result, err := s.Read(request)
 	if err != nil {

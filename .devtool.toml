@@ -172,6 +172,7 @@ inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
 metadata = { read_only = true, device_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_android_device.workflows]
+b1c-consolidated-source = ["job:b1c-consolidated-source", "job:b1c-consolidated-plan"]
 b1c3-identity-survey = ["job:b1c3-identity-survey"]
 b1c-hosted-provenance = ["job:b1c-hosted-provenance"]
 b1c-hosted-instrumentation = ["job:b1c-hosted-instrumentation"]
@@ -1386,4 +1387,24 @@ metadata = { read_only = true, qualification = "observed-package-uid-not-trusted
 [wrapper.commands.r1-device-identity-survey]
 description = "Observe installed Skybind UID ownership and SELinux against H4 attestation; never install or authorize broker"
 workflow = "b1c3-identity-survey"
+target = "skybind_android_device"
+
+# B1-C4..C7 consolidated security lanes. Neither workflow activates a broker,
+# dispatches hosted builds, installs APKs, nor qualifies a release.
+[targets.skybind_android_device.jobs.b1c-consolidated-source]
+runner = "command"
+command = ["python3", "../../scripts/dev/android/r1_b1c_security_source.py"]
+inputs = ["../../internal/brokeridentity/**", "../../internal/brokeripc/**", "../../internal/brokergrant/**", "../../internal/brokerissue/**", "../../android-app/app/src/androidTest/**", "../../scripts/dev/android/r1_b1c_consolidated_device.py", "../../tests/test_b1c_consolidated.py"]
+outputs = ["../../build/evidence/android/b1c-consolidated/source/**"]
+metadata = { read_only = false, qualification = "source-tests-only-not-device-acceptance", release_qualification = false, production_broker_enabled = false, resource_class = "local" }
+
+[targets.skybind_android_device.jobs.b1c-consolidated-plan]
+runner = "command"
+command = ["python3", "../../scripts/dev/android/r1_b1c_consolidated_device.py", "--help"]
+inputs = ["../../scripts/dev/android/r1_b1c_consolidated_device.py", "../../docs/devtool/SKYBIND_B1C_CONSOLIDATED_SECURITY.md"]
+metadata = { read_only = true, qualification = "successor-device-runner-plan-only", release_qualification = false, production_broker_enabled = false }
+
+[wrapper.commands.r1-b1c-consolidated]
+description = "Run grouped B1-C security regressions and successor-device plan (no Android mutation)"
+workflow = "b1c-consolidated-source"
 target = "skybind_android_device"
