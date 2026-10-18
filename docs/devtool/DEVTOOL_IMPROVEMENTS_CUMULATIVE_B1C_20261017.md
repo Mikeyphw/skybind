@@ -644,3 +644,20 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Validation:** 100 consecutive targeted normal Go test runs PASS, 30 targeted `-race` runs PASS, and `go test ./internal/daemon ./internal/jobs ./internal/brokeripc` PASS in the local source reconstruction. GitHub CI and device qualification not yet rerun.
 - **Recommendation to Devtool:** Standardize source-bound background-worker fixture teardown checks and stress-gate evidence for job/daemon integration tests. Record CI flakiness separately from APK and physical-device status. Avoid automated GitHub redrive and no automatic device mutation.
 - **Qualification:** Release remains `NOT_ISSUED`; historical hosted run `39136135918` and Android evidence remain valid for their own source SHA but must not be promoted to later commits.
+
+
+## Native M1 UI resume — 2026-10-18
+
+**Source-bound baseline:** `02aa0449fa0ba3d4985f4585906ce4d3a93e6f38` (B1-C9), with historical B1-C6 in-app Android device PASS. **Status:** implemented in proposed M1 overlay, local source/model tests PASS; GitHub build and on-device UI tests **PENDING**. This section must not be used as evidence that app-to-daemon authentication exists.
+
+| ID | Finding / evidence | Recommendation / correction | Status |
+|---|---|---|---|
+| M1-APP-01 | `MainActivity.kt` was a single-page placeholder; offline views and M1/M2 screen semantics lacked instrumentation. | Native five-screen Compose navigation, typed snapshots, real UI semantic tags, UI/lifecycle test sources in GitHub-built separate test APK. | SOURCE IMPLEMENTED; DEVICE PENDING |
+| M1-APP-02 | Product had no authenticated app/Go broker; in-process Binder test alone does not authorize external clients. | Keep production `UnpairedGateway` NOT_AUTHORIZED and unprivileged; implement trusted package-manager signing/UID verification and revocable read-only grant through vetted broker as a separate M1 gate. Do not enable root or copy credentials. | OPEN — BLOCKS LIVE HANDSHAKE |
+| M1-APP-03 | Server-data separation needed: job queue and journal are different authorities; reconnect can otherwise expose stale data. | `SkybindReadSnapshot` distinguishes Jobs and sequence-keyed Activity, `failClosed()` scrubs stale remotes/mounts/jobs/events/cursor, historical Journal not a second job state. | SOURCE IMPLEMENTED; DEVICE PENDING |
+| M1-APP-04 | Five-screen UI was not covered by navigation or lifecycle acceptance. | `NativeUiTest` fixture-only Compose semantics, negative/capability state checks; `NativeLifecycleTest` Activity recreation (not true process death); later external coordinator must prove force-stop continuity. | SOURCE IMPLEMENTED; DEVICE PENDING |
+| M1-DEVTOOL-01 | Need one clear source lane without another matrix of wrapper commands; local APK builds prohibited. | Add M1 source gate as a grouped B1-C Devtool source step; preserve GitHub-only builds and source+artifact+device matching. | SOURCE IMPLEMENTED; CI PENDING |
+| M1-DEVTOOL-02 | B1-C6 installed successor APK signatures may differ from newly built GitHub APKs; M1 overlay changes source commit. | New Actions-06 pipeline/attestation and explicitly authorized device install only after verifying signer/bytes; retain backup/history. Never conflate current source with old installed evidence. | OPEN — ACTION AFTER CI |
+| M1-DEVTOOL-03 | Existing `current_source_sha` erroneously checks Git SHA-1 with `HEX64`; B1-C6 used an external compatibility runner. | Fold 40-character commit validation and consistent branch/source identity into a future consolidated device-runner overlay; keep old receipts. | OPEN — DEFERRED TO CROSS-SUBSTRATE BATCH |
+
+**Next milestone:** native M1 read-only handshake and read-only observability, then M2 real remote browser, mounts, job states, event cursor, explicit offline/reconnect UX; avoid requalifying passed B1-C6 four-case Android tests just to close unrelated tasks.
