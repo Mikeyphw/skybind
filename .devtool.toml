@@ -172,6 +172,8 @@ inputs = ["../../docs/roadmap/**", "../../scripts/devtool/**"]
 metadata = { read_only = true, device_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_android_device.workflows]
+b1c-hosted-provenance = ["job:b1c-hosted-provenance"]
+b1c-hosted-instrumentation = ["job:b1c-hosted-instrumentation"]
 api-device-readonly = ["job:api-device-readonly"]
 api-device-disposable = ["job:api-device-disposable"]
 api-webview-gate = ["job:api-webview-gate"]
@@ -1346,3 +1348,28 @@ description = "Check hosted APK pipeline source contract (no GitHub dispatch or 
 workflow = "r1-hosted-source"
 target = "skybind_release"
 
+
+# B1-C: reuse authenticated H4 hosted APK pair; no local builds or implicit install.
+[targets.skybind_android_device.jobs.b1c-hosted-provenance]
+runner = "command"
+command = ["python3", "../../scripts/dev/android/r1_b1c_device.py", "--mode", "preflight"]
+inputs = ["../../scripts/dev/android/r1_b1c_device.py", "../../docs/devtool/SKYBIND_B1C_DEVICE_ACCEPTANCE.md"]
+outputs = ["../../build/evidence/android/b1c/**"]
+metadata = { read_only = false, qualification = "installed-APK-hash-provenance-only", resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], release_qualification = false, production_broker_enabled = false }
+
+[targets.skybind_android_device.jobs.b1c-hosted-instrumentation]
+runner = "command"
+command = ["python3", "../../scripts/dev/android/r1_b1c_device.py", "--mode", "instrument"]
+inputs = ["../../scripts/dev/android/r1_b1c_device.py", "../../docs/devtool/SKYBIND_B1C_DEVICE_ACCEPTANCE.md"]
+outputs = ["../../build/evidence/android/b1c/**"]
+metadata = { read_only = false, qualification = "two-existing-instrumentation-cases-only", resource_class = "device-exclusive", global_reservations = ["skybind:physical-device"], release_qualification = false, production_broker_enabled = false }
+
+[wrapper.commands.r1-device-provenance]
+description = "Check attested B1-C APK pair against installed Android APKs; never installs"
+workflow = "b1c-hosted-provenance"
+target = "skybind_android_device"
+
+[wrapper.commands.r1-device-instrumentation]
+description = "Run two existing B1-C instrumentation tests only after installed APK hash match; never installs"
+workflow = "b1c-hosted-instrumentation"
+target = "skybind_android_device"
