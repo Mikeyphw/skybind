@@ -669,3 +669,12 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Affected:** `Mikeyphw/skybind` Android app, RootService provider, signed build workflow, Devtool `skybind_android_device` qualification and API A4/D1–D3 planning.
 - **Remediation:** implemented explicit Connect opt-in and app-owned libsu RootService, per-transaction `Binder.getCallingUid()` and installed package/signing check, root-verified canonical socket path, root peer check, query-only allowlist, fixed JSON envelopes and size bounds, actual state mappers, replay cursor/gap protections, and negative source regression checks. Preserved Jobs versus Activity distinction. No server-side broker listener or mutation enablement.
 - **Status:** SOURCE IMPLEMENTED, Android compile/installation/root approval/physical connection NOT_RUN. Existing B1-C6 device PASS remains bound to the previous debug pair. RootService is not cross-app client attestation. Android signing remains ephemeral and requires a persistent secret-backed policy (no key checked in). **Devtool enhancement:** fold native UI, RootService, AIDL, Kotlin contract, real Android negatives and EXO provenance into one product-owned native-app acceptance workflow, instead of emitting an unpaired source-only PASS as device completion.
+
+
+## M2-N1 — Native remote folder browsing, source 2026-10-18
+
+- **Finding / evidence:** M1 app could enumerate remote names but could not browse any contents. `provider.Browse` in Go already supports read-only bounded `lsjson --max-depth 1`, but RootService did not allow the typed `provider.browse` request. See `internal/provider/provider.go`, `RootReadBridgeService.kt`, and `RemoteBrowserReader.kt`.
+- **Projects affected:** Skybind Android app, Skybind daemon/provider, Devtool source/device workflows.
+- **Implementation:** Scoped `provider.browse` with validated remote/relative path and read-only query class; typed entry mapping rejects unsafe names/out-of-folder responses; asynchronous ViewModel folder navigator rejects stale completions/disconnected sessions and refuses file-as-folder actions. No write RPCs, credential access, exported service or arbitrary shell.
+- **Status:** IMPLEMENTED_SOURCE_ONLY, GitHub compile/device acceptance NOT_RUN.
+- **Recommendation:** add real-device navigation/provenance and disconnected stale-cursor acceptance using a test-owned configured remote; after that, implement M2 file metadata, scoped SAF and M3 preview/proof as separate capability gates. Keep cumulative issue open until physical qualification.

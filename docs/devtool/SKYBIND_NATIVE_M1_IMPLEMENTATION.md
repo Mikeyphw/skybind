@@ -29,3 +29,8 @@ Installed *after new GitHub build and authorized device installation*: a functio
 Implementation now includes an explicit, opt-in libsu RootService, a checked in-app Binder AIDL reader, canonical 0700/0600 daemon-socket and root-peer verification, six immutable read-only method names, versioned API capability handshake, remotes/mount-list/jobs snapshot mapping, and operation-event cursor replay with gap detection. Root approval is requested only by the Connect control. UI jobs/actions remain read-only; no external BKX/chrootctl grant or generic privileged command endpoint exists. Separate test APK source includes six fake-transport contract cases, not claimed on a device yet.
 
 The M1 source gate is `PASS_M1_READONLY_BRIDGE_SOURCE_ONLY`, **not** an authenticated-device PASS. GitHub-hosted builds are the only permitted APK builds; local validation is source-only. Android root-manager approval and live behavior must be independently tested after exact-source GitHub artifact attestation. Prior B1-C6 receipt remains historical and is not relabeled.
+
+
+## M2-N1 follow-on: real read-only remote folder browser
+
+Source batch adds `provider.browse` as the seventh **read-only** RootService query, bounded/validated remote and path arguments, typed folder/file view, Up/remote switching, and ViewModel stale-response cancellation. No mutation or remote secrets. This does **not** qualify on-device root approval or filesystem listing; run source-bound GitHub build and UI instrumentation after applying the overlay. M1 original device acceptance still pending.

@@ -15,9 +15,21 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     var snapshot by mutableStateOf(SkybindReadSnapshot(LinkState.NOT_AUTHORIZED,
         "Tap Connect to request read-only Skybind access."))
         private set
+    var browser by mutableStateOf(BrowserState())
+        private set
+    private var browsing: Job? = null
+    private var browseGeneration = 0L
+
+    private fun clearBrowser() {
+        browsing?.cancel()
+        browseGeneration++
+        browser = BrowserState()
+    }
+
     private val bridge = RootReadSession(app) {
         viewModelScope.launch {
             active?.cancel()
+            clearBrowser()
             generation++
             snapshot = SkybindReadSnapshot(LinkState.DISCONNECTED, "Broker connection lost")
         }
@@ -27,6 +39,7 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     private var generation = 0L
 
     fun refresh() {
+        clearBrowser()
         active?.cancel()
         val token = ++generation
         active = viewModelScope.launch {
@@ -36,6 +49,7 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun connect() {
+        clearBrowser()
         active?.cancel()
         val token = ++generation
         snapshot = SkybindReadSnapshot(LinkState.CONNECTING, "Requesting read-only root service access")
@@ -53,7 +67,52 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Selection tokens discard completions from a previously chosen folder/session. */
+    fun selectRemote(remoteName: String) {
+        if (!snapshot.online || snapshot.remotes.none { it.id == remoteName }) {
+            clearBrowser()
+            return
+        }
+        browseAt(remoteName, "")
+    }
+
+    fun openFolder(name: String) {
+        val remoteName = browser.remote ?: return
+        if (!snapshot.online || browser.loading || browser.entries.none { it.name == name && it.directory }) return
+        val next = runCatching { BrowseAddress.descend(browser.path, name) }.getOrNull() ?: return
+        browseAt(remoteName, next)
+    }
+
+    fun parentFolder() {
+        val remoteName = browser.remote ?: return
+        if (!snapshot.online) { clearBrowser(); return }
+        if (browser.path.isEmpty()) { clearBrowser(); return }
+        browseAt(remoteName, BrowseAddress.parent(browser.path))
+    }
+
+    fun switchRemote() = clearBrowser()
+
+    private fun browseAt(remoteName: String, path: String) {
+        if (!snapshot.online || snapshot.remotes.none { it.id == remoteName }) { clearBrowser(); return }
+        if (runCatching { BrowseAddress.endpoint(remoteName, path) }.isFailure) { clearBrowser(); return }
+        browsing?.cancel()
+        val token = ++browseGeneration
+        browser = BrowserState(remote = remoteName, path = path, loading = true)
+        browsing = viewModelScope.launch {
+            val result = try {
+                BrowserState(remote = remoteName, path = path, entries = bridge.browse(remoteName, path))
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                BrowserState(remote = remoteName, path = path, error = "Listing unavailable or rejected by the daemon")
+            }
+            if (token == browseGeneration && snapshot.online &&
+                snapshot.remotes.any { it.id == remoteName }) browser = result
+        }
+    }
+
     override fun onCleared() {
+        clearBrowser()
         bridge.close()
         super.onCleared()
     }

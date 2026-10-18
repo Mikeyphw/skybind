@@ -24,7 +24,10 @@ private enum class Tab(val label: String, val symbol: String) {
 }
 
 @Composable
-fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: () -> Unit = {}) {
+fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: () -> Unit = {},
+    browser: BrowserState = BrowserState(), onBrowseRemote: (String) -> Unit = {},
+    onBrowseFolder: (String) -> Unit = {}, onBrowseUp: () -> Unit = {},
+    onSwitchRemote: () -> Unit = {}) {
     var selected by rememberSaveable { mutableStateOf(Tab.HOME.name) }
     val tab = Tab.entries.firstOrNull { it.name == selected } ?: Tab.HOME
     val safe = snapshot.failClosed()
@@ -63,7 +66,8 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
         ) { inner ->
             when (tab) {
                 Tab.HOME -> HomePage(safe, Modifier.padding(inner), onConnect) { selected = it.name }
-                Tab.BROWSER -> BrowserPage(safe, Modifier.padding(inner))
+                Tab.BROWSER -> BrowserPage(safe, browser.forSnapshot(safe), Modifier.padding(inner),
+                    onBrowseRemote, onBrowseFolder, onBrowseUp, onSwitchRemote)
                 Tab.JOBS -> JobsPage(safe, Modifier.padding(inner)) { selected = Tab.ACTIVITY.name }
                 Tab.ACTIVITY -> ActivityPage(safe, Modifier.padding(inner)) { selected = Tab.JOBS.name }
                 Tab.MORE -> MorePage(safe, Modifier.padding(inner))
@@ -134,22 +138,49 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     }
 }
 
-@Composable private fun BrowserPage(s: SkybindReadSnapshot, modifier: Modifier) {
+@Composable private fun BrowserPage(s: SkybindReadSnapshot, browse: BrowserState, modifier: Modifier,
+    onRemote: (String) -> Unit, onFolder: (String) -> Unit, onUp: () -> Unit, onSwitch: () -> Unit) {
     var search by rememberSaveable { mutableStateOf("") }
-    Page("Browser", "Explore configured remotes without mounting", modifier) {
+    Page("Browser", "Live remote contents · never mounts or transfers files", modifier) {
         ConnectionPanel(s)
-        OutlinedTextField(value = search, onValueChange = { search = it }, label = { Text("Search remotes") },
-            singleLine = true, enabled = s.online, modifier = Modifier.fillMaxWidth().testTag("browser-search"))
         if (!s.online) {
-            InfoPanel("Remote browser unavailable", "Authenticate the Skybind broker to browse. Existing remotes and credentials are never copied into this app.")
+            InfoPanel("Remote browser unavailable", "Connect to Skybind for read-only listing. No remote credentials enter the app.")
+        } else if (browse.remote == null) {
+            OutlinedTextField(value = search, onValueChange = { search = it }, label = { Text("Search remotes") },
+                singleLine = true, modifier = Modifier.fillMaxWidth().testTag("browser-search"))
+            val found = s.remotes.filter { it.displayName.contains(search.trim(), ignoreCase = true) }
+            if (found.isEmpty()) InfoPanel("No matching remotes", "Try another search term.")
+            found.take(64).forEach { remote ->
+                OutlinedButton(onClick = { onRemote(remote.id) },
+                    modifier = Modifier.fillMaxWidth().testTag("remote-${remote.id}")) {
+                    Text("${remote.displayName} · ${remote.kind}  →")
+                }
+            }
         } else {
-            val filtered = s.remotes.filter { it.displayName.contains(search.trim(), ignoreCase = true) }
-            if (filtered.isEmpty()) InfoPanel("No matching remotes", "Change the search or configure a remote through a qualified backend.")
-            filtered.take(64).forEach { remote ->
-                InfoPanel(remote.displayName, "${remote.kind} · Folder listing requires the read-only metadata capability", Modifier.testTag("remote-${remote.id}"))
+            InfoPanel("Current folder", "${browse.remote}:${browse.path.ifBlank { "/" }}", Modifier.testTag("browser-path"))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onUp, modifier = Modifier.testTag("browser-up")) { Text("Up") }
+                TextButton(onClick = onSwitch, modifier = Modifier.testTag("browser-switch-remote")) { Text("Remotes") }
+            }
+            when {
+                browse.loading -> LinearProgressIndicator(Modifier.fillMaxWidth().testTag("browser-loading"))
+                browse.error != null -> InfoPanel("Listing unavailable", browse.error, Modifier.testTag("browser-error"))
+                browse.entries.isEmpty() -> InfoPanel("Empty folder", "Nothing to list here.")
+                else -> browse.entries.take(200).forEach { entry ->
+                    if (entry.directory) {
+                        OutlinedButton(onClick = { onFolder(entry.name) },
+                            modifier = Modifier.fillMaxWidth().testTag("folder-${entry.name}")) {
+                            Text("📁  ${entry.name}  →")
+                        }
+                    } else {
+                        InfoPanel(entry.name, "File · ${entry.sizeBytes} bytes", Modifier.testTag("file-${entry.name}"))
+                    }
+                }
             }
         }
-        Button(onClick = {}, enabled = false, modifier = Modifier.testTag("browser-write-disabled")) { Text("Transfer · requires authorized preview") }
+        Button(onClick = {}, enabled = false, modifier = Modifier.testTag("browser-write-disabled")) {
+            Text("Transfer · requires authorized preview")
+        }
     }
 }
 

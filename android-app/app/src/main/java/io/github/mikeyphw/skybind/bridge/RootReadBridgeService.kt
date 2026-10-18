@@ -53,9 +53,23 @@ class RootReadBridgeService : RootService() {
 
     private fun checkedArguments(op: String?, raw: String?): JSONObject {
         val allowed = setOf("system.capabilities", "runtime.status", "provider.remotes",
-            "mount.list", "jobs.status", "operation.events")
-        if (op !in allowed || raw == null || raw.length > 256) throw SecurityException("unknown read method")
+            "mount.list", "jobs.status", "operation.events", "provider.browse")
+        if (op !in allowed || raw == null || raw.length > 1024) throw SecurityException("unknown read method")
         val input = JSONObject(raw)
+        if (op == "provider.browse") {
+            if (input.length() != 1 || !input.has("remote")) throw SecurityException("invalid browse arguments")
+            val endpoint = input.optString("remote", "")
+            val split = endpoint.indexOf(':')
+            if (split < 1 || split > 64 || endpoint.length > 578) throw SecurityException("invalid remote path")
+            val name = endpoint.substring(0, split)
+            val path = endpoint.substring(split + 1)
+            try {
+                io.github.mikeyphw.skybind.model.BrowseAddress.endpoint(name, path)
+            } catch (_: IllegalArgumentException) {
+                throw SecurityException("unsafe remote path")
+            }
+            return JSONObject().put("remote", endpoint)
+        }
         if (op != "operation.events") {
             if (input.length() != 0) throw SecurityException("unexpected read arguments")
             return JSONObject()
@@ -91,7 +105,7 @@ class RootReadBridgeService : RootService() {
         if (payload.size > 65536) throw SecurityException("oversized request")
         LocalSocket().use { socket ->
             socket.connect(LocalSocketAddress(SOCKET, LocalSocketAddress.Namespace.FILESYSTEM))
-            socket.soTimeout = 4000
+            socket.soTimeout = if (op == "provider.browse") 35_000 else 4000
             if (socket.peerCredentials.uid != 0) throw SecurityException("non-root daemon peer")
             socket.outputStream.write(payload)
             socket.outputStream.flush()

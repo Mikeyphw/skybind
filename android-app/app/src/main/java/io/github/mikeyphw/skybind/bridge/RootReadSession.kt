@@ -67,6 +67,11 @@ class RootReadSession(private val app: Application, private val disconnected: ()
         }
     }
 
+    suspend fun browse(remoteName: String, path: String): List<RemoteFileEntry> = withContext(Dispatchers.IO) {
+        val api = remote ?: throw SecurityException("unpaired root service")
+        RemoteBrowseReader().fetch(remoteName, path) { method, args -> api.query(method, args) }
+    }
+
     fun close() {
         reader.reset()
         remote = null

@@ -15,3 +15,8 @@ This repo produces app and test APKs **only through GitHub Actions**, not local 
 **Outstanding device gates:** hosted GitHub Kotlin/AIDL compilation, dependency resolution, exact APK/signature provenance, authorization refusal and acceptance under KernelSU, live daemon capabilities/status/remotes/mounts/jobs/events, rebind on Activity recreation, root-service death/disconnect, journal gap, no mutation and root rollback. Do not claim these from source tests.
 
 **Known deployment issue:** Hosted debug signing is ephemeral; replacing a differently signed installed app is not a routine `adb install -r`. The next qualification must introduce a persistent signing plan or use an explicitly authorized and backed-up replacement. No automatic uninstall or app-data clear.
+
+
+### M2-N1 folder browsing
+
+After explicitly connecting the read-only RootService, open Browser, select a configured remote and navigate directories with Up/Remotes. This uses daemon `provider.browse` (`lsjson --max-depth 1`) rather than Android root storage access. Folder and file names, path segments, and response size are bounded; stale replies are dropped when the remote changes or a connection is lost. Upload, download, overwrite and cancellation remain disabled pending separate proof-bound operations. Device/browser checks still require GitHub-hosted APKs and authentic fixtures.
