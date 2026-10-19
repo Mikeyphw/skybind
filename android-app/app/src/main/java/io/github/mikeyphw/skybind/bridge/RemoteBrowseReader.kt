@@ -25,7 +25,7 @@ class RemoteBrowseReader {
             require(seen.add(name)) { "duplicate entry" }
             val isDir = item.get("IsDir") as? Boolean ?: error("missing directory type")
             val size = item.getLong("Size")
-            require(size >= 0) { "invalid entry size" }
+            require(size >= 0 || (isDir && size == -1L)) { "invalid entry size" }
             // Reject provider-reported paths that disagree with the requested folder.
             val reported = item.getString("Path")
             require(reported == name || reported == childPath) { "entry outside requested folder" }

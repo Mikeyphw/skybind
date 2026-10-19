@@ -236,7 +236,7 @@ func (m *Manager) Browse(ctx context.Context, endpoint string) ([]Entry, error) 
 		return nil, errors.New("too many entries")
 	}
 	for _, entry := range entries {
-		if !validPath(entry.Path) || entry.Name == "" || strings.ContainsAny(entry.Name, "/\\\x00\r\n") || entry.Size < 0 {
+		if !validPath(entry.Path) || entry.Name == "" || strings.ContainsAny(entry.Name, "/\\\x00\r\n") || (entry.Size < 0 && (!entry.IsDir || entry.Size != -1)) {
 			return nil, errors.New("unsafe listing entry")
 		}
 	}

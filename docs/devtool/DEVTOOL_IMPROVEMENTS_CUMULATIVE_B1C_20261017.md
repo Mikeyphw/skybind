@@ -774,3 +774,21 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Fix:** Serialize an immutable single-owner per-lane JSON receipt with its own receipt path pre-populated; compare the launcher summary against on-disk receipt (path, state, reason, source, run, artifact, installed-pair and narrow qualification), with fail-closed mismatch. Initialize `m2_l1_device_qualified=false` on all failure paths. Add positive preflight roundtrip and negative absent-path/product-failure regression tests. No APK or daemon changes, no grant requests, no installs or data clearing.
 - **Status:** SOURCE FIX PREPARED; host Termux Devtool acceptance and physical `m2-live` still require rerun. Do not reclassify 19/19 fixture tests or installed-pair verification as live-daemon qualification.
 - **Devtool cross-project improvement:** receipt writers should add self-referential identity before writing, and parent orchestrators should test nested producer→consumer serialization with real temporary files, not only mocks whose manually constructed receipts accidentally conceal the bug.
+
+
+## M2-L1 directory `Size:-1` interoperability and redacted diagnostics — 2026-10-19
+
+- **Status:** FIXED_IN_SOURCE; DEVICE_REQUALIFICATION_PENDING (old receipt stays FAILED).
+- **Affected:** `internal/provider/provider.go`, Android `RemoteBrowseReader`,
+  M2-L1 instrumentation, CI-artifact device runner and grouped Devtool source checks.
+- **Evidence:** Hosted run 39264383682, artifact 12193065145 at source b763a59;
+  installed pair MATCHED, m2-preflight PASS, m2-live FAILED `SKYBIND_LIVE_FAILED_BROWSE`.
+  Real root-only direct bundled rclone `lsjson --max-depth 1` succeeded (~3 sec),
+  yielding 23 entries, seven directories with `Size:-1`, zero negative-size files.
+  Both original Go and Android parser rejected all negatives.
+- **Repair:** allow `Size=-1` *only* on directories at both boundaries, add Go/Android
+  regressions for 7 dirs/16 files and negative unsafe variants, categorize browse
+  failures without leaking exception text or credentials.
+- **Recommendation:** Keep real-provider interoperability fixtures coupled to source
+  gates; preserve negative receipts and require exact-source GitHub build/device
+  evidence before acceptance closure.

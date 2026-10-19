@@ -75,3 +75,25 @@ The hotfix modifies source. For another full acceptance attempt use a new
 exact-source GitHub hosted APK build and the canonical launcher at that commit.
 The installed packages may be updated with `--install` only when the pinned
 certificate matches; there is no automatic uninstall or root grant.
+
+## M2-L1 directory unknown-size fix (2026-10-19)
+
+User-owned read-only diagnostic against the Skybind-bundled rclone returned 23
+entries, including seven directories, all reporting `Size: -1`; no files
+reported negative sizes, and listing completed in approximately 3 seconds.
+The previous Go `provider.Browse` and Android `RemoteBrowseReader` rejected
+negative sizes unconditionally. This blocked a valid directory listing after
+RootService successfully discovered the configured remote.
+
+The repair accepts `-1` **only** for directory entries, retains original raw
+unknown-size marker without inventing `0`, and rejects negative file sizes
+or directories below `-1`. Separate Go fake-runner and Android test-APK
+regressions validate both positive/negative cases; the live test now uses
+redacted failure categories (validation, response, authorization, transport).
+No credentials, names, paths, provider stdout, writes, shell-root commands or
+remote data are captured in public evidence.
+
+Original run `39264383682`, SHA `b763a59bdc3d5fcc71da47c49745f14c4e27fdd2`,
+remains FAILED in M2-L1 (`SKYBIND_LIVE_FAILED_BROWSE`), despite matched APK
+pair and passing preflight. The fix itself is source-only and not yet Android
+device qualified. New GitHub-hosted APKs and read-only `m2-live` retest required.

@@ -58,8 +58,18 @@ class LiveRootBrowserAcceptanceTest {
                 try {
                     val entries = session.browse(remote, "")
                     assertTrue("SKYBIND_LIVE_FAILED_UNBOUNDED_BROWSE", entries.size <= 500)
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    throw cancel
+                } catch (_: SecurityException) {
+                    throw AssertionError("SKYBIND_LIVE_FAILED_BROWSE_AUTHORIZATION")
+                } catch (_: IllegalArgumentException) {
+                    throw AssertionError("SKYBIND_LIVE_FAILED_BROWSE_VALIDATION")
+                } catch (_: IllegalStateException) {
+                    throw AssertionError("SKYBIND_LIVE_FAILED_BROWSE_RESPONSE")
+                } catch (_: org.json.JSONException) {
+                    throw AssertionError("SKYBIND_LIVE_FAILED_BROWSE_RESPONSE")
                 } catch (_: Exception) {
-                    throw AssertionError("SKYBIND_LIVE_FAILED_BROWSE")
+                    throw AssertionError("SKYBIND_LIVE_FAILED_BROWSE_TRANSPORT")
                 }
                 withContext(Dispatchers.Main) { session.close() }
                 val unpaired = session.snapshot()
