@@ -59,6 +59,16 @@ class BrowserSafetyRegression(unittest.TestCase):
         self.negative(check.TEST, 'import androidx.compose.ui.test.onNodeWithTag',
                       'import androidx.compose.ui.test.assertExists\nimport androidx.compose.ui.test.onNodeWithTag')
 
+    def test_reject_offline_test_expectation_regression(self):
+        self.negative(check.TEST.parent/'NativeUiTest.kt',
+                      'compose.onNodeWithTag("browser-search").assertDoesNotExist()',
+                      'compose.onNodeWithTag("browser-search").assertIsNotEnabled()')
+
+    def test_reject_online_gate_inversion_in_browser(self):
+        self.negative(check.MAIN/'ui/SkybindApp.kt',
+                      'if (!s.online) {\n            InfoPanel("Remote browser unavailable"',
+                      'if (s.online) {\n            InfoPanel("Remote browser unavailable"')
+
     def test_reject_browse_as_a_mutation(self):
         self.negative(check.MAIN/'bridge/RootReadBridgeService.kt',
                       '"class", "query"', '"class", "run"')

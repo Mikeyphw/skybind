@@ -78,6 +78,7 @@ class NativeUiTest {
         compose.onNodeWithTag("event-3").assertDoesNotExist()
         compose.onNodeWithTag("nav-browser").performClick()
         compose.onNodeWithTag("remote-photos").assertDoesNotExist()
-        compose.onNodeWithTag("browser-search").assertIsNotEnabled()
+        // Offline Browser deliberately omits the search control; it must not expose stale remote state.
+        compose.onNodeWithTag("browser-search").assertDoesNotExist()
     }
 }

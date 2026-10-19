@@ -61,6 +61,23 @@ def verify(root=ROOT):
     for token in ('browser.forSnapshot(safe)', '"browser-path"', '"browser-up"',
                   '"browser-switch-remote"', '"folder-${entry.name}"', '"browser-write-disabled"'):
         need(token in ui,'UI_BROWSER_MISSING_'+token)
+    native_ui=get(TEST.parent/'NativeUiTest.kt')
+    # Real API-36 device acceptance: 18/19 PASS. The offline browser does not
+    # render its search field, so asserting a disabled node is invalid.
+    browser_section = ui.split('@Composable private fun BrowserPage(', 1)
+    need(len(browser_section) == 2, 'BROWSER_COMPOSABLE_MISSING')
+    browser_section = browser_section[1].split('@Composable private fun JobsPage(', 1)[0]
+    offline_at = browser_section.find('if (!s.online) {')
+    select_at = browser_section.find('} else if (browse.remote == null) {')
+    search_at = browser_section.find('testTag("browser-search")')
+    need(0 <= offline_at < select_at < search_at and
+         'InfoPanel("Remote browser unavailable"' in browser_section and
+         browser_section.count('testTag("browser-search")') == 1,
+         'DISCONNECTED_BROWSER_MUST_HIDE_SEARCH')
+    need('fun unpairedStateHidesStaleServerData' in native_ui and
+         'compose.onNodeWithTag("browser-search").assertDoesNotExist()' in native_ui and
+         'compose.onNodeWithTag("browser-search").assertIsNotEnabled()' not in native_ui,
+         'OFFLINE_SEARCH_TEST_EXPECTATION_MUST_MATCH_UI')
     need('enabled = false' in ui and 'fun rejectsEscapesAndUntrustedListing' in test and
          'fun disconnectedStateHidesFormerContents' in test,
          'BROWSE_NEGATIVE_TESTS_MISSING')
