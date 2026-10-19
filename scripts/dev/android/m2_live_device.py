@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""M2-L1: Source-bound read-only, REAL RootService + browser device acceptance.
+
+No build, install, uninstall, data clear, force-stop, daemon mutation or shell-root
+invocation. Opt-in live instrumentation performs only the app's trusted queries.
+Fixture-only 19-test PASS remains independent and is never rewritten.
+"""
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import uuid
+
+ROOT = Path(__file__).resolve().parents[3]
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+REPOSITORY = 'Mikeyphw/skybind'
+ARTIFACT = 'skybind-android-debug-apks-unqualified'
+APP = 'io.github.mikeyphw.skybind'
+TEST_APP = APP + '.test'
+CASE = APP + '.LiveRootBrowserAcceptanceTest#liveReadBrowseAndReconnect'
+RUNNER = TEST_APP + '/androidx.test.runner.AndroidJUnitRunner'
+PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
+HEX = re.compile(r'[0-9a-f]{64}\Z')
+SHA = re.compile(r'[0-9a-f]{40}\Z')
+FINAL = re.compile(r'^INSTRUMENTATION_CODE:\s*(-?\d+)\s*$', re.M)
+CODES = re.compile(r'^INSTRUMENTATION_STATUS_CODE:\s*(-?\d+)\s*$', re.M)
+REMOTE_FAILURES = ('SKYBIND_LIVE_BLOCKED_ROOT_BIND',
+                   'SKYBIND_LIVE_BLOCKED_ROOT_AUTH',
+                   'SKYBIND_LIVE_BLOCKED_DAEMON',
+                   'SKYBIND_LIVE_BLOCKED_NO_REMOTE',
+                   'SKYBIND_LIVE_BLOCKED_REMOTE_NOT_CONFIGURED')
+PRODUCT_FAILURES = ('SKYBIND_LIVE_FAILED_API_MISMATCH',
+                    'SKYBIND_LIVE_FAILED_UNEXPECTED_LINK',
+                    'SKYBIND_LIVE_FAILED_CURSOR',
+                    'SKYBIND_LIVE_FAILED_BROWSE',
+                    'SKYBIND_LIVE_FAILED_UNBOUNDED_BROWSE',
+                    'SKYBIND_LIVE_FAILED_STALE_AFTER_CLOSE',
+                    'SKYBIND_LIVE_FAILED_REBIND',
+                    'SKYBIND_LIVE_FAILED_RECONNECT_SNAPSHOT')
+
+class Blocked(Exception):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def need(cond, reason):
+    if not cond:
+        raise Blocked(reason)
+
+
+def invoke(argv, timeout=45, *, ok=True):
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Blocked('COMMAND_UNAVAILABLE_OR_TIMED_OUT') from exc
+    if ok:
+        need(p.returncode == 0, 'COMMAND_FAILED')
+    return p
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with path.open('rb') as f:
+        for part in iter(lambda: f.read(1024 * 1024), b''):
+            h.update(part)
+    return h.hexdigest()
+
+
+def current_source():
+    sha = invoke(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']).stdout.strip()
+    need(SHA.fullmatch(sha), 'GIT_SOURCE_INVALID')
+    need(invoke(['git', '-C', str(ROOT), 'status', '--porcelain']).stdout.strip() == '',
+         'SOURCE_WORKTREE_NOT_CLEAN')
+    return sha
+
+
+def github(run_id, sha):
+    need(shutil.which('gh') is not None, 'GH_MISSING')
+    def get(route):
+        response = invoke(['gh', 'api', route], timeout=35).stdout
+        try:
+            return json.loads(response)
+        except ValueError as exc:
+            raise Blocked('GITHUB_RESPONSE_INVALID') from exc
+    run = get(f'repos/{REPOSITORY}/actions/runs/{run_id}')
+    need(run.get('head_sha') == sha and run.get('head_branch') == 'main'
+         and run.get('conclusion') == 'success' and run.get('status') == 'completed'
+         and run.get('event') == 'workflow_dispatch'
+         and run.get('path') == '.github/workflows/skybind-android-apks.yml',
+         'REMOTE_BUILD_IDENTITY_OR_STATUS_INVALID')
+    artifacts = get(f'repos/{REPOSITORY}/actions/runs/{run_id}/artifacts')
+    matches = [v for v in artifacts.get('artifacts', []) if v.get('name') == ARTIFACT]
+    need(len(matches) == 1, 'EXPECTED_ONE_HOSTED_PAIR_ARTIFACT')
+    artifact = matches[0]
+    need(not artifact.get('expired', True) and artifact.get('workflow_run', {}).get('head_sha') == sha
+         and artifact.get('workflow_run', {}).get('id') == run_id
+         and isinstance(artifact.get('id'), int)
+         and re.fullmatch(r'sha256:[0-9a-f]{64}', artifact.get('digest', '')),
+         'REMOTE_ARTIFACT_IDENTITY_INVALID')
+    return artifact
+
+
+def verify_candidate(directory, run_id, sha, signer):
+    import apk_manifest
+    paths = [directory / n for n in ('android-build-manifest.json', 'app-debug.apk',
+                                     'app-debug-androidTest.apk')]
+    need(all(p.is_file() and not p.is_symlink() for p in paths), 'CANDIDATE_APK_PAIR_MISSING')
+    need(paths[0].stat().st_size <= 32768, 'CANDIDATE_MANIFEST_OVERSIZED')
+    m = json.loads(paths[0].read_text())
+    need(m.get('repository') == REPOSITORY and m.get('head_sha') == sha and
+         m.get('run_id') == str(run_id) and m.get('signing') == 'persistent-github-debug'
+         and m.get('signing_certificate_pin_sha256') == signer and
+         m.get('release_qualified') is False and m.get('device_qualified') is False and
+         m.get('app_id') == APP and m.get('test_app_id') == TEST_APP,
+         'CANDIDATE_MANIFEST_IDENTITY_INVALID')
+    need(all(m.get(k, {}).get('certificate_sha256') == signer for k in ('app', 'test_apk')),
+         'CANDIDATE_CERTIFICATE_PIN_MISMATCH')
+    args = argparse.Namespace(manifest=paths[0], app=paths[1], test_apk=paths[2],
+                              expected_head_sha=sha, expected_run_id=str(run_id))
+    need(apk_manifest.verify(args)['state'] == 'PASS_LOCAL_HASH_AND_CERT',
+         'CANDIDATE_APK_SIGNATURE_OR_HASH_INVALID')
+    return m
+
+
+def choose_device(serial):
+    need(shutil.which('adb') is not None, 'ADB_MISSING')
+    rows = invoke(['adb', 'devices']).stdout.splitlines()[1:]
+    ready = [cells[0] for line in rows if (cells := line.split()) and len(cells) == 2
+             and cells[1] == 'device']
+    need(len(set(ready)) == len(ready), 'DUPLICATE_DEVICE_RECORD')
+    if serial:
+        need(serial in ready, 'SELECTED_DEVICE_NOT_AUTHORIZED')
+        return serial
+    need(len(ready) == 1, 'REQUIRE_EXACTLY_ONE_ADB_DEVICE_OR_SERIAL')
+    return ready[0]
+
+
+def adb(serial, *args, timeout=45, ok=True):
+    return invoke(['adb', '-s', serial, *args], timeout=timeout, ok=ok)
+
+
+def installed_pair(serial, manifest, signer):
+    import apk_manifest
+    with tempfile.TemporaryDirectory(prefix='skybind-m2-live-check-') as tmp:
+        for package, name, key in ((APP, 'app-debug.apk', 'app'),
+                                   (TEST_APP, 'app-debug-androidTest.apk', 'test_apk')):
+            info = adb(serial, 'shell', 'pm', 'path', package, ok=False)
+            paths = [v.removeprefix('package:').strip() for v in info.stdout.splitlines()
+                     if v.startswith('package:')]
+            need(info.returncode == 0 and len(paths) == 1 and
+                 paths[0].startswith('/data/app/') and paths[0].endswith('/base.apk') and
+                 re.fullmatch(r'[A-Za-z0-9_./+@=:\-~]+', paths[0]) is not None,
+                 'INSTALLED_PACKAGE_ABSENT_SPLIT_OR_UNTRUSTED')
+            dst = Path(tmp) / name
+            adb(serial, 'pull', paths[0], str(dst), timeout=90)
+            need(sha256(dst) == manifest[key]['sha256'], 'INSTALLED_APK_PAIR_DIFFERS_FROM_HOSTED')
+            need(apk_manifest.apk_cert(dst) == signer, 'INSTALLED_SIGNER_PIN_MISMATCH')
+    return True
+
+
+def parse_live(stdout):
+    """One specifically selected case, no skip, exactly one pass, final success."""
+    final = FINAL.findall(stdout)
+    codes = CODES.findall(stdout)
+    if (final == ['-1'] and codes == ['1', '0'] and
+            'INSTRUMENTATION_STATUS: test=liveReadBrowseAndReconnect' in stdout and
+            'INSTRUMENTATION_STATUS: numtests=1' in stdout and
+            'FAILURES!!!' not in stdout and 'SKYBIND_LIVE_NOT_REQUESTED' not in stdout):
+        return ('PASS_M2_L1_LIVE_READ_BROWSE_REBIND', None)
+    for reason in REMOTE_FAILURES:
+        if reason in stdout:
+            return ('BLOCKED', reason)
+    for reason in PRODUCT_FAILURES:
+        if reason in stdout:
+            return ('FAILED', reason)
+    if 'SKYBIND_LIVE_NOT_REQUESTED' in stdout or '-3' in codes:
+        return ('BLOCKED', 'LIVE_CASE_WAS_SKIPPED')
+    return ('FAILED', 'INSTRUMENTATION_INCOMPLETE_OR_UNCLASSIFIED')
+
+
+def store(report, *, dest=None):
+    folder = dest or (Path.home() / '.local/state/skybind/native-m2-live')
+    need(not folder.is_symlink(), 'RECEIPT_DIRECTORY_SYMLINK')
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    filename = folder / ('m2-live-' + uuid.uuid4().hex + '.json')
+    with filename.open('x', encoding='utf-8') as f:
+        json.dump(report, f, sort_keys=True, indent=2)
+        f.write('\n')
+    filename.chmod(0o600)
+    return str(filename)
+
+
+def run(opts):
+    doc = dict(schema='skybind-m2-live-v1', state='BLOCKED', reason=None,
+               source_sha=None, github_run_id=opts.run_id,
+               artifact_id=None, artifact_digest=None, device_qualified=False,
+               m2_l1_device_qualified=False,
+               release_qualified=False, github_run_authenticated=False,
+               remote_metadata_verified=False, signing_verified=False,
+               installed_pair_verified=False, installed_apks_modified=False,
+               root_grant_changed_by_runner=False, daemon_mutated=False,
+               remote_selection='explicit' if opts.remote else 'first_configured',
+               mode=opts.mode, tests={}, recorded_at_utc=datetime.now(timezone.utc).isoformat())
+    try:
+        need(isinstance(opts.run_id, int) and opts.run_id > 0, 'RUN_ID_INVALID')
+        if opts.remote is not None:
+            need(PATTERN.fullmatch(opts.remote), 'REMOTE_NAME_INVALID')
+        sha = current_source()
+        doc['source_sha'] = sha
+        artifact = github(opts.run_id, sha)
+        doc['remote_metadata_verified'] = True
+        doc['artifact_id'] = artifact['id']
+        doc['artifact_digest'] = artifact['digest']
+        folder = opts.artifact_dir or (Path.home()/'.cache/skybind'/f'hosted-{opts.run_id}')
+        manifest = verify_candidate(folder, opts.run_id, sha,
+                                    read_pin())
+        doc['signing_verified'] = True
+        doc['app_sha256'] = manifest['app']['sha256']
+        doc['test_sha256'] = manifest['test_apk']['sha256']
+        device = choose_device(opts.serial)
+        doc['device_serial_sha256'] = hashlib.sha256(device.encode()).hexdigest()
+        api = adb(device, 'shell', 'getprop', 'ro.build.version.sdk').stdout.strip()
+        need(api.isdecimal() and int(api) >= 28, 'DEVICE_ANDROID_API_UNSUPPORTED')
+        doc['device_api'] = int(api)
+        need(adb(device, 'shell', 'getenforce').stdout.strip() == 'Enforcing',
+             'DEVICE_SELINUX_NOT_ENFORCING')
+        installed_pair(device, manifest, read_pin())
+        doc['installed_pair_verified'] = True
+        if opts.mode == 'preflight':
+            doc['state'] = 'PASS_M2_L1_PAIR_PREFLIGHT_ONLY'
+        else:
+            args = ['shell', 'am', 'instrument', '-w', '-r',
+                    '-e', 'skybind.live', 'true', '-e', 'class', CASE]
+            if opts.remote:
+                args += ['-e', 'skybind.remote', opts.remote]
+            args.append(RUNNER)
+            outcome = adb(device, *args, timeout=190, ok=False)
+            state, reason = parse_live(outcome.stdout)
+            doc['state'], doc['reason'] = state, reason
+            doc['tests']['liveReadBrowseAndReconnect'] = state
+            doc['instrumentation_process_exit_zero'] = outcome.returncode == 0
+            if state.startswith('PASS_'):
+                need(outcome.returncode == 0, 'INSTRUMENTATION_PROCESS_NONZERO')
+                doc['m2_l1_device_qualified'] = True  # Narrow gate only; product remains unqualified
+                doc['qualified_scope'] = 'M2-L1_READ_ONLY_APP_ROOTSERVICE_QUERY_BROWSE_REBIND'
+    except (Blocked, OSError, ValueError, KeyError, TypeError,
+            json.JSONDecodeError) as exc:
+        doc['reason'] = exc.reason if isinstance(exc, Blocked) else type(exc).__name__.upper()
+        doc['state'] = 'BLOCKED'
+    doc['receipt'] = store(doc)
+    print(json.dumps({k: doc.get(k) for k in ('state', 'reason', 'receipt', 'source_sha',
+          'github_run_id', 'artifact_id', 'device_api', 'installed_pair_verified',
+          'device_qualified', 'm2_l1_device_qualified')}, sort_keys=True))
+    return 0 if doc['state'].startswith('PASS_') else 2
+
+
+def read_pin():
+    path = Path.home() / '.local/share/skybind/signing/signer-sha256.txt'
+    need(path.is_file() and not path.is_symlink() and path.stat().st_size <= 128,
+         'LOCAL_SIGNER_PIN_MISSING')
+    value = path.read_text('ascii').strip()
+    need(HEX.fullmatch(value), 'LOCAL_SIGNER_PIN_INVALID')
+    return value
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--run-id', type=int, required=True, help='Current exact-source GitHub APK build')
+    p.add_argument('--mode', choices=('preflight','live'), default='preflight')
+    p.add_argument('--remote', help='Optional configured remote; otherwise first sorted daemon remote')
+    p.add_argument('--serial', help='ADB serial if more than one device is connected')
+    p.add_argument('--artifact-dir', type=Path, help='Local gh-downloaded exact-run APK pair')
+    return run(p.parse_args())
+
+if __name__ == '__main__':
+    raise SystemExit(main())

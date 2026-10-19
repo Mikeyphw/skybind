@@ -727,3 +727,41 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Repair:** Keep the fail-closed production Browser UI unchanged; replace only `browser-search.assertIsNotEnabled()` in the offline-state test with `browser-search.assertDoesNotExist()`. Extend `m2_browser_source_gate.py` to require offline-first Browser branching and the correct assertion, and add negative mutation tests for either mismatch. The online search interaction test remains unchanged.
 - **Acceptance:** Github-hosted APK and instrumentation pair built from the exact new commit, verified against pinned persistent signing, installed with `adb install -r` (no uninstall/data wipe), run the single corrected test plus all 19 instrumentation tests. Mark 19/19 only upon actual device PASS. Follow separately with real root permission/connection, daemon RPC and read-only remote navigation acceptance; fixtures do not qualify those.
 - **Devtool improvement:** Source-bound CI contract should couple UI visibility conditions and offline/unauthorized assertions rather than relying on isolated syntactic tokens. Distinguish framework bootstrap (the prior 9 blocked cases), assertion regression (this 1 case), live integration NOT_RUN, and release qualification.
+
+
+## SKYBIND-M2-L1 — Android real RootService/browser automated acceptance (2026-10-19)
+
+- **Evidence:** User-provided physical Android device instrumentation (source after offline-browser test correction) reports **19 executed, 19 PASS, 0 FAIL**, terminal `INSTRUMENTATION_CODE: -1`; the earlier Espresso 3.7.0 startup incompatibility and disconnected-search false assertion no longer appear. This evidence validates included fixtures/navigation/contract cases, but **does not** establish a running app-owned privileged RootService or real daemon browse.
+- **Affected:** Skybind native app, RootReadSession, read-only daemon API and Devtool Android product/device qualification. Go provider `Browse` returns bounded `lsjson --max-depth 1` listing; privileged app-owned RootService is the only Android RPC bridge.
+- **Implementation:** Added opt-in `LiveRootBrowserAcceptanceTest`, which binds a real RootReadSession, consumes server-authoritative capabilities/status/remotes/jobs/events, browses the selected configured remote root, closes and proves stale state cleared, then rebinds and verifies a fresh snapshot. No fake RPC, local root shell, credential read, mutation, daemon stop, automatic permission grant, hidden remote name logging, uninstall or data clear.
+- **Provenance/evidence:** Added `m2_live_device.py` with exact-main GitHub API workflow/artifact inspection, stable APK hash/signature verification, read-only installed APK pulling, ADB identity/SELinux preflight, explicit `--mode live` single-case runner, bounded parser and private write-once sanitized JSON receipts. No unattended install or root grant. Existing 19-test receipt remains historical. `github_run_authenticated` and whole-product `device_qualified` remain false; a real live pass is qualified only under `m2_l1_device_qualified`.
+- **Devtool improvement:** This bridges the gap between fixture-only source/device PASS and actual RootService-provider integration. Retain a separate native Actions-06 attestation and full interactive UI/root refusal/death/reconnection gates; source and hosted compile are necessary but insufficient.
+- **Status:** IMPLEMENTED_SOURCE_ONLY — Hosted build and real-device live case **NOT_RUN** on this new source. Missing daemon/root grant/remote must report BLOCKED, never a passing acceptance result.
+
+
+## SKYBIND-M2-L1-CI-002 — Consolidate CI artifact/device entry point (2026-10-19)
+
+- **Evidence:** User supplied `Cinderbox-Companion-20261019-085114-531377.tar.gz`,
+  `scripts/devtool/ci_artifacts_device.py` with exact-run `gh` downloads,
+  dynamic test lanes and installed APK checks. Skybind had separate manual
+  `gh run download` / `adb install` instructions and a read-only standalone
+  `scripts/dev/android/m2_live_device.py`; the initial M2-L1 overlay also
+  accidentally carried `__pycache__/m2_live_device.cpython-313.pyc`.
+- **Affected:** Skybind hosted Android artifact provenance, Termux/ADB device
+  workflows, Devtool artifact packaging, M2-L1 RootService qualification.
+- **Implemented:** Adapted `scripts/devtool/ci_artifacts_device.py` with explicit
+  `--test m2-preflight`/`--test m2-live` lane selection, automatic retrieval of
+  a **single combined** GitHub-hosted APK pair and manifest, exact clean HEAD
+  vs successful GitHub run source check, signer-pin and APK byte verification,
+  safe package introspection, strict opt-in `--install` (same-signer only; never
+  uninstall/clear), separate signed JSON summary, no release-overclaim and
+  fail-closed mismatches. Delegates M2-L1 execution to the already-reviewed
+  `m2_live_device.py` runner. New negative/offline source tests are in the
+  grouped Devtool workflow; remove the stray pyc from the revised overlay.
+- **Design tradeoff:** Github `gh run download` exposes extracted files, not
+  original ZIP bytes, so do not claim an independent artifact ZIP digest check.
+  The signed pair is verified against per-APK hashes and certificates in the
+  source-bound manifest; the GitHub run/artifact identities are checked online.
+- **Status:** IMPLEMENTED_SOURCE_ONLY and validated offline; physical live
+  RootService qualification still NOT_RUN. Future milestones should register
+  new reviewed lanes in this launcher rather than fork another APK installer.
