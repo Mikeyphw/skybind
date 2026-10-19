@@ -10,13 +10,52 @@ GOOD=BAD.replace('});});byId','});byId')
 class WebUISyntax(unittest.TestCase):
  def run_check(self,code):
   return subprocess.run([NODE,'--input-type=module','--check'],input=code,text=True,capture_output=True)
- def test_all_packaged_js_are_parseable_es_modules(self):
-  files=sorted(WEBROOT.glob('*.js'))
-  self.assertEqual([p.name for p in files],['app.js','bridge.js','flow.js','model.js','parity.js'])
+ def assert_module_inventory(self, webroot):
+  # Q05 originally contained five files. Keep these entry modules mandatory,
+  # but check every later packaged JS module instead of freezing file count.
+  files=sorted(webroot.glob('*.js'))
+  names={p.name for p in files}
+  core={'app.js','bridge.js','flow.js','model.js','parity.js'}
+  self.assertTrue(core.issubset(names), f'missing core WebUI JS: {sorted(core-names)}')
+  self.assertEqual(len(files),len(names), 'duplicate packaged JS names')
   for p in files:
-   with self.subTest(module=p.name):
-    r=self.run_check(p.read_text())
-    self.assertEqual(r.returncode,0,r.stderr)
+   self.assertTrue(p.is_file() and not p.is_symlink(), f'unsafe JS member: {p.name}')
+   r=self.run_check(p.read_text())
+   self.assertEqual(r.returncode,0,f'Invalid ES module {p.name}: {r.stderr}')
+ def test_all_packaged_js_are_parseable_es_modules(self):
+  self.assert_module_inventory(WEBROOT)
+ def fixture_modules(self, webroot):
+  for name in ('app.js','bridge.js','flow.js','model.js','parity.js'):
+   (webroot/name).write_text('export const active = true;\n')
+ def test_new_webui_js_is_checked_not_rejected_for_count(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=pathlib.Path(tmp)
+   self.fixture_modules(root)
+   (root/'live_progress.js').write_text('export const progress = 1;\n')
+   self.assert_module_inventory(root)
+ def test_new_malformed_webui_js_is_rejected(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=pathlib.Path(tmp)
+   self.fixture_modules(root)
+   (root/'live_progress.js').write_text('export const = ;\n')
+   with self.assertRaises(AssertionError):
+    self.assert_module_inventory(root)
+ def test_missing_core_js_is_rejected(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=pathlib.Path(tmp)
+   self.fixture_modules(root)
+   (root/'bridge.js').unlink()
+   with self.assertRaisesRegex(AssertionError,'missing core WebUI JS'):
+    self.assert_module_inventory(root)
+ def test_symlinked_new_js_is_rejected(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=pathlib.Path(tmp)
+   self.fixture_modules(root)
+   outside=root/'outside.txt'
+   outside.write_text('export const progress = 1;\n')
+   (root/'live_progress.js').symlink_to(outside)
+   with self.assertRaisesRegex(AssertionError,'unsafe JS member'):
+    self.assert_module_inventory(root)
  def test_original_bad_closure_is_rejected(self):
   clean=(WEBROOT/'app.js').read_text()
   self.assertIn(GOOD,clean)

@@ -792,3 +792,12 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Recommendation:** Keep real-provider interoperability fixtures coupled to source
   gates; preserve negative receipts and require exact-source GitHub build/device
   evidence before acceptance closure.
+
+
+## SKYBIND-Q05-WEBUI-INVENTORY-20261019 — stale fixed-count test blocked hosted native candidates
+
+- **Evidence:** GitHub Actions run `39271557243`, source `3f5140dcea16e74f66b90f1df952855239a2757c`, failed at `Validate packaged WebUI ES module syntax (fail CLOSED)`, while all checked module syntax subprocess invocations preceding the Python test had succeeded. Historical `test_q05p4_webui_esm.py` required exactly `app.js`, `bridge.js`, `flow.js`, `model.js`, and `parity.js`. Skybind now packages five additional JavaScript files: `api_qa_probe.js`, `interactive_qa.js`, `live_progress.js`, `remote_b3_ui.js`, and `remote_transfer_ui.js`. Consequently native Go tests, Android/arm64 daemon compilation and module candidate upload were NOT_RUN; no module artifact was created.
+- **Root cause:** An early five-file WebUI inventory assertion was incorrectly treated as a complete, frozen manifest and conflicted with subsequently added legitimate source modules. The syntax validator itself was not the failing component.
+- **Fix:** Require the original five core modules to exist but dynamically syntax-check every packaged `.js` ES module, reject symlinks and syntax errors, and add positive/negative tests for added modules, removed core files and unsafe symlinks. Preserve the explicit CI Node ES-module syntax check and historical bad-closure regression. Do not remove or silently skip checks when source expands.
+- **Scope:** Q05 candidate build qualification only. This source test repair does not rebuild or authorize Android APKs, root approval, module installation, release sealing or M2-L1 device qualification. The directory-unknown-size fix remains source-implemented pending an updated native daemon and Android reader deployed from matching evidence.
+- **Status:** SOURCE-BOUND HOTFIX PREPARED; rerun the hosted native candidate workflow at the new commit, inspect downstream Q04 dependency/pins independently, verify produced native artifacts, and leave release/device qualification false until actual testing.
