@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Never fall back to AGP's ephemeral hosted debug keystore. Production and
+// test APKs must share the pinned, persistent key provisioned outside Git.
+val stableKeyPath = providers.environmentVariable("SKYBIND_ANDROID_KEYSTORE_PATH").orNull
+val stableKeyPassword = providers.environmentVariable("SKYBIND_ANDROID_KEYSTORE_PASSWORD").orNull
+require(!stableKeyPath.isNullOrBlank() && !stableKeyPassword.isNullOrBlank()) {
+    "Skybind hosted persistent signing credentials are required"
+}
+val stableKeyFile = file(stableKeyPath!!)
+require(stableKeyFile.isFile) { "Skybind persistent signing keystore is absent" }
+
 android {
     namespace = "io.github.mikeyphw.skybind"
     compileSdk = 35
@@ -15,7 +26,17 @@ android {
         testApplicationId = "io.github.mikeyphw.skybind.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    signingConfigs {
+        create("skybindPersistentDebug") {
+            storeFile = stableKeyFile
+            storePassword = stableKeyPassword
+            keyAlias = "skybind_dev"
+            keyPassword = stableKeyPassword
+            storeType = "pkcs12"
+        }
+    }
     buildTypes {
+        getByName("debug") { signingConfig = signingConfigs.getByName("skybindPersistentDebug") }
         getByName("release") { isMinifyEnabled = false }
     }
     buildFeatures { compose = true; buildConfig = true; aidl = true }

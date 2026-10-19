@@ -10,6 +10,8 @@ permissions:
   contents: read
 jobs:
   android-debug-apks:
+    # Never expose signing secrets to PR-supplied code or arbitrary refs.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -29,21 +31,31 @@ jobs:
       - name: Install hosted Android SDK build tools
         uses: android-actions/setup-android@v4
         with:
-          # setup-android v4 forwards `packages` as a space-delimited string.
           packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
           log-accepted-android-sdk-licenses: 'false'
       - name: Verify GitHub-only source policy before build
         env:
           GITHUB_ACTIONS: 'true'
         run: python3 scripts/dev/android/verify_cloud_build_only.py
+      - name: Require persistent debug signing and pin
+        env:
+          SKYBIND_ANDROID_KEYSTORE_B64: ${{ secrets.SKYBIND_ANDROID_KEYSTORE_B64 }}
+          SKYBIND_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.SKYBIND_ANDROID_KEYSTORE_PASSWORD }}
+          SKYBIND_ANDROID_SIGNER_SHA256: ${{ secrets.SKYBIND_ANDROID_SIGNER_SHA256 }}
+        run: python3 -B scripts/dev/android/stable_signing.py ci-prepare
       - name: Compile app and separate instrumentation APK on GitHub
         shell: bash
+        env:
+          SKYBIND_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/skybind-signing/skybind-dev.p12
+          SKYBIND_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.SKYBIND_ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
           test "$GITHUB_ACTIONS" = true
           gradle --no-daemon --stacktrace -p android-app :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Produce and verify source-bound debug APK manifest
         shell: bash
+        env:
+          SKYBIND_ANDROID_SIGNER_SHA256: ${{ secrets.SKYBIND_ANDROID_SIGNER_SHA256 }}
         run: |
           set -euo pipefail
           mkdir -p android-build-evidence
@@ -51,6 +63,8 @@ jobs:
             --app android-app/app/build/outputs/apk/debug/app-debug.apk \
             --test-apk android-app/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
             --output android-build-evidence/android-build-manifest.json
+          python3 -B scripts/dev/android/stable_signing.py ci-finalize \
+            --manifest android-build-evidence/android-build-manifest.json
           python3 scripts/dev/android/apk_manifest.py verify \
             --manifest android-build-evidence/android-build-manifest.json \
             --app android-app/app/build/outputs/apk/debug/app-debug.apk \
@@ -64,3 +78,10 @@ jobs:
           path: android-build-evidence/
           if-no-files-found: error
           retention-days: 30
+      - name: Remove secret signing keystore
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="${RUNNER_TEMP}/skybind-signing/skybind-dev.p12"
+          if test -f "$f" && test ! -L "$f"; then rm -f -- "$f"; fi
