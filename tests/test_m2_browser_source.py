@@ -28,6 +28,12 @@ class BrowserSafetyRegression(unittest.TestCase):
                 out = dest / relative
                 out.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT/relative, out)
+            # The gate now checks all Android test source files for invalid imports.
+            for filename in ('NativeLifecycleTest.kt', 'NativeUiTest.kt'):
+                relative = check.TEST.parent / filename
+                out = dest / relative
+                out.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT/relative, out)
             other = check.TEST
             out = dest/other
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -38,6 +44,20 @@ class BrowserSafetyRegression(unittest.TestCase):
             path.write_text(body.replace(before, after, 1))
             with self.assertRaises(check.Violation):
                 check.verify(dest)
+
+    def test_reject_invalid_compose_assert_exists_import(self):
+        self.negative(check.TEST.parent/'NativeLifecycleTest.kt',
+                      'import androidx.compose.ui.test.performClick',
+                      'import androidx.compose.ui.test.assertExists\nimport androidx.compose.ui.test.performClick')
+
+    def test_reject_invalid_compose_assert_missing_import(self):
+        self.negative(check.TEST.parent/'NativeUiTest.kt',
+                      'import androidx.compose.ui.test.assertIsNotEnabled',
+                      'import androidx.compose.ui.test.assertDoesNotExist\nimport androidx.compose.ui.test.assertIsNotEnabled')
+
+    def test_reject_invalid_remote_browser_assertion_import(self):
+        self.negative(check.TEST, 'import androidx.compose.ui.test.onNodeWithTag',
+                      'import androidx.compose.ui.test.assertExists\nimport androidx.compose.ui.test.onNodeWithTag')
 
     def test_reject_browse_as_a_mutation(self):
         self.negative(check.MAIN/'bridge/RootReadBridgeService.kt',

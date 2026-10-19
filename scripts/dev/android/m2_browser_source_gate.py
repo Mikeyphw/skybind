@@ -24,6 +24,18 @@ def verify(root=ROOT):
     activity=get(MAIN/'MainActivity.kt')
     ui=get(MAIN/'ui/SkybindApp.kt')
     test=get(TEST)
+    # Android's SemanticsNodeInteraction exposes these as members, not
+    # package-level androidx.compose.ui.test imports. This broke hosted
+    # :app:compileDebugAndroidTestKotlin in GitHub Actions #39196292135.
+    android_test_root = Path('android-app/app/src/androidTest/java/io/github/mikeyphw/skybind')
+    forbidden_assertion_imports = (
+        'import androidx.compose.ui.test.assertExists',
+        'import androidx.compose.ui.test.assertDoesNotExist',
+    )
+    for test_name in ('NativeLifecycleTest.kt', 'NativeUiTest.kt', 'RemoteBrowserTest.kt'):
+        test_body = get(android_test_root / test_name)
+        need(not any(imp in test_body for imp in forbidden_assertion_imports),
+             'UNRESOLVED_COMPOSE_TEST_ASSERTION_IMPORT_' + test_name)
     need('"provider.browse"' in bridge and 'if (op == "provider.browse")' in bridge and
          'BrowseAddress.endpoint(name, path)' in bridge and 'socket.peerCredentials.uid != 0' in bridge and
          '"class", "query"' in bridge and '"class", "run"' not in bridge,

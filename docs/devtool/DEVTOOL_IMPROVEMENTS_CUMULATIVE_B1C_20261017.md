@@ -678,3 +678,12 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Implementation:** Scoped `provider.browse` with validated remote/relative path and read-only query class; typed entry mapping rejects unsafe names/out-of-folder responses; asynchronous ViewModel folder navigator rejects stale completions/disconnected sessions and refuses file-as-folder actions. No write RPCs, credential access, exported service or arbitrary shell.
 - **Status:** IMPLEMENTED_SOURCE_ONLY, GitHub compile/device acceptance NOT_RUN.
 - **Recommendation:** add real-device navigation/provenance and disconnected stale-cursor acceptance using a test-owned configured remote; after that, implement M2 file metadata, scoped SAF and M3 preview/proof as separate capability gates. Keep cumulative issue open until physical qualification.
+
+
+## SKYBIND-M2-CI-001 — Hosted instrumentation Kotlin assertion-import regression
+
+- **Status:** Source fix prepared, GitHub build rerun pending.
+- **Affected:** `Mikeyphw/skybind` native Android instrumentation sources (`NativeLifecycleTest.kt`, `NativeUiTest.kt`, `RemoteBrowserTest.kt`); Devtool M2 source gate.
+- **Evidence:** GitHub Actions run [39196292135](https://github.com/Mikeyphw/skybind/actions/runs/39196292135), exact source `e97e9d4b88f0a8e6ef9a7083facd910691db0cc1`; `:app:compileDebugAndroidTestKotlin` failed with five `Unresolved reference` errors for imported `androidx.compose.ui.test.assertExists` / `assertDoesNotExist`. The production application compiled; no APK pair was uploaded. Source-only tests had not detected invalid package-level imports.
+- **Remediation:** Remove only the invalid imports; `SemanticsNodeInteraction.assertExists()` and `.assertDoesNotExist()` are member methods. Add fail-closed checks over the three instrumented Kotlin files to the existing M2 source gate and three negative mutation tests. Keep APK compilation GitHub Actions-only and do not claim a successful APK or device run until verified.
+- **Status to close:** New exact-source GitHub Android build must compile both APKs, upload a byte-identified artifact pair, and pass independent source/attestation checks.
