@@ -1,6 +1,7 @@
 """M2-L1 negative evidence: source guard + fail-closed instrumentation parser."""
 import importlib.util
 from pathlib import Path
+import json
 import shutil
 import tempfile
 import unittest
@@ -94,6 +95,20 @@ INSTRUMENTATION_CODE: -1
         self.assertFalse(result['device_qualified'])
         self.assertFalse(result['release_qualified'])
         self.assertFalse(result['installed_apks_modified'])
+
+    def test_receipt_contains_own_path_and_is_immutable(self):
+        with tempfile.TemporaryDirectory() as td:
+            original = dict(schema='skybind-m2-live-v1', state='BLOCKED',
+                            reason='SKYBIND_LIVE_BLOCKED_ROOT_AUTH',
+                            device_qualified=False, release_qualified=False,
+                            m2_l1_device_qualified=False)
+            path = device.store(original, dest=Path(td))
+            saved = json.loads(Path(path).read_text())
+            self.assertEqual(saved['receipt'], path)
+            self.assertEqual(original['receipt'], path)
+            self.assertEqual(saved['reason'], original['reason'])
+            self.assertFalse(saved['m2_l1_device_qualified'])
+            self.assertEqual(len(list(Path(td).glob('m2-live-*.json'))), 1)
 
     def test_live_root_denial_is_blocked_not_qualified(self):
         broken = self.GOOD.replace('INSTRUMENTATION_STATUS_CODE: 0',

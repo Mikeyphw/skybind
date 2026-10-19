@@ -50,6 +50,17 @@ def verify(root=ROOT):
         need(bad not in cli, 'CI_CLI_UNSAFE_' + bad)
     need('def run(opts):' in lane and "'-e', 'skybind.live', 'true'" in lane,
          'ISOLATED_LIVE_RUNNER_NOT_PRESERVED')
+    need("report['receipt'] = str(filename)" in lane and
+         "doc['receipt'] = store(doc)" in lane,
+         'LIVE_RECEIPT_MUST_PERSIST_SELF_REFERENCE')
+    need("doc.get('receipt') == receipt" in cli and
+         "summary.get(field) == doc.get(field)" in cli and
+         "m2_l1_device_qualified=False" in cli,
+         'HOST_LANE_RECEIPT_MUST_VERIFY_AND_DEFAULT_FALSE')
+    need('def test_lane_preflight_saved_receipt_round_trip(' in tests and
+         'def test_lane_missing_receipt_path_rejected(' in tests and
+         'def test_lane_failed_result_is_preserved(' in tests,
+         'LANE_RECEIPT_REGRESSIONS_MISSING')
     need('def test_other_signer_refused_before_install(' in tests and
          'def test_changed_pair_requires_explicit_install(' in tests and
          'def test_existing_pair_no_automatic_test_selection_or_install(' in tests,

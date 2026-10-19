@@ -53,3 +53,25 @@ The prior 19/19 non-live instrumentation result remains historical evidence.
 There is no need to repeat it automatically for every M2-L1 attempt.
 
 **Not covered:** on-screen UI interactions with actual remote, root denial prompt automation, deliberate process death/daemon termination, external cross-UID BKX/chrootctl broker grants, write operations, or release qualification. Those require separate acceptance gates; no deferred M0–M8 manual replay is requested.
+
+
+## M2-L1 nested receipt serialization repair — 2026-10-19
+
+The first real `m2-live` execution against hosted run `39250115149` and
+artifact `12185650761` returned `LANE_RECEIPT_SUMMARY_MISMATCH` after
+matching both installed APKs. This was a **host receipt writer/reader bug**:
+`m2_live_device.store()` had serialized its report before setting the path
+field, but `ci_artifacts_device.execute_lane()` required that field in the
+saved file. It does **not** establish a RootService failure or a live pass.
+
+Inspect the original M2 receipt read-only, without executing or altering the
+Android app, from `~/.local/state/skybind/native-m2-live/`. Capture its `state`,
+`reason`, source SHA, run/artifact ID and narrow qualification flags, but do
+not copy or rewrite the original evidence. New receipts include their own
+path before serialization. The canonical launcher verifies the path plus
+summary identity and retains failures/blocked statuses.
+
+The hotfix modifies source. For another full acceptance attempt use a new
+exact-source GitHub hosted APK build and the canonical launcher at that commit.
+The installed packages may be updated with `--install` only when the pinned
+certificate matches; there is no automatic uninstall or root grant.

@@ -195,6 +195,9 @@ def store(report, *, dest=None):
     need(not folder.is_symlink(), 'RECEIPT_DIRECTORY_SYMLINK')
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     filename = folder / ('m2-live-' + uuid.uuid4().hex + '.json')
+    # The saved evidence and emitted summary MUST identify the same immutable file.
+    # Otherwise the outer CI lane launcher rejects even an otherwise valid result.
+    report['receipt'] = str(filename)
     with filename.open('x', encoding='utf-8') as f:
         json.dump(report, f, sort_keys=True, indent=2)
         f.write('\n')

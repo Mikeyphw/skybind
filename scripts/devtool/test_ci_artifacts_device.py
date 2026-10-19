@@ -115,6 +115,81 @@ class CiDeviceTest(unittest.TestCase):
                 with self.assertRaisesRegex(ci.QualificationError, 'TEST_LANE_FAILED'):
                     ci.execute_lane('m2-live', 8, 'serial-1', Path(td), None, 'a'*40, 55)
 
+    def test_lane_preflight_saved_receipt_round_trip(self):
+        # Regression for source ebf261a: previously store() wrote the file
+        # BEFORE adding the receipt key, making the launcher always BLOCKED.
+        with tempfile.TemporaryDirectory() as td:
+            sha = 'a'*40
+            record = dict(schema='skybind-m2-live-v1',
+                          state='PASS_M2_L1_PAIR_PREFLIGHT_ONLY', reason=None,
+                          source_sha=sha, github_run_id=9, artifact_id=17,
+                          installed_pair_verified=True, signing_verified=True,
+                          device_qualified=False, release_qualified=False,
+                          m2_l1_device_qualified=False)
+            def fake_lane(opts):
+                receipt = ci.live.store(record, dest=Path(td))
+                print(json.dumps({k: record.get(k) for k in
+                      ('state','reason','receipt','source_sha','github_run_id',
+                       'artifact_id','installed_pair_verified','m2_l1_device_qualified')}))
+                return 0
+            with patch.object(ci.live, 'run', side_effect=fake_lane):
+                result = ci.execute_lane('m2-preflight', 9, 'device1', Path(td),
+                                         None, sha, 17)
+            self.assertEqual(result['state'], 'PASS_M2_L1_PAIR_PREFLIGHT_ONLY')
+            self.assertIsNone(result['qualified_scope'])
+            persisted = json.loads(Path(result['receipt']).read_text())
+            self.assertEqual(persisted['receipt'], result['receipt'])
+            self.assertFalse(persisted['device_qualified'])
+
+    def test_lane_missing_receipt_path_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            path=Path(td)/'broken.json'
+            body={'state':'BLOCKED','reason':'SKYBIND_LIVE_BLOCKED_ROOT_AUTH'}
+            path.write_text(json.dumps(body))
+            def fake_lane(opts):
+                print(json.dumps(body | {'receipt':str(path)}))
+                return 2
+            with patch.object(ci.live,'run',side_effect=fake_lane):
+                with self.assertRaisesRegex(ci.QualificationError,
+                                            'LANE_RECEIPT_PATH_MISMATCH'):
+                    ci.execute_lane('m2-live',9,'device1',Path(td),None,'a'*40,17)
+
+    def test_lane_failed_result_is_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            record=dict(schema='skybind-m2-live-v1', state='FAILED',
+                        reason='SKYBIND_LIVE_FAILED_BROWSE',
+                        source_sha='a'*40,github_run_id=9,artifact_id=17,
+                        installed_pair_verified=True,signing_verified=True,
+                        device_qualified=False,release_qualified=False,
+                        m2_l1_device_qualified=False)
+            def fake_lane(opts):
+                ci.live.store(record,dest=Path(td))
+                print(json.dumps({k:record.get(k) for k in
+                      ('state','reason','receipt','source_sha','github_run_id',
+                       'artifact_id','installed_pair_verified','m2_l1_device_qualified')}))
+                return 2
+            with patch.object(ci.live,'run',side_effect=fake_lane):
+                with self.assertRaisesRegex(ci.QualificationError,
+                                            'TEST_LANE_FAILED:m2-live:SKYBIND_LIVE_FAILED_BROWSE'):
+                    ci.execute_lane('m2-live',9,'device1',Path(td),None,'a'*40,17)
+
+    def test_source_gate_rejects_lost_receipt_self_reference(self):
+        import ci_artifacts_device_source_gate as gate
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            for rel in (gate.CLI,gate.LANE,gate.TESTS,gate.GROUPED):
+                dest=root/rel
+                dest.parent.mkdir(parents=True,exist_ok=True)
+                dest.write_text((gate.ROOT/rel).read_text())
+            lane=root/gate.LANE
+            original=lane.read_text()
+            marker="report['receipt'] = str(filename)"
+            self.assertIn(marker,original)
+            lane.write_text(original.replace(marker,"report['receipt'] = None",1))
+            with self.assertRaisesRegex(gate.Violation,
+                                        'LIVE_RECEIPT_MUST_PERSIST_SELF_REFERENCE'):
+                gate.verify(root)
+
     def test_existing_pair_no_automatic_test_selection_or_install(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

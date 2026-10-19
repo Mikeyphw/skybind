@@ -765,3 +765,12 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Status:** IMPLEMENTED_SOURCE_ONLY and validated offline; physical live
   RootService qualification still NOT_RUN. Future milestones should register
   new reviewed lanes in this launcher rather than fork another APK installer.
+
+
+## SKYBIND-M2-L1-RECEIPT-001 — Nested acceptance receipt self-reference mismatch (2026-10-19)
+
+- **Evidence:** Installed hosted pair from run `39250115149` and artifact `12185650761`, source `ebf261a835f9f4425e98d913d69ea38abb816a42`, passed exact APK verification: `PASS_CI_PAIR_VERIFIED_NO_TESTS_SELECTED`, `installed_pair_verified=true`. The subsequent `--test m2-live` produced `LANE_RECEIPT_SUMMARY_MISMATCH`, `m2_l1_device_qualified=null`, despite matching installed pair. Review of `scripts/dev/android/m2_live_device.py` showed `store(doc)` serialized the JSON before `doc['receipt']` was set; `scripts/devtool/ci_artifacts_device.py` demanded the missing self-reference during acceptance. **The underlying RootService test result was not included in the supplied summaries and must not be inferred.**
+- **Affected:** Skybind native M2-L1 real-device runner, canonical `scripts/devtool/ci_artifacts_device.py`, Devtool producer/consumer evidence contract and operator experience.
+- **Fix:** Serialize an immutable single-owner per-lane JSON receipt with its own receipt path pre-populated; compare the launcher summary against on-disk receipt (path, state, reason, source, run, artifact, installed-pair and narrow qualification), with fail-closed mismatch. Initialize `m2_l1_device_qualified=false` on all failure paths. Add positive preflight roundtrip and negative absent-path/product-failure regression tests. No APK or daemon changes, no grant requests, no installs or data clearing.
+- **Status:** SOURCE FIX PREPARED; host Termux Devtool acceptance and physical `m2-live` still require rerun. Do not reclassify 19/19 fixture tests or installed-pair verification as live-daemon qualification.
+- **Devtool cross-project improvement:** receipt writers should add self-referential identity before writing, and parent orchestrators should test nested producer→consumer serialization with real temporary files, not only mocks whose manually constructed receipts accidentally conceal the bug.

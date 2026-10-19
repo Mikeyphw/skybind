@@ -208,8 +208,13 @@ def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str 
     require(path.is_file() and not path.is_symlink() and
             path.stat().st_size <= 16384, 'LANE_RECEIPT_UNAVAILABLE')
     doc = json.loads(path.read_text())
-    require(doc.get('receipt') == receipt and summary.get('state') == doc.get('state'),
-            'LANE_RECEIPT_SUMMARY_MISMATCH')
+    # The lane receipt is the authority. Check the emitted summary against the
+    # on-disk evidence without promoting a failed/blocked test to PASS.
+    require(doc.get('receipt') == receipt, 'LANE_RECEIPT_PATH_MISMATCH')
+    for field in ('state', 'reason', 'source_sha', 'github_run_id', 'artifact_id',
+                  'installed_pair_verified', 'm2_l1_device_qualified'):
+        require(summary.get(field) == doc.get(field),
+                'LANE_RECEIPT_SUMMARY_MISMATCH:' + field)
     if code != 0:
         classification = ('FAILED' if doc.get('state') == 'FAILED' else 'BLOCKED')
         raise QualificationError('TEST_LANE_' + classification + ':' + lane + ':' +
@@ -246,7 +251,7 @@ def run(args):
                automatic_uninstall=False, automatic_data_clear=False,
                root_grant_changed_by_runner=False, daemon_mutated=False,
                selected_lanes=selected, tests={}, device_qualified=False,
-               release_qualified=False,
+               m2_l1_device_qualified=False, release_qualified=False,
                recorded_at_utc=datetime.now(timezone.utc).isoformat())
     try:
         sha = live.current_source()
