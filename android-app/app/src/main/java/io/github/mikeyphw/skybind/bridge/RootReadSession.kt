@@ -30,6 +30,10 @@ class RootReadSession(private val app: Application, private val disconnected: ()
                         if (continuation.isActive) continuation.resume(service)
                     }
                     override fun onServiceDisconnected(name: ComponentName) {
+                        // A superseded binding may deliver a late Binder callback.
+                        // It must never clear a newer authenticated session.
+                        if (connection !== this) return
+                        connection = null
                         remote = null
                         reader.reset()
                         disconnected()
@@ -73,9 +77,11 @@ class RootReadSession(private val app: Application, private val disconnected: ()
     }
 
     fun close() {
-        reader.reset()
-        remote = null
-        connection?.let { runCatching { RootService.unbind(it) } }
+        // Invalidate the identity before unbind can produce a late callback.
+        val old = connection
         connection = null
+        remote = null
+        reader.reset()
+        old?.let { runCatching { RootService.unbind(it) } }
     }
 }

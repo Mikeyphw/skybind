@@ -821,3 +821,12 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Repair:** Reissue one replacement atomic ZIP with exactly three `add` declarations and eleven `modify` declarations, recomputed inventory SHA-256 for this ledger, stable validation-script digest, updated outer ZIP hash and SHA256SUMS.txt. No app/test logic changes versus the original M2-L2 payload.
 - **Prevention:** Add a producer-side pre-shipment manifest action enum check (`add`/`modify`) and require canonical artifact qualification on the generated ZIP before sharing. Never equate source-only test passes with Devtool artifact acceptance.
 - **Status:** ZIP INVENTORY CORRECTED; local source/tests and manifest checks PASS; actual Termux Devtool apply/release qualification pending. Preserve the failed run as evidence, do not rewrite it.
+
+
+## SKY-M2L3-NEG-20261020 — Isolated negative-lane receipts and superseded binder callbacks
+
+- **Status:** Source remedy in proposed M2-L3 overlay; hosted AndroidTest compilation and real device qualification pending.
+- **Affected projects:** Skybind Android app, Devtool CI artifact -> installed APK lane registry, real-device instrumentation.
+- **Evidence:** M2-L1 run `39352843961` and M2-L2 run `39363846767` passed narrow scopes at separate SHA identities; neither exercised abnormal binder lifecycle or fail-closed negative browse. `RootReadSession.onServiceDisconnected` previously did not check whether the callback belonged to the current binding. A superseded callback could clear a newer session, while `close()` invalidated its connection reference only *after* unbind.
+- **Change:** Ignore old binding callbacks by comparing the callback identity to `connection`; retire the reference before unbind. Register `m2-negative-live`, a separate exact-source/signature checked real RootService negative-boundary lane. The parser and host aggregator refuse skip, duplicated results, wrong source, wrong artifact, cross-lane promotions, and incompatible scope flags. Expose source-only regression as a two-node Devtool DAG and wrapper command; no local APK build.
+- **Limits:** This lane does not prove denial after real KernelSU revocation, real daemon process death, full app force-stop/relaunch, or cross-UID BKX/chrootctl grants. Those require independent opt-in and signed receipts; do not mark M2-L3 fully qualified from this sublane alone.

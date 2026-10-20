@@ -210,6 +210,10 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+m2-negative-source = [
+  { id = "source", ref = "job:m2-negative-source", depends_on = [] },
+  { id = "negative-unit", ref = "job:m2-negative-unit", depends_on = ["source"] },
+]
 r1-hosted-source = ["job:r1-hosted-source"]
 
 r1-scheduler-plan = ["job:r1-scheduler-plan"]
@@ -1408,3 +1412,23 @@ metadata = { read_only = true, qualification = "successor-device-runner-plan-onl
 description = "Run grouped B1-C security regressions and successor-device plan (no Android mutation)"
 workflow = "b1c-consolidated-source"
 target = "skybind_android_device"
+
+
+# M2-L3 negative-path preparation is source-only; the real device lane is
+# separately and explicitly selected via ci_artifacts_device.py --test.
+[targets.skybind_release.jobs.m2-negative-source]
+runner = "command"
+command = ["python3", "../scripts/dev/android/m2_negative_source_gate.py"]
+inputs = ["../scripts/dev/android/m2_negative_source_gate.py", "../scripts/dev/android/m2_live_device.py", "../scripts/devtool/ci_artifacts_device.py", "../android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/LiveNegativeAcceptanceTest.kt", "../android-app/app/src/main/java/io/github/mikeyphw/skybind/bridge/RootReadSession.kt", "../.devtool.toml"]
+metadata = { read_only = true, qualification = "M2-L3-negative-source-only", android_build_location = "github-actions-only", device_qualified = false, release_qualified = false }
+
+[targets.skybind_release.jobs.m2-negative-unit]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_m2_negative_live.py", "-q"]
+inputs = ["../tests/test_m2_negative_live.py", "../scripts/dev/android/m2_negative_source_gate.py", "../scripts/dev/android/m2_live_device.py", "../scripts/devtool/ci_artifacts_device.py"]
+metadata = { read_only = true, qualification = "M2-L3-negative-fixture-regression-only", android_build_location = "github-actions-only", device_qualified = false, release_qualified = false }
+
+[wrapper.commands.m2-negative-source]
+description = "M2-L3 negative Android acceptance source and receipt regression (no APK/device)"
+workflow = "m2-negative-source"
+target = "skybind_release"
