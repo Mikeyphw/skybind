@@ -210,6 +210,14 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+# Consolidated source-only M3 copy, reconnect/evidence and R0 cross-consumer gates.
+m3-consolidated-source = [
+  { id = "copy-contract", ref = "job:m3-copy-contract", depends_on = [] },
+  { id = "consumer-r0", ref = "job:m3-consumer-r0", depends_on = ["copy-contract"] },
+  { id = "negatives", ref = "job:m3-copy-negatives", depends_on = ["copy-contract", "consumer-r0"] },
+  { id = "regression", ref = "job:m3-operations-unit", depends_on = ["copy-contract", "consumer-r0", "negatives"] },
+  { id = "hosted-only", ref = "job:m3-operations-security", depends_on = ["copy-contract", "consumer-r0", "negatives", "regression"] },
+]
 m3-disposable-source = [
   { id = "guard", ref = "job:m3-disposable-contract", depends_on = [] },
   { id = "fixture-tests", ref = "job:m3-disposable-tests", depends_on = ["guard"] },
@@ -1523,4 +1531,25 @@ metadata = { read_only = true, qualification = "M3-disposable-negatives-only", d
 [wrapper.commands.m3-disposable-source]
 description = "Consolidated M3 disposable execution/cancel source and evidence gates (no device mutation)"
 workflow = "m3-disposable-source"
+target = "skybind_release"
+
+# Device execution is NEVER part of source DAG; m3-copy-live is separately selected.
+[targets.skybind_release.jobs.m3-copy-contract]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/m3_copy_source_gate.py"]
+metadata = { read_only = true, qualification = "M3-copy-source-only", release_qualified = false }
+
+[targets.skybind_release.jobs.m3-consumer-r0]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/m3_consumer_contract_gate.py"]
+metadata = { read_only = true, qualification = "R0-BKX-chrootctl-source-audit-only", r1_qualified = false }
+
+[targets.skybind_release.jobs.m3-copy-negatives]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_m3_copy_consolidated.py", "-q"]
+metadata = { read_only = true, qualification = "M3-copy-integrity-negatives-only", device_qualified = false }
+
+[wrapper.commands.m3-consolidated-source]
+description = "Single M3 source DAG: disposable copy, reconnect and R0 consumer contract; no device mutation"
+workflow = "m3-consolidated-source"
 target = "skybind_release"

@@ -1,0 +1,23 @@
+{
+  "abi_major": 1,
+  "consumer": "bkx",
+  "implicit_credential_export": false,
+  "native_rclone_fallback": true,
+  "required_capabilities": [
+    "rclone.metadata.v1",
+    "rclone.safe-write-stream.v1",
+    "rclone.restic-stdio.v1"
+  ],
+  "required_operations": [
+    "version",
+    "listremotes",
+    "lsjson",
+    "size",
+    "copy",
+    "copyto",
+    "check",
+    "sync",
+    "serve restic --stdio"
+  ],
+  "schema": "skybind-rclone-consumer-request-v1"
+}

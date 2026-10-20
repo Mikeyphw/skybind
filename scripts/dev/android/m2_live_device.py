@@ -36,6 +36,27 @@ TRANSPORT_CASE = APP + '.LiveTransportAcceptanceTest#liveTransportLossAndFreshRe
 M3_CASE = APP + '.LiveM3PreviewAcceptanceTest#liveM3ReadOnlyJobPreview'
 M3_EXECUTE_CASE = APP + '.LiveM3DisposableAcceptanceTest#liveDisposableCheckCompletes'
 M3_CANCEL_CASE = APP + '.LiveM3DisposableAcceptanceTest#liveDisposableOwnedCancellation'
+M3_COPY_CASE = APP + '.LiveM3CopyAcceptanceTest#liveDisposableCopyReconnectReconcile'
+M3_COPY_BLOCKED = ('SKYBIND_M3_COPY_NOT_REQUESTED','SKYBIND_M3_COPY_BLOCKED_BIND','SKYBIND_M3_COPY_BLOCKED_FIXTURE')
+M3_COPY_FAILED = ('SKYBIND_M3_COPY_FAILED_PREVIEW_IDENTITY','SKYBIND_M3_COPY_FAILED_START',
+    'SKYBIND_M3_COPY_FAILED_DUPLICATE_ACCEPTED','SKYBIND_M3_COPY_FAILED_STALE_SNAPSHOT',
+    'SKYBIND_M3_COPY_FAILED_CROSS_SESSION_CANCEL_ACCEPTED','SKYBIND_M3_COPY_FAILED_STALE_PROOF_ACCEPTED',
+    'SKYBIND_M3_COPY_FAILED_RECONNECT_SNAPSHOT','SKYBIND_M3_COPY_FAILED_TERMINAL_TIMEOUT',
+    'SKYBIND_M3_COPY_FAILED_TERMINAL','SKYBIND_M3_COPY_FAILED_EVENT_REPLAY')
+
+def parse_m3_copy(stdout):
+    for marker in M3_COPY_FAILED:
+        if marker in stdout: return 'FAILED',marker
+    for marker in M3_COPY_BLOCKED:
+        if marker in stdout: return 'BLOCKED',marker
+    final,codes=FINAL.findall(stdout),CODES.findall(stdout)
+    if '-3' in codes: return 'BLOCKED','COPY_TEST_SKIPPED'
+    if (final==['-1'] and codes==['1','0'] and
+            'INSTRUMENTATION_STATUS: test=liveDisposableCopyReconnectReconcile' in stdout and
+            'INSTRUMENTATION_STATUS: numtests=1' in stdout and 'FAILURES!!!' not in stdout):
+        return 'PASS_M3_DISPOSABLE_COPY_RECONCILED',None
+    return 'FAILED','COPY_INSTRUMENTATION_INCOMPLETE'
+
 M3_DISPOSABLE_BLOCKED = ('SKYBIND_M3_DISPOSABLE_NOT_REQUESTED',
     'SKYBIND_M3_DISPOSABLE_BLOCKED_BIND', 'SKYBIND_M3_DISPOSABLE_BLOCKED_SNAPSHOT',
     'SKYBIND_M3_DISPOSABLE_BLOCKED_FIXTURE', 'SKYBIND_M3_DISPOSABLE_BLOCKED_CANCEL_RACE')
@@ -384,7 +405,7 @@ def run(opts):
                mode=opts.mode, m2_l3_negative_device_qualified=False,
                m2_l3_transport_device_qualified=False,
                m3_preview_device_qualified=False, m3_execute_device_qualified=False,
-               m3_cancel_device_qualified=False, tests={}, recorded_at_utc=datetime.now(timezone.utc).isoformat())
+               m3_cancel_device_qualified=False, m3_copy_device_qualified=False, tests={}, recorded_at_utc=datetime.now(timezone.utc).isoformat())
     try:
         need(isinstance(opts.run_id, int) and opts.run_id > 0, 'RUN_ID_INVALID')
         if opts.mode == 'm3-execute-live':
@@ -394,6 +415,10 @@ def run(opts):
             need(getattr(opts, 'allow_disposable_job_execution', False) and
                  getattr(opts, 'allow_disposable_job_cancellation', False),
                  'M3_DISPOSABLE_CANCEL_EXPLICIT_AUTHORIZATION_REQUIRED')
+        if opts.mode == 'm3-copy-live':
+            need(getattr(opts,'allow_disposable_job_execution',False) and
+                 getattr(opts,'allow_disposable_copy_writes',False),
+                 'M3_COPY_WRITES_EXPLICIT_AUTHORIZATION_REQUIRED')
         if opts.remote is not None:
             need(PATTERN.fullmatch(opts.remote), 'REMOTE_NAME_INVALID')
         sha = current_source()
@@ -417,6 +442,15 @@ def run(opts):
              'DEVICE_SELINUX_NOT_ENFORCING')
         installed_pair(device, manifest, read_pin())
         doc['installed_pair_verified'] = True
+        if opts.mode == 'm3-copy-live':
+            import m3_copy_fixture as copy_fixture
+            try:
+                reg, registered = copy_fixture.registry()
+                need(registered, 'M3_COPY_FIXTURE_UNREGISTERED')
+                doc['copy_preflight'] = copy_fixture.fixture_state('prepared')
+            except copy_fixture.Blocked as exc:
+                raise Blocked('M3_COPY_FIXTURE_PREFLIGHT:'+str(exc)[:64]) from exc
+            doc['copy_fixture_registered'] = True
         if opts.mode == 'preflight':
             doc['state'] = 'PASS_M2_L1_PAIR_PREFLIGHT_ONLY'
         else:
@@ -426,6 +460,7 @@ def run(opts):
             m3_mode = opts.mode == 'm3-preview-live'
             m3_execute = opts.mode == 'm3-execute-live'
             m3_cancel = opts.mode == 'm3-cancel-live'
+            m3_copy = opts.mode == 'm3-copy-live'
             if ui_mode:
                 args = ['shell', 'am', 'instrument', '-w', '-r',
                         '-e', 'skybind.ui.live', 'true', '-e', 'class', UI_CASE]
@@ -435,6 +470,9 @@ def run(opts):
             elif m3_mode:
                 args = ['shell', 'am', 'instrument', '-w', '-r',
                         '-e', 'skybind.m3.preview.live', 'true', '-e', 'class', M3_CASE]
+            elif m3_copy:
+                args = ['shell','am','instrument','-w','-r',
+                        '-e','skybind.m3.copy.live','true','-e','class',M3_COPY_CASE]
             elif m3_execute or m3_cancel:
                 args = ['shell', 'am', 'instrument', '-w', '-r',
                         '-e', ('skybind.m3.execute.live' if m3_execute else 'skybind.m3.cancel.live'),
@@ -448,12 +486,13 @@ def run(opts):
             if opts.remote:
                 args += ['-e', 'skybind.remote', opts.remote]
             args.append(RUNNER)
-            outcome = adb(device, *args, timeout=300 if (ui_mode or m3_execute or m3_cancel) else 190, ok=False)
+            outcome = adb(device, *args, timeout=300 if (ui_mode or m3_execute or m3_cancel or m3_copy) else 190, ok=False)
             state, reason = (parse_ui_live(outcome.stdout) if ui_mode else
                              parse_negative_live(outcome.stdout) if negative_mode else
                              parse_transport_live(outcome.stdout) if transport_mode else
                              parse_m3_preview(outcome.stdout) if m3_mode else
                              parse_m3_disposable(outcome.stdout, mode=opts.mode) if (m3_execute or m3_cancel) else
+                             parse_m3_copy(outcome.stdout) if m3_copy else
                              parse_live(outcome.stdout))
             doc['state'], doc['reason'] = state, reason
             case_name = ('liveUiReadOnlyNavigationRecovery' if ui_mode else
@@ -462,6 +501,7 @@ def run(opts):
                          'liveM3ReadOnlyJobPreview' if m3_mode else
                          'liveDisposableCheckCompletes' if m3_execute else
                          'liveDisposableOwnedCancellation' if m3_cancel else
+                         'liveDisposableCopyReconnectReconcile' if m3_copy else
                          'liveReadBrowseAndReconnect')
             doc['tests'][case_name] = state
             doc['instrumentation_process_exit_zero'] = outcome.returncode == 0
@@ -479,6 +519,18 @@ def run(opts):
                 elif m3_execute:
                     doc['m3_execute_device_qualified'] = True
                     doc['qualified_scope'] = 'M3_DISPOSABLE_CHECK_START_TO_TERMINAL_EVENTS_ONLY'
+                elif m3_copy:
+                    try:
+                        doc['copy_integrity'] = copy_fixture.fixture_state('complete')
+                        need(doc['copy_integrity']['expected_content_sha256'] ==
+                             doc['copy_preflight']['expected_content_sha256'],
+                             'M3_COPY_SOURCE_INTEGRITY_DRIFT')
+                    except (copy_fixture.Blocked,OSError,ValueError,KeyError,TypeError):
+                        doc['state']='FAILED'
+                        doc['reason']='SKYBIND_M3_COPY_FAILED_DESTINATION_INTEGRITY'
+                    else:
+                        doc['m3_copy_device_qualified']=True
+                        doc['qualified_scope']='M3_LOCAL_DISPOSABLE_COPY_SHA256_RECONNECT_TERMINAL_ONLY'
                 elif m3_cancel:
                     doc['m3_cancel_device_qualified'] = True
                     doc['qualified_scope'] = 'M3_DISPOSABLE_SESSION_OWNED_CANCEL_ONLY'
@@ -498,7 +550,7 @@ def run(opts):
           'device_qualified', 'm2_l1_device_qualified', 'm2_l2_device_qualified',
           'm2_l3_negative_device_qualified', 'm2_l3_transport_device_qualified',
           'm3_preview_device_qualified', 'm3_execute_device_qualified',
-          'm3_cancel_device_qualified')}, sort_keys=True))
+          'm3_cancel_device_qualified','m3_copy_device_qualified')}, sort_keys=True))
     return 0 if doc['state'].startswith('PASS_') else 2
 
 

@@ -1,0 +1,56 @@
+{
+  "abi_major": 1,
+  "abi_minor": 0,
+  "available_external_capabilities": [],
+  "deployment_boundary": {
+    "consumer_adapter": "may_be_built_and_upgraded_independently",
+    "consumer_source_hash": "provenance_not_access_control",
+    "skybind_core": "rebuild_only_when_gateway_or_protocol_changes",
+    "workload_identity": "must_be_authentic_and_revocable_before_any_external_transport"
+  },
+  "external_transport_status": "NOT_IMPLEMENTED",
+  "negotiation_rules": {
+    "credentials_export": "PROHIBITED",
+    "expired_or_revoked_grant": "REJECT",
+    "implicit_native_fallback": "PROHIBITED",
+    "missing_grant": "REJECT",
+    "unknown_capability": "REJECT",
+    "unknown_major": "REJECT",
+    "unsupported_command_or_flag": "REJECT"
+  },
+  "planned_capabilities": [
+    "rclone.metadata.v1",
+    "rclone.read-stream.v1",
+    "rclone.safe-write-stream.v1",
+    "rclone.immutable-publish.v1",
+    "rclone.restic-stdio.v1"
+  ],
+  "planned_rclone_command_classes": {
+    "full_duplex": [
+      "serve restic --stdio"
+    ],
+    "guarded_mutation": [
+      "moveto --immutable",
+      "deletefile",
+      "sync"
+    ],
+    "non_destructive_write": [
+      "rcat",
+      "copy",
+      "copyto",
+      "check",
+      "mkdir"
+    ],
+    "read_metadata": [
+      "version",
+      "listremotes",
+      "lsjson",
+      "size"
+    ],
+    "read_stream": [
+      "cat"
+    ]
+  },
+  "schema": "skybind-rclone-consumer-abi-v1",
+  "status": "R0_CONTRACT_ONLY_NO_RUNTIME_PROVIDER"
+}

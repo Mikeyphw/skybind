@@ -35,7 +35,8 @@ FILES = frozenset({'android-build-manifest.json', 'app-debug.apk', 'app-debug-an
 LANES = {'m2-preflight': 'preflight', 'm2-live': 'live', 'm2-ui-live': 'ui-live',
          'm2-negative-live': 'negative-live', 'm2-transport-live': 'transport-live',
          'm2-process-live': 'process-live', 'm3-preview-live': 'm3-preview-live',
-         'm3-execute-live': 'm3-execute-live', 'm3-cancel-live': 'm3-cancel-live'}
+         'm3-execute-live': 'm3-execute-live', 'm3-cancel-live': 'm3-cancel-live',
+         'm3-copy-live': 'm3-copy-live'}
 SERIAL = re.compile(r'[A-Za-z0-9_.:-]{1,128}\Z')
 APK_PATH = re.compile(r'/data/app/[A-Za-z0-9_./+@=:\-~]+/base\.apk\Z')
 
@@ -186,7 +187,8 @@ def validated_lane_receipt(record, *, lane: str, run_id: int, sha: str, artifact
                 'm2-process-live': 'PASS_M2_L3_APP_PROCESS_COLD_LAUNCH',
                 'm3-preview-live': 'PASS_M3_REAL_DAEMON_PREVIEW_ONLY',
                 'm3-execute-live': 'PASS_M3_DISPOSABLE_CHECK_COMPLETION',
-                'm3-cancel-live': 'PASS_M3_DISPOSABLE_OWNED_CANCEL'}[lane]
+                'm3-cancel-live': 'PASS_M3_DISPOSABLE_OWNED_CANCEL',
+                'm3-copy-live': 'PASS_M3_DISPOSABLE_COPY_RECONCILED'}[lane]
     require(record.get('state') == expected, 'TEST_LANE_NOT_PASS:' + lane)
     require(record.get('m2_l1_device_qualified') is (lane == 'm2-live') and
             record.get('m2_l2_device_qualified', False) is (lane == 'm2-ui-live') and
@@ -195,7 +197,8 @@ def validated_lane_receipt(record, *, lane: str, run_id: int, sha: str, artifact
             record.get('m2_l3_process_device_qualified', False) is (lane == 'm2-process-live') and
             record.get('m3_preview_device_qualified', False) is (lane == 'm3-preview-live') and
             record.get('m3_execute_device_qualified', False) is (lane == 'm3-execute-live') and
-            record.get('m3_cancel_device_qualified', False) is (lane == 'm3-cancel-live'),
+            record.get('m3_cancel_device_qualified', False) is (lane == 'm3-cancel-live') and
+            record.get('m3_copy_device_qualified', False) is (lane == 'm3-copy-live'),
             'LANE_QUALIFICATION_OVERCLAIM')
     scopes = {'m2-live': 'M2-L1_READ_ONLY_APP_ROOTSERVICE_QUERY_BROWSE_REBIND',
               'm2-ui-live': 'M2-L2_REAL_COMPOSE_UI_BROWSE_DISCONNECT_RECONNECT',
@@ -204,8 +207,19 @@ def validated_lane_receipt(record, *, lane: str, run_id: int, sha: str, artifact
               'm2-process-live': 'M2-L3_APP_FORCE_STOP_COLD_LAUNCH_UI_ONLY',
               'm3-preview-live': 'M3_REAL_DAEMON_JOB_PREVIEW_ONLY_NO_EXECUTION',
               'm3-execute-live': 'M3_DISPOSABLE_CHECK_START_TO_TERMINAL_EVENTS_ONLY',
-              'm3-cancel-live': 'M3_DISPOSABLE_SESSION_OWNED_CANCEL_ONLY'}
+              'm3-cancel-live': 'M3_DISPOSABLE_SESSION_OWNED_CANCEL_ONLY',
+              'm3-copy-live': 'M3_LOCAL_DISPOSABLE_COPY_SHA256_RECONNECT_TERMINAL_ONLY'}
     require(record.get('qualified_scope') == scopes.get(lane), 'LANE_SCOPE_MISMATCH')
+    if lane == 'm3-copy-live':
+        prior, final = record.get('copy_preflight'), record.get('copy_integrity')
+        require(isinstance(prior, dict) and isinstance(final,dict), 'COPY_INTEGRITY_RECEIPT_MISSING')
+        require(prior.get('phase')=='prepared' and prior.get('source_verified') is True and
+                prior.get('destination_verified') is False and final.get('phase')=='complete' and
+                final.get('destination_verified') is True and final.get('sentinel_preserved') is True and
+                prior.get('expected_content_sha256')==final.get('expected_content_sha256') and
+                live.HEX.fullmatch(str(final.get('expected_content_sha256'))) is not None and
+                type(prior.get('count')) is int and prior['count']>=64 and
+                prior.get('count')==final.get('count'), 'COPY_INTEGRITY_RECEIPT_INVALID')
     return {'state': expected, 'receipt': record.get('receipt'),
             'qualified_scope': scopes.get(lane)}
 
@@ -213,7 +227,7 @@ def validated_lane_receipt(record, *, lane: str, run_id: int, sha: str, artifact
 def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str | None,
                  sha: str, artifact_id: int, allow_app_force_stop: bool = False,
                  allow_disposable_job_execution: bool = False,
-                 allow_disposable_job_cancellation: bool = False):
+                 allow_disposable_job_cancellation: bool = False, allow_disposable_copy_writes: bool = False):
     # m2_live_device is the canonical isolated test implementation. Never
     # duplicate its instrumentation parser or change its root approval policy.
     import contextlib
@@ -223,7 +237,8 @@ def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str 
                               source_sha=sha, artifact_id=artifact_id,
                               allow_app_force_stop=allow_app_force_stop,
                               allow_disposable_job_execution=allow_disposable_job_execution,
-                              allow_disposable_job_cancellation=allow_disposable_job_cancellation)
+                              allow_disposable_job_cancellation=allow_disposable_job_cancellation,
+                              allow_disposable_copy_writes=allow_disposable_copy_writes)
     output = io.StringIO()
     with contextlib.redirect_stdout(output):
         code = process.run(opts) if lane == 'm2-process-live' else live.run(opts)
@@ -243,7 +258,7 @@ def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str 
                   'installed_pair_verified', 'm2_l1_device_qualified', 'm2_l2_device_qualified',
                   'm2_l3_negative_device_qualified', 'm2_l3_transport_device_qualified',
                   'm2_l3_process_device_qualified', 'm3_preview_device_qualified',
-                  'm3_execute_device_qualified', 'm3_cancel_device_qualified'):
+                  'm3_execute_device_qualified', 'm3_cancel_device_qualified','m3_copy_device_qualified'):
         require(summary.get(field) == doc.get(field),
                 'LANE_RECEIPT_SUMMARY_MISMATCH:' + field)
     if code != 0:
@@ -282,7 +297,10 @@ def run(args):
             'M2_PROCESS_EXPLICIT_FORCE_STOP_AUTHORIZATION_REQUIRED')
     allow_execute = getattr(args, 'allow_disposable_job_execution', False)
     allow_cancel = getattr(args, 'allow_disposable_job_cancellation', False)
-    writes = set(selected) & {'m3-execute-live', 'm3-cancel-live'}
+    writes = set(selected) & {'m3-execute-live', 'm3-cancel-live','m3-copy-live'}
+    allow_copy = getattr(args,'allow_disposable_copy_writes',False)
+    require('m3-copy-live' not in selected or allow_copy, 'M3_COPY_WRITES_EXPLICIT_AUTHORIZATION_REQUIRED')
+    require(not allow_copy or 'm3-copy-live' in selected, 'M3_COPY_FLAG_REQUIRES_COPY_LANE')
     require(not writes or allow_execute, 'M3_DISPOSABLE_EXECUTION_EXPLICIT_AUTHORIZATION_REQUIRED')
     require('m3-cancel-live' not in selected or allow_cancel,
             'M3_DISPOSABLE_CANCEL_EXPLICIT_AUTHORIZATION_REQUIRED')
@@ -300,6 +318,7 @@ def run(args):
                m2_l3_negative_device_qualified=False, m2_l3_transport_device_qualified=False,
                m2_l3_process_device_qualified=False, m3_preview_device_qualified=False,
                m3_execute_device_qualified=False, m3_cancel_device_qualified=False,
+               m3_copy_device_qualified=False, disposable_copy_writes_authorized=allow_copy,
                disposable_execution_authorized=allow_execute, disposable_cancel_authorized=allow_cancel,
                app_force_stop_authorized=allow_app_force_stop, release_qualified=False,
                recorded_at_utc=datetime.now(timezone.utc).isoformat())
@@ -338,7 +357,7 @@ def run(args):
             try:
                 doc['tests'][lane] = execute_lane(lane, args.run_id, serial, folder, args.remote,
                                                   sha, artifact['id'],
-                                                  allow_app_force_stop, allow_execute, allow_cancel)
+                                                  allow_app_force_stop, allow_execute, allow_cancel, allow_copy)
             except (QualificationError, live.Blocked) as exc:
                 reason = str(exc) if isinstance(exc, QualificationError) else exc.reason
                 doc['tests'][lane] = {'state': ('FAILED' if reason.startswith('TEST_LANE_FAILED:')
@@ -362,6 +381,8 @@ def run(args):
                                               'PASS_M3_DISPOSABLE_CHECK_COMPLETION')
         doc['m3_cancel_device_qualified'] = (doc['tests'].get('m3-cancel-live', {}).get('state') ==
                                              'PASS_M3_DISPOSABLE_OWNED_CANCEL')
+        doc['m3_copy_device_qualified'] = (doc['tests'].get('m3-copy-live', {}).get('state') ==
+                                           'PASS_M3_DISPOSABLE_COPY_RECONCILED')
     except (QualificationError, live.Blocked, OSError, ValueError, KeyError, TypeError,
             json.JSONDecodeError) as exc:
         doc['reason'] = (str(exc) if isinstance(exc, QualificationError) else
@@ -376,7 +397,8 @@ def run(args):
                       'selected_lanes','tests','m2_l1_device_qualified','m2_l2_device_qualified',
                       'm2_l3_negative_device_qualified', 'm2_l3_transport_device_qualified',
                       'm2_l3_process_device_qualified', 'm3_preview_device_qualified',
-                      'm3_execute_device_qualified', 'm3_cancel_device_qualified')}, sort_keys=True))
+                      'm3_execute_device_qualified', 'm3_cancel_device_qualified',
+                      'm3_copy_device_qualified')}, sort_keys=True))
     return 0 if doc['status'].startswith('PASS_') else 2
 
 
@@ -404,6 +426,8 @@ def main(argv=None):
                    help='Explicit authorization for preinstalled isolated CHECK fixture execution')
     p.add_argument('--allow-disposable-job-cancellation', action='store_true',
                    help='Explicit authorization for exact session-owned test run cancellation')
+    p.add_argument('--allow-disposable-copy-writes', action='store_true',
+                   help='Explicit opt-in: disposable local COPY destination writes only')
     args = p.parse_args(argv)
     if args.list_tests:
         for name in sorted(LANES):

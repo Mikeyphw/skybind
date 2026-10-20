@@ -1,0 +1,115 @@
+{
+  "bkx": {
+    "blocking_gates": [
+      "actual BKX signed UID and runtime inventory",
+      "R1 explicit auth",
+      "R5 duplex Restic"
+    ],
+    "milestones": {
+      "R1": "UNQUALIFIED",
+      "R2": "UNQUALIFIED",
+      "R3": "UNQUALIFIED",
+      "R4": "UNQUALIFIED",
+      "R5": "UNQUALIFIED",
+      "R6": "UNQUALIFIED"
+    },
+    "native_rclone_retained": true,
+    "required_commands": [
+      "version",
+      "listremotes",
+      "lsjson",
+      "size",
+      "copy",
+      "copyto",
+      "check",
+      "sync",
+      "serve restic --stdio"
+    ],
+    "source_hash_policy": "REFERENCE_ONLY_NOT_RUNTIME_PIN",
+    "source_status": "HISTORICAL_OFFLINE_CONTRACT_ONLY"
+  },
+  "cfs1_operation_count": 57,
+  "chrootctl": {
+    "blocking_gates": [
+      "R1 process/grant identity",
+      "R2 metadata/config parity",
+      "R3 streams",
+      "R4 immutable promotion"
+    ],
+    "milestones": {
+      "R1": "UNQUALIFIED",
+      "R2": "UNQUALIFIED",
+      "R3": "UNQUALIFIED",
+      "R4": "UNQUALIFIED",
+      "R5": "UNQUALIFIED",
+      "R6": "UNQUALIFIED"
+    },
+    "native_rclone_retained": true,
+    "required_commands": [
+      "version",
+      "lsjson",
+      "cat",
+      "rcat",
+      "moveto --immutable",
+      "deletefile"
+    ],
+    "source_hash_policy": "REFERENCE_ONLY_NOT_RUNTIME_PIN",
+    "source_status": "REFERENCE_20261020_SOURCE_PROVENANCE_ONLY",
+    "verified_sources": {
+      "internal/rcloneops/list.go": {
+        "sha256": "6887c96a5bde3a247de2be999458b0bb5fb63b89f27802d4af0cf8cee7735368",
+        "tokens": [
+          "lsjson",
+          "--max-depth",
+          "--stat",
+          "--no-mimetype"
+        ]
+      },
+      "internal/rcloneops/location.go": {
+        "sha256": "580d56866b7b5403ce8bd32d75ce31190c587767a134479cb0c14c691cf6c879",
+        "tokens": [
+          "rclone://"
+        ]
+      },
+      "internal/rcloneops/runtime.go": {
+        "sha256": "9403ae4d15840fd5d7086053d3dd668c7878146d5f82b5a84ec17d7b6392fcb6",
+        "tokens": [
+          "CHROOTCTL_RCLONE_PATH",
+          "CHROOTCTL_RCLONE_CONFIG",
+          "rclone v",
+          "--config"
+        ]
+      },
+      "internal/rcloneops/stream.go": {
+        "sha256": "15470cfbc5e59e018e0f0e6518637d63f871bd2d90b7d84f064fb17ebc1fc55b",
+        "tokens": [
+          "cat",
+          "rcat",
+          "moveto",
+          "--immutable",
+          "deletefile",
+          "--use-json-log"
+        ]
+      }
+    }
+  },
+  "consumer_access": "NOT_IMPLEMENTED_NOT_AUTHORIZED",
+  "integration_lifecycle": {
+    "abi_schema": "skybind-rclone-consumer-abi-v1",
+    "compatibility_policy": "CAPABILITY_NEGOTIATION_NOT_CONSUMER_SOURCE_PIN",
+    "consumer_declaration_schema": "skybind-rclone-consumer-request-v1",
+    "core_rebuild_on_consumer_update": false,
+    "current_external_transport": "NOT_IMPLEMENTED",
+    "future_regression_gate": "PER_CONSUMER_REPLAY_CONFORMANCE",
+    "independent_consumer_adapter_updates": true,
+    "source_sha256_accepted_as": "EVIDENCE_ONLY"
+  },
+  "schema": "skybind-m3-consumers-r0-v1",
+  "source_archives": {
+    "chrootctl": {
+      "name": "chroot-ctl-20261020-181618-099054.tar.gz",
+      "sha256": "a1dfdd91c6d9b0b9cb862b6a997deac3f01d793701eac26ece0932268e1dfa82"
+    },
+    "skybind": "skybind-20261020-181606-656096.tar.gz"
+  }
+}
