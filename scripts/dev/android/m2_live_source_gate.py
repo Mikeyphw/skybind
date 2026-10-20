@@ -42,7 +42,7 @@ def verify(root=ROOT):
     for token in (
         "CASE = APP + '.LiveRootBrowserAcceptanceTest#liveReadBrowseAndReconnect'",
         "'-e', 'skybind.live', 'true'",
-        "'--mode', choices=('preflight','live')",
+        "'--mode', choices=('preflight','live','ui-live')",
         'github(opts.run_id, sha)', 'verify_candidate(folder, opts.run_id, sha,',
         'installed_pair(device, manifest, read_pin())',
         'parse_live(outcome.stdout)', 'return_code',

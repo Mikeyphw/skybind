@@ -801,3 +801,23 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Fix:** Require the original five core modules to exist but dynamically syntax-check every packaged `.js` ES module, reject symlinks and syntax errors, and add positive/negative tests for added modules, removed core files and unsafe symlinks. Preserve the explicit CI Node ES-module syntax check and historical bad-closure regression. Do not remove or silently skip checks when source expands.
 - **Scope:** Q05 candidate build qualification only. This source test repair does not rebuild or authorize Android APKs, root approval, module installation, release sealing or M2-L1 device qualification. The directory-unknown-size fix remains source-implemented pending an updated native daemon and Android reader deployed from matching evidence.
 - **Status:** SOURCE-BOUND HOTFIX PREPARED; rerun the hosted native candidate workflow at the new commit, inspect downstream Q04 dependency/pins independently, verify produced native artifacts, and leave release/device qualification false until actual testing.
+
+
+## SKYBIND-M2-L2 — Read-only real Compose UI and session lifecycle (2026-10-20)
+
+- **Evidence:** M2-L1 real RootService/provider browsing acceptance passed on Android API 36; user-reported receipts show `PASS_M2_L1_PAIR_PREFLIGHT_ONLY` and `PASS_M2_L1_LIVE_READ_BROWSE_REBIND` from GitHub run `39352843961`, artifact `12234555440`, source `c2cb64cdc3528c1de9814eb8ca4880b5aa778b8f`. Existing fixture-only 19/19 also preserved. These prove backend navigation contract but not Compose live navigation.
+- **Affected:** Native Android Compose control center, `SkybindSessionViewModel`, Devtool GitHub APK/device runner, optional KernelSU user authorization, session lifecycle.
+- **Implemented:** Real-app, opt-in M2-L2 instrumentation (no fixture backend) for Home → Browser → real remote → directory → Up → Remotes, Jobs/Activity separation, Activity recreation, explicit app-local unbind, stale data hiding and explicit reconnect. Added UI Disconnect (does **not** revoke root grant or stop daemon) and `m2-ui-live` lane; source-bound JS-free Python validation and negative receipts preserve independent M2-L1 results.
+- **Coverage limits:** Manual interruption of daemon/root-service process, real permission revocation, unobserved lazy-list items, backend mutations, and full release security require distinct gates; no automatic reboot, uninstall, root calls or data clear. If no selectable remote folder exists, return BLOCKED rather than auto-creating test data.
+- **Status:** IMPLEMENTED_SOURCE_ONLY; Android hosted compilation and physical M2-L2 execution not yet performed. Do not relabel M2-L1 as M2-L2.
+- **Devtool improvement:** Typed lane registry with independent narrow qualification flags and source/run/artifact/signer/installed-byte proof; tests for sibling lane not overclaiming qualification and for hidden stale UI.
+
+
+## SKYBIND-M2-L2-ARTIFACT-001 — Unsupported Devtool `create` inventory action (2026-10-20)
+
+- **Evidence:** Devtool apply-overlay run `246257fa140240e392a46d80e309fadb` failed during `artifact-check` before applying any source. Canonical qualification rejected `action: "create"` for `LiveUiAcceptanceTest.kt`, `m2_ui_live_source_gate.py`, and `tests/test_m2_ui_live.py`; it then reported the same three payload paths missing from accepted inventory.
+- **Affected:** Skybind M2-L2 overlay packaging, Devtool producer/schema interoperability, downloadable artifact operator workflow. Native Go daemon, root grants and Android application state were not changed by this failure.
+- **Cause:** The ZIP generator used `create` instead of Devtool's supported new-file `add` inventory action. Existing-file action `modify` and source preimage pins were already correct.
+- **Repair:** Reissue one replacement atomic ZIP with exactly three `add` declarations and eleven `modify` declarations, recomputed inventory SHA-256 for this ledger, stable validation-script digest, updated outer ZIP hash and SHA256SUMS.txt. No app/test logic changes versus the original M2-L2 payload.
+- **Prevention:** Add a producer-side pre-shipment manifest action enum check (`add`/`modify`) and require canonical artifact qualification on the generated ZIP before sharing. Never equate source-only test passes with Devtool artifact acceptance.
+- **Status:** ZIP INVENTORY CORRECTED; local source/tests and manifest checks PASS; actual Termux Devtool apply/release qualification pending. Preserve the failed run as evidence, do not rewrite it.

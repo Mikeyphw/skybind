@@ -36,7 +36,7 @@ TEST = APP + '.test'
 FILES = frozenset({'android-build-manifest.json', 'app-debug.apk', 'app-debug-androidTest.apk'})
 # Only reviewed, locally registered lanes may execute. No arbitrary --command,
 # arbitrary Python file, --class or user-supplied script path is accepted.
-LANES = {'m2-preflight': 'preflight', 'm2-live': 'live'}
+LANES = {'m2-preflight': 'preflight', 'm2-live': 'live', 'm2-ui-live': 'ui-live'}
 SERIAL = re.compile(r'[A-Za-z0-9_.:-]{1,128}\Z')
 APK_PATH = re.compile(r'/data/app/[A-Za-z0-9_./+@=:\-~]+/base\.apk\Z')
 
@@ -179,13 +179,18 @@ def validated_lane_receipt(record, *, lane: str, run_id: int, sha: str, artifact
             record.get('release_qualified') is False and
             record.get('device_qualified') is False,
             'LANE_PROVENANCE_OR_SCOPE_MISMATCH')
-    expected = ('PASS_M2_L1_PAIR_PREFLIGHT_ONLY' if lane == 'm2-preflight'
-                else 'PASS_M2_L1_LIVE_READ_BROWSE_REBIND')
+    expected = {'m2-preflight': 'PASS_M2_L1_PAIR_PREFLIGHT_ONLY',
+                'm2-live': 'PASS_M2_L1_LIVE_READ_BROWSE_REBIND',
+                'm2-ui-live': 'PASS_M2_L2_LIVE_UI_READONLY_RECOVERY'}[lane]
     require(record.get('state') == expected, 'TEST_LANE_NOT_PASS:' + lane)
-    require(bool(record.get('m2_l1_device_qualified')) == (lane == 'm2-live'),
+    require(record.get('m2_l1_device_qualified') is (lane == 'm2-live') and
+            record.get('m2_l2_device_qualified', False) is (lane == 'm2-ui-live'),
             'LANE_QUALIFICATION_OVERCLAIM')
+    scopes = {'m2-live': 'M2-L1_READ_ONLY_APP_ROOTSERVICE_QUERY_BROWSE_REBIND',
+              'm2-ui-live': 'M2-L2_REAL_COMPOSE_UI_BROWSE_DISCONNECT_RECONNECT'}
+    require(record.get('qualified_scope') == scopes.get(lane), 'LANE_SCOPE_MISMATCH')
     return {'state': expected, 'receipt': record.get('receipt'),
-            'qualified_scope': record.get('qualified_scope') if lane == 'm2-live' else None}
+            'qualified_scope': scopes.get(lane)}
 
 
 def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str | None,
@@ -212,7 +217,7 @@ def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str 
     # on-disk evidence without promoting a failed/blocked test to PASS.
     require(doc.get('receipt') == receipt, 'LANE_RECEIPT_PATH_MISMATCH')
     for field in ('state', 'reason', 'source_sha', 'github_run_id', 'artifact_id',
-                  'installed_pair_verified', 'm2_l1_device_qualified'):
+                  'installed_pair_verified', 'm2_l1_device_qualified', 'm2_l2_device_qualified'):
         require(summary.get(field) == doc.get(field),
                 'LANE_RECEIPT_SUMMARY_MISMATCH:' + field)
     if code != 0:
@@ -251,7 +256,8 @@ def run(args):
                automatic_uninstall=False, automatic_data_clear=False,
                root_grant_changed_by_runner=False, daemon_mutated=False,
                selected_lanes=selected, tests={}, device_qualified=False,
-               m2_l1_device_qualified=False, release_qualified=False,
+               m2_l1_device_qualified=False, m2_l2_device_qualified=False,
+               release_qualified=False,
                recorded_at_utc=datetime.now(timezone.utc).isoformat())
     try:
         sha = live.current_source()
@@ -297,6 +303,8 @@ def run(args):
                          else 'PASS_CI_PAIR_VERIFIED_NO_TESTS_SELECTED')
         doc['m2_l1_device_qualified'] = (doc['tests'].get('m2-live', {}).get('state') ==
                                          'PASS_M2_L1_LIVE_READ_BROWSE_REBIND')
+        doc['m2_l2_device_qualified'] = (doc['tests'].get('m2-ui-live', {}).get('state') ==
+                                         'PASS_M2_L2_LIVE_UI_READONLY_RECOVERY')
     except (QualificationError, live.Blocked, OSError, ValueError, KeyError, TypeError,
             json.JSONDecodeError) as exc:
         doc['reason'] = (str(exc) if isinstance(exc, QualificationError) else
@@ -308,7 +316,7 @@ def run(args):
     print(json.dumps({key: doc.get(key) for key in
                      ('status','reason','receipt','github_run_id','artifact_id','source_sha',
                       'installed_before','installed_pair_verified','installation_performed',
-                      'selected_lanes','tests','m2_l1_device_qualified')}, sort_keys=True))
+                      'selected_lanes','tests','m2_l1_device_qualified','m2_l2_device_qualified')}, sort_keys=True))
     return 0 if doc['status'].startswith('PASS_') else 2
 
 

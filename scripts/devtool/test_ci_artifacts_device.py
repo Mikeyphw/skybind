@@ -91,7 +91,8 @@ class CiDeviceTest(unittest.TestCase):
                  source_sha='a'*40, github_run_id=55, artifact_id=77,
                  installed_pair_verified=True, signing_verified=True,
                  device_qualified=False, release_qualified=False,
-                 m2_l1_device_qualified=True, receipt='/fixture')
+                 m2_l1_device_qualified=True, m2_l2_device_qualified=False,
+                 qualified_scope='M2-L1_READ_ONLY_APP_ROOTSERVICE_QUERY_BROWSE_REBIND', receipt='/fixture')
         self.assertEqual(ci.validated_lane_receipt(x, lane='m2-live',run_id=55,
                          sha='a'*40,artifact_id=77)['state'], x['state'])
         for change in ({'artifact_id': 42}, {'release_qualified': True},

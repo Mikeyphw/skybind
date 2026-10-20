@@ -38,6 +38,16 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     private var active: Job? = null
     private var generation = 0L
 
+    /** Explicit app-local disconnect; no root-manager revocation or daemon mutation. */
+    fun disconnect() {
+        active?.cancel()
+        generation++
+        clearBrowser()
+        bridge.close()
+        snapshot = SkybindReadSnapshot(LinkState.NOT_AUTHORIZED,
+            "Read-only session disconnected. Tap Connect to reconnect.")
+    }
+
     fun refresh() {
         clearBrowser()
         active?.cancel()

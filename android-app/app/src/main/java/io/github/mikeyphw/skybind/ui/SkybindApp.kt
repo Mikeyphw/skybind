@@ -25,6 +25,7 @@ private enum class Tab(val label: String, val symbol: String) {
 
 @Composable
 fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: () -> Unit = {},
+    onDisconnect: () -> Unit = {},
     browser: BrowserState = BrowserState(), onBrowseRemote: (String) -> Unit = {},
     onBrowseFolder: (String) -> Unit = {}, onBrowseUp: () -> Unit = {},
     onSwitchRemote: () -> Unit = {}) {
@@ -65,7 +66,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
             },
         ) { inner ->
             when (tab) {
-                Tab.HOME -> HomePage(safe, Modifier.padding(inner), onConnect) { selected = it.name }
+                Tab.HOME -> HomePage(safe, Modifier.padding(inner), onConnect, onDisconnect) { selected = it.name }
                 Tab.BROWSER -> BrowserPage(safe, browser.forSnapshot(safe), Modifier.padding(inner),
                     onBrowseRemote, onBrowseFolder, onBrowseUp, onSwitchRemote)
                 Tab.JOBS -> JobsPage(safe, Modifier.padding(inner)) { selected = Tab.ACTIVITY.name }
@@ -116,12 +117,18 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     InfoPanel("Connection", s.detail, Modifier.testTag("connection-status"), label)
 }
 
-@Composable private fun HomePage(s: SkybindReadSnapshot, modifier: Modifier, onConnect: () -> Unit, select: (Tab) -> Unit) {
+@Composable private fun HomePage(s: SkybindReadSnapshot, modifier: Modifier, onConnect: () -> Unit,
+    onDisconnect: () -> Unit, select: (Tab) -> Unit) {
     Page("Home", "Your Skybind service at a glance", modifier) {
         ConnectionPanel(s)
         if (s.link == LinkState.NOT_AUTHORIZED || s.link == LinkState.DISCONNECTED) {
             Button(onClick = onConnect, modifier = Modifier.testTag("connect-readonly")) {
                 Text("Connect · root approval required")
+            }
+        } else if (s.link == LinkState.ONLINE || s.link == LinkState.DEGRADED) {
+            // Unbind only this app-owned session; do NOT revoke the root grant or stop the daemon.
+            OutlinedButton(onClick = onDisconnect, modifier = Modifier.testTag("disconnect-readonly")) {
+                Text("Disconnect")
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

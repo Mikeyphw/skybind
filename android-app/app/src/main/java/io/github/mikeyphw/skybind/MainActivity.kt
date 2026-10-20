@@ -16,6 +16,7 @@ class MainActivity : ComponentActivity() {
             SkybindApp(snapshot = session.snapshot,
                 onRefresh = session::refresh,
                 onConnect = session::connect,
+                onDisconnect = session::disconnect,
                 browser = session.browser,
                 onBrowseRemote = session::selectRemote,
                 onBrowseFolder = session::openFolder,

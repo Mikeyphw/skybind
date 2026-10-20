@@ -36,6 +36,8 @@ CHECKS = [
     [sys.executable, '-B', 'scripts/dev/android/m2_live_source_gate.py'],
     [sys.executable, '-B', '-m', 'unittest', 'tests.test_m2_live_device', '-q'],
     [sys.executable, '-B', 'scripts/devtool/ci_artifacts_device_source_gate.py'],
+    [sys.executable, '-B', 'scripts/dev/android/m2_ui_live_source_gate.py'],
+    [sys.executable, '-B', '-m', 'unittest', 'tests.test_m2_ui_live', '-q'],
     [sys.executable, '-B', '-m', 'unittest', 'scripts.devtool.test_ci_artifacts_device', '-q'],
     [sys.executable, '-B', '-m', 'unittest', 'tests.test_stable_signing', '-q'],
     [sys.executable, '-B', '-m', 'unittest', 'tests.test_m2_browser_source', '-q'],

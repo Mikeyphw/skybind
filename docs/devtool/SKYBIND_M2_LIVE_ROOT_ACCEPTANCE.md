@@ -97,3 +97,34 @@ Original run `39264383682`, SHA `b763a59bdc3d5fcc71da47c49745f14c4e27fdd2`,
 remains FAILED in M2-L1 (`SKYBIND_LIVE_FAILED_BROWSE`), despite matched APK
 pair and passing preflight. The fix itself is source-only and not yet Android
 device qualified. New GitHub-hosted APKs and read-only `m2-live` retest required.
+
+
+## M2-L2 — real Compose UI navigation and app-session recovery
+
+**Implementation status:** source implemented; GitHub APK compile and physical device
+UI acceptance pending. The historical M2-L1 `PASS_M2_L1_LIVE_READ_BROWSE_REBIND`
+from hosted run `39352843961`, artifact `12234555440`, SHA `c2cb64c…` remains
+separate, immutable evidence. This new gate does not retroactively modify it.
+
+Live UI test is opted in only through `--test m2-ui-live`, executed by the same
+`ci_artifacts_device.py` provenance, signer and installed byte checks. It opens
+real `MainActivity`, explicitly clicks Connect (root-manager approval remains
+operator-controlled), selects one real configured remote, browses a real folder
+and returns to its parent, switches remotes, navigates Jobs and Activity,
+recreates the Activity, and uses new visible Disconnect to unbind only the
+app-owned RootService session. Tests verify stale Browser/Jobs/Activity content
+is hidden, then reconnect and verify remote selection returns. A configured
+remote must contain at least one folder, otherwise it reports BLOCKED.
+
+**No synthetic daemon, no root command, no data mutation, no screenshot or raw
+remote entry serialization, no automatic grant revocation.** Passing qualifies
+`M2-L2_REAL_COMPOSE_UI_BROWSE_DISCONNECT_RECONNECT` only. It does **not**
+prove asynchronous provider mutation correctness, actual root-service process
+death, kernel root-grant revocation, full release, or a daemon kill/restart.
+
+Example (after GitHub hosted APK build matching clean source):
+
+`python3 -B scripts/devtool/ci_artifacts_device.py --run-id RUN_ID --install --test m2-ui-live --serial emulator-5554`
+
+An optional `--remote NAME` selects the visible remote; the configured remote
+must be visible in the remote selector without typing secrets.

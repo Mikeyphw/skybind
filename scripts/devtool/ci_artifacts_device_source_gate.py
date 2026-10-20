@@ -27,7 +27,7 @@ def verify(root=ROOT):
     required = (
         "REPO = 'Mikeyphw/skybind'",
         "ARTIFACT = 'skybind-android-debug-apks-unqualified'",
-        "LANES = {'m2-preflight': 'preflight', 'm2-live': 'live'}",
+        "LANES = {'m2-preflight': 'preflight', 'm2-live': 'live', 'm2-ui-live': 'ui-live'}",
         'select_lanes(args.test)', 'live.current_source()',
         'live.github(args.run_id, sha)', 'live.verify_candidate(folder, args.run_id, sha, pin)',
         'installation_preflight(installed_identity(serial), manifest, pin)',
@@ -48,14 +48,17 @@ def verify(root=ROOT):
                 'shell=True', "'uninstall'", "'pm', 'clear'", "'reboot'",
                 "'-d'", 'RootService.stop'):
         need(bad not in cli, 'CI_CLI_UNSAFE_' + bad)
-    need('def run(opts):' in lane and "'-e', 'skybind.live', 'true'" in lane,
+    need('def run(opts):' in lane and "'skybind.live'" in lane and
+         "'skybind.ui.live'" in lane and 'parse_ui_live(outcome.stdout)' in lane,
          'ISOLATED_LIVE_RUNNER_NOT_PRESERVED')
     need("report['receipt'] = str(filename)" in lane and
          "doc['receipt'] = store(doc)" in lane,
          'LIVE_RECEIPT_MUST_PERSIST_SELF_REFERENCE')
     need("doc.get('receipt') == receipt" in cli and
          "summary.get(field) == doc.get(field)" in cli and
-         "m2_l1_device_qualified=False" in cli,
+         "m2_l1_device_qualified=False" in cli and
+         "m2_l2_device_qualified=False" in cli and
+         "'LANE_SCOPE_MISMATCH'" in cli,
          'HOST_LANE_RECEIPT_MUST_VERIFY_AND_DEFAULT_FALSE')
     need('def test_lane_preflight_saved_receipt_round_trip(' in tests and
          'def test_lane_missing_receipt_path_rejected(' in tests and
