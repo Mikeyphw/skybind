@@ -26,6 +26,11 @@ jobs:
           python3 -B scripts/dev/android/m3_copy_source_gate.py
           python3 -B scripts/dev/android/m3_consumer_contract_gate.py
           python3 -B -m unittest discover -s tests -p 'test_m3_copy_consolidated.py' -q
+      - name: R1 consumer policy / M3 scoped evidence source gates (NO external access)
+        run: |
+          python3 -B scripts/dev/android/r1_consumer_source_gate.py
+          python3 -B -m unittest discover -s tests -p 'test_r1_consumer_access_contract.py' -q
+          go test ./internal/brokergrant ./internal/brokeridentity ./internal/brokeripc ./internal/brokerissue ./internal/jobs ./internal/daemon
       - name: SB-Q02 source-build contract (no external gates)
         run: bash scripts/devtool/check_q02_source_build.sh
       - name: SB-Q03 raw provenance intake contract (no external gates)

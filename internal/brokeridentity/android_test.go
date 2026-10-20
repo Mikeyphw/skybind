@@ -16,12 +16,16 @@ type fakeProc struct {
 	missing bool
 	count   int
 	change  bool
+	label   string
 }
 
 func (p *fakeProc) Read(pid int32, name string) ([]byte, error) {
 	p.count++
 	if p.missing {
 		return nil, errors.New("no_proc")
+	}
+	if name == "attr/current" {
+		return []byte(p.label + "\n"), nil
 	}
 	if name == "status" {
 		return []byte(fmt.Sprintf("Name:\tapp\nUid:\t%d\t%d\t%d\t%d\n", p.uid, p.uid, p.uid, p.uid)), nil
@@ -49,9 +53,9 @@ func (a *attestor) Verify(_ context.Context, _ uint32, p PackagePin) error {
 }
 func TestProcessAndPackagePinnedIdentity(t *testing.T) {
 	cert := strings.Repeat("a", 64)
-	p := &fakeProc{uid: 10124, tick: 12345}
+	p := &fakeProc{uid: 10124, tick: 12345, label: "u:r:untrusted_app:s0:c1,c2"}
 	a := &attestor{}
-	v := &AndroidVerifier{Pins: map[uint32]PackagePin{10124: {Name: "io.example.bkx", CertSHA256: cert}}, Proc: p, Packages: a}
+	v := &AndroidVerifier{Pins: map[uint32]PackagePin{10124: {Name: "io.example.bkx", CertSHA256: cert, SELinuxContext: "u:r:untrusted_app:s0:c1,c2"}}, Proc: p, Packages: a}
 	peer := brokeripc.KernelPeer{UID: 10124, GID: 10124, PID: 199}
 	identity, e := v.VerifyPeer(peer)
 	if e != nil || identity.UID != peer.UID || len(identity.ProcessKey) != 64 || a.calls != 1 {
@@ -69,11 +73,11 @@ func TestProcessAndPackagePinnedIdentity(t *testing.T) {
 }
 func TestMissingAttestorAndUntrustedPeerFailClosed(t *testing.T) {
 	cert := strings.Repeat("0", 64)
-	p := &fakeProc{uid: 10244, tick: 99}
+	p := &fakeProc{uid: 10244, tick: 99, label: "u:r:untrusted_app:s0:c3,c4"}
 	a := &attestor{}
 	good := brokeripc.KernelPeer{UID: 10244, GID: 10244, PID: 451}
 	makeV := func() *AndroidVerifier {
-		return &AndroidVerifier{Pins: map[uint32]PackagePin{10244: {Name: "io.example.client", CertSHA256: cert}}, Proc: p, Packages: a}
+		return &AndroidVerifier{Pins: map[uint32]PackagePin{10244: {Name: "io.example.client", CertSHA256: cert, SELinuxContext: "u:r:untrusted_app:s0:c3,c4"}}, Proc: p, Packages: a}
 	}
 	cases := []struct {
 		name   string
@@ -85,7 +89,7 @@ func TestMissingAttestorAndUntrustedPeerFailClosed(t *testing.T) {
 		{"wrong process uid", func(_ *AndroidVerifier, p *brokeripc.KernelPeer) { p.GID = 0 }},
 		{"no pin", func(v *AndroidVerifier, _ *brokeripc.KernelPeer) { v.Pins = nil }},
 		{"bad cert", func(v *AndroidVerifier, _ *brokeripc.KernelPeer) {
-			v.Pins[10244] = PackagePin{Name: "io.example.client", CertSHA256: "bad"}
+			v.Pins[10244] = PackagePin{Name: "io.example.client", CertSHA256: "bad", SELinuxContext: p.label}
 		}},
 		{"missing proc", func(v *AndroidVerifier, _ *brokeripc.KernelPeer) { v.Proc = nil }},
 		{"invalid pid", func(_ *AndroidVerifier, p *brokeripc.KernelPeer) { p.PID = 0 }},
@@ -105,6 +109,11 @@ func TestMissingAttestorAndUntrustedPeerFailClosed(t *testing.T) {
 		t.Fatal("attestor denial ignored")
 	}
 	a.reject = false
+	p.label = "u:r:untrusted_app:s0:other"
+	if _, e := makeV().VerifyPeer(good); e == nil {
+		t.Fatal("changed SELinux label accepted")
+	}
+	p.label = "u:r:untrusted_app:s0:c3,c4"
 	p.change = true
 	if _, e := makeV().VerifyPeer(good); e == nil {
 		t.Fatal("changed starttime accepted")

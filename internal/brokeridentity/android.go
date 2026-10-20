@@ -27,6 +27,9 @@ var ErrUnverified = errors.New("android_peer_unverified")
 type PackagePin struct {
 	Name       string
 	CertSHA256 string
+	// SELinuxContext is measured for this Android app process on this device.
+	// It must be operator-approved, never taken from a request field.
+	SELinuxContext string
 }
 
 // PackageAttestor is a trusted platform-side Android PackageManager authority.
@@ -45,7 +48,7 @@ type ProcReader interface {
 type LinuxProc struct{ Root string }
 
 func (p LinuxProc) Read(pid int32, filename string) ([]byte, error) {
-	if pid <= 0 || (filename != "stat" && filename != "status") {
+	if pid <= 0 || (filename != "stat" && filename != "status" && filename != "attr/current") {
 		return nil, ErrUnverified
 	}
 	root := p.Root
@@ -125,6 +128,10 @@ func cleanPin(pin PackagePin) bool {
 			return false
 		}
 	}
+	if len(pin.SELinuxContext) < 8 || len(pin.SELinuxContext) > 192 ||
+		!strings.HasPrefix(pin.SELinuxContext, "u:r:") || strings.ContainsAny(pin.SELinuxContext, "\r\n\x00\t") {
+		return false
+	}
 	if len(pin.CertSHA256) != 64 {
 		return false
 	}
@@ -162,6 +169,10 @@ func (v *AndroidVerifier) VerifyPeer(peer brokeripc.KernelPeer) (brokergrant.Ide
 		if e != nil || uid != peer.UID {
 			return 0, ErrUnverified
 		}
+		label, e := v.Proc.Read(peer.PID, "attr/current")
+		if e != nil || strings.TrimSpace(string(label)) != pin.SELinuxContext {
+			return 0, ErrUnverified
+		}
 		return ticks, nil
 	}
 	first, e := readSnapshot()
@@ -179,6 +190,6 @@ func (v *AndroidVerifier) VerifyPeer(peer brokeripc.KernelPeer) (brokergrant.Ide
 	}
 	// Binds every grant to an individual process incarnation and authenticated
 	// package certificate, rather than UID alone or a caller-supplied string.
-	sum := sha256.Sum256([]byte(fmt.Sprintf("skybind-r1-android-v1\x00%d\x00%d\x00%d\x00%s\x00%s", peer.UID, peer.PID, first, pin.Name, pin.CertSHA256)))
+	sum := sha256.Sum256([]byte(fmt.Sprintf("skybind-r1-android-v2\x00%d\x00%d\x00%d\x00%s\x00%s\x00%s", peer.UID, peer.PID, first, pin.Name, pin.CertSHA256, pin.SELinuxContext)))
 	return brokergrant.Identity{UID: peer.UID, ProcessKey: hex.EncodeToString(sum[:])}, nil
 }

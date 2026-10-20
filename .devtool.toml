@@ -209,7 +209,35 @@ command = ["python3", "../scripts/devtool/check_bootstrap.py", "release"]
 inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
+# R1 consumer grant/session policy is source-only; no external listener/grants.
+[targets.skybind_release.jobs.r1-consumer-contract]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/r1_consumer_source_gate.py"]
+inputs = ["../scripts/dev/android/r1_consumer_source_gate.py", "../internal/brokergrant/**", "../internal/brokeridentity/**", "../internal/brokeripc/**", "../internal/brokerissue/**", "../docs/contracts/rclone-compat/**", "../.devtool.toml"]
+metadata = { read_only = true, external_transport_qualified = false, release_qualified = false }
+
+[targets.skybind_release.jobs.r1-consumer-go]
+runner = "command"
+command = ["go", "-C", "..", "test", "-count=1", "./internal/brokergrant", "./internal/brokeridentity", "./internal/brokeripc", "./internal/brokerissue", "./internal/jobs", "./internal/daemon"]
+inputs = ["../internal/brokergrant/**", "../internal/brokeridentity/**", "../internal/brokeripc/**", "../internal/brokerissue/**", "../internal/jobs/**", "../internal/daemon/**"]
+metadata = { read_only = true, source_only = true, device_qualified = false }
+
+[targets.skybind_release.jobs.r1-consumer-m3-evidence]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_r1_consumer_access_contract.py", "-q"]
+inputs = ["../tests/test_r1_consumer_access_contract.py", "../scripts/dev/android/m3_evidence_reconcile.py"]
+metadata = { read_only = true, no_automatic_device_retest = true, release_qualified = false }
+
 [targets.skybind_release.workflows]
+# Independently updated consumers are ABI/scoped-grant checked, not source-SHA pinned.
+r1-consumer-foundation-source = [
+  { id = "policy-contract", ref = "job:r1-consumer-contract", depends_on = [] },
+  { id = "policy-go-tests", ref = "job:r1-consumer-go", depends_on = ["policy-contract"] },
+  { id = "consumer-r0", ref = "job:m3-consumer-r0", depends_on = ["policy-contract", "policy-go-tests"] },
+  { id = "m3-evidence-tests", ref = "job:r1-consumer-m3-evidence", depends_on = ["policy-contract", "policy-go-tests", "consumer-r0"] },
+  { id = "m3-regression", ref = "job:m3-operations-unit", depends_on = ["policy-contract", "policy-go-tests", "consumer-r0", "m3-evidence-tests"] },
+  { id = "hosted-only", ref = "job:m3-operations-security", depends_on = ["policy-contract", "policy-go-tests", "consumer-r0", "m3-evidence-tests", "m3-regression"] },
+]
 # Consolidated source-only M3 copy, reconnect/evidence and R0 cross-consumer gates.
 m3-consolidated-source = [
   { id = "copy-contract", ref = "job:m3-copy-contract", depends_on = [] },
@@ -1552,4 +1580,9 @@ metadata = { read_only = true, qualification = "M3-copy-integrity-negatives-only
 [wrapper.commands.m3-consolidated-source]
 description = "Single M3 source DAG: disposable copy, reconnect and R0 consumer contract; no device mutation"
 workflow = "m3-consolidated-source"
+target = "skybind_release"
+
+[wrapper.commands.r1-consumer-foundation-source]
+description = "R1 scope/grant/revocation source-only gate + M3 scoped receipt reconciler tests (no broker or APK build)"
+workflow = "r1-consumer-foundation-source"
 target = "skybind_release"
