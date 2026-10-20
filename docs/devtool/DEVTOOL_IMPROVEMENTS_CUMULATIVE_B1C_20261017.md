@@ -868,3 +868,12 @@ This addendum is based on inspected and locally executable source from both uplo
   class, rather than prohibiting every `"job.run"` token in the privileged
   service; otherwise a properly authorized future capability is incorrectly
   treated as a regression. M1/M2 gates now assert separation and exact checks.
+
+
+### M3 registry nil-slice contract and masked Android snapshot failure — 2026-10-20
+
+- **Evidence:** `Mikeyphw/skybind` commit `296141ac01f2b0716b52d16169bae0f0de2b3e27`, GitHub run `39465999694`, authenticated artifact `12284827401`; same-device `m3-preview-live` produced `BLOCKED / SKYBIND_M3_BLOCKED_DAEMON`. Direct Termux-root daemon RPCs passed for capabilities/runtime/remotes/mount/events, but `jobs.status` had `runs` as an array while `registry.jobs` was not an array. ADB shell root `su` unavailable on `emulator-5554` does not negate Termux-root daemon health.
+- **Root cause (source confirmed):** `internal/jobs/jobs.go` `clone()` used `append([]Job(nil), r.Jobs...)`, yielding nil for an empty registry; JSON returned `null` rather than mandatory `[]`. Android `LiveReadSnapshotReader.kt` used `getJSONArray("jobs")` and disconnected; M3 instrumentation collapsed all non-ONLINE snapshots under `SKYBIND_M3_BLOCKED_DAEMON`. Go tests previously covered `runs:[]` only, missing `registry.jobs`.
+- **Correction:** fix producer nil-slice conversion in both `jobs.status` and `jobs.snapshot`; constrain consumer legacy-null compatibility to explicitly present field plus schema/revision validation; retain malformed/missing fail-closed behavior; expose only sanitized stage indicators; add Go, Kotlin, Python negative regressions and grouped M3 registry Devtool source node. No daemon state mutation or root reset.
+- **Status:** SOURCE_IMPLEMENTED; local regression PASS pending final overlay validation; hosted Kotlin compile, exact signed APK installation/device preview and any Go daemon module replacement **NOT QUALIFIED**. Empty registry must still produce `SKYBIND_M3_BLOCKED_NO_ELIGIBLE_JOB` instead of fake success.
+- **Next Devtool improvement:** keep producer→consumer wire-shape test fixtures (including empty/nonempty/null/missing), independently scoped evidence, `RUN_ID` environment variable in commands and `--serial emulator-5554`; do not infer root privileges from ADB shell on Termux-backed target.

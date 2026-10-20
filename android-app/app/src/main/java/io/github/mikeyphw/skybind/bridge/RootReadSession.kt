@@ -77,6 +77,9 @@ class RootReadSession(private val app: Application, private val disconnected: ()
         } catch (e: SecurityException) {
             withContext(Dispatchers.Main) { transportLost() }
             SkybindReadSnapshot(LinkState.NOT_AUTHORIZED, "Root service rejected the client or its scope.")
+        } catch (e: SnapshotStageException) {
+            withContext(Dispatchers.Main) { transportLost() }
+            SkybindReadSnapshot(LinkState.DISCONNECTED, "Snapshot rejected at ${e.operation}. Reconnect after checking daemon compatibility.")
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { transportLost() }
             SkybindReadSnapshot(LinkState.DISCONNECTED, "Skybind daemon unavailable. Tap Connect to reconnect.")

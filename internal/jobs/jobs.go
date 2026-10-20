@@ -458,7 +458,11 @@ func (s *Store) Snapshot() (Registry, error) {
 	defer s.mu.Unlock()
 	return clone(s.state.Registry), nil
 }
-func clone(r Registry) Registry { r.Jobs = append([]Job(nil), r.Jobs...); return r }
+
+// Clone into a non-nil slice: the public daemon contract requires [] rather
+// than null for an empty registry. This also prevents callers from mutating
+// the persisted registry's backing slice.
+func clone(r Registry) Registry { r.Jobs = append([]Job{}, r.Jobs...); return r }
 
 // RunStatus returns only a previously claimed job run; it cannot launch work.
 // SetEventObserver wires the durable event publisher after opening the run

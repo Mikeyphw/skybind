@@ -101,6 +101,11 @@ def verify(root=ROOT):
         'live.installed_pair(serial, manifest, pin)',
         'live.verify_candidate(folder, args.run_id, sha, pin)',
         'LANE_QUALIFICATION_OVERCLAIM', 'm3_preview_device_qualified=False'))
+    tokens('REGISTRY_COMPAT', reader, (
+        'registry.getInt("schema_version") == 1', 'registry.getLong("revision") >= 0',
+        'require(registry.has("jobs"))', 'registry.isNull("jobs")',
+        'SnapshotStageException("jobs.status")'))
+    tokens('REGISTRY_SOURCE_GUARD', dag, ('[targets.skybind_release.jobs.m3-registry-contract]',))
     tokens('DEVTOOL', dag, ('m3-operations-source = [',
         '[targets.skybind_release.jobs.m3-operations-contract]',
         '[targets.skybind_release.jobs.m3-operations-unit]',

@@ -85,3 +85,15 @@ Review actual GitHub Kotlin build and instrumented preview receipt. Then author
 and qualify a separate opt-in test-owned disposable copy/check job fixture before
 marking write-capable M3 acceptance. Continue the unified roadmap for other
 planned operations, rclone-native provider compatibility, BKX and chrootctl.
+
+## 2026-10-20 consolidated M3 registry compatibility follow-up
+
+The live preview lane run `39465999694` was `BLOCKED` with installed pair
+verified. Direct same-device root CLI diagnostics showed a healthy daemon
+(protocol 1/57 operations) but `jobs.status.registry.jobs` was not an array.
+Go `clone()` converted an empty registry to nil, JSON null. The separate
+source-bound follow-up `SKYBIND_M3_REGISTRY_RECOVERY_CONSOLIDATED_20261020.md`
+repairs the Go producer, normalizes only explicit legacy null in the app,
+adds stage-based diagnostics, Go/Kotlin/Python regression tests and a
+consolidated Devtool registry-contract node. No M3 device PASS is claimed.
+Use `$RUN_ID` and `--serial emulator-5554` in future device commands.

@@ -4,6 +4,9 @@ import io.github.mikeyphw.skybind.model.*
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** Sanitized query-stage failure; no paths, daemon errors, or credentials leave the root broker. */
+class SnapshotStageException(val operation: String) : IllegalStateException("invalid snapshot at $operation")
+
 /** Validates real daemon RPC envelopes and authoritative state; no fixture in production. */
 class LiveReadSnapshotReader {
     private var cursor: Long = 0
@@ -13,11 +16,11 @@ class LiveReadSnapshotReader {
 
     @Synchronized fun fetch(query: (String, String) -> String): SkybindReadSnapshot {
         fun read(name: String, args: JSONObject = JSONObject()): Any {
-            val body = JSONObject(query(name, args.toString()))
-            if (body.optInt("schema_version", -1) != 1 || body.opt("ok") != true) {
-                throw IllegalStateException("daemon rejected required query")
-            }
-            return body.opt("result") ?: throw IllegalStateException("missing daemon result")
+            val body = try { JSONObject(query(name, args.toString())) }
+                catch (_: Exception) { throw SnapshotStageException(name) }
+            if (body.optInt("schema_version", -1) != 1 || body.opt("ok") != true)
+                throw SnapshotStageException(name)
+            return body.opt("result") ?: throw SnapshotStageException(name)
         }
         val capabilities = read("system.capabilities") as? JSONObject
             ?: return SkybindReadSnapshot(LinkState.UNSUPPORTED, "Unrecognized daemon capability response")
@@ -57,9 +60,17 @@ class LiveReadSnapshotReader {
             require(name.isNotBlank() && name.length <= 96)
             MountSummary(name, name, "Not queried")
         }.take(128)
-        val registry = jobs.getJSONObject("registry")
-        val entries = registry.getJSONArray("jobs")
-        require(entries.length() <= 128)
+        // Historical Go clone() serialized a zero-length registry as jobs:null.
+        // Normalize ONLY explicit null with a valid schema and revision; absent,
+        // malformed or oversized registries remain rejected, not silently empty.
+        val entries = try {
+            val registry = jobs.getJSONObject("registry")
+            require(registry.getInt("schema_version") == 1 && registry.getLong("revision") >= 0)
+            require(registry.has("jobs"))
+            val list = if (registry.isNull("jobs")) JSONArray() else registry.getJSONArray("jobs")
+            require(list.length() <= 128)
+            list
+        } catch (_: Exception) { throw SnapshotStageException("jobs.status") }
         val definitions = (0 until entries.length()).map { i ->
             val obj = entries.getJSONObject(i)
             val name = obj.getString("name")
@@ -69,7 +80,8 @@ class LiveReadSnapshotReader {
             JobDefinition(name, kind, obj.getBoolean("enabled"))
         }
         require(definitions.map { it.name }.toSet().size == definitions.size)
-        val runs = jobs.getJSONArray("runs")
+        val runs = try { jobs.getJSONArray("runs") }
+            catch (_: Exception) { throw SnapshotStageException("jobs.status") }
         val runItems = (0 until runs.length()).map { i ->
             val obj = runs.getJSONObject(i)
             val id = obj.getString("id")

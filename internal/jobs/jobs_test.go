@@ -78,6 +78,54 @@ func TestEmptyStatusRunsSerializesAsArray(t *testing.T) {
 	}
 }
 
+// Regression: M3 Android expects a real registry.jobs array even when no
+// jobs have been configured. Preserve [] through both status and snapshot.
+func TestEmptyJobRegistryIsArrayInStatusAndSnapshot(t *testing.T) {
+	s, _, _ := fixture(t)
+	for _, tc := range []struct {
+		name string
+		load func() (any, error)
+	}{
+		{"jobs.status", s.Status},
+		{"jobs.snapshot", func() (any, error) { return s.Snapshot() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := tc.load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var obj map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &obj); err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "jobs.status" {
+				if err := json.Unmarshal(obj["registry"], &obj); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if string(obj["jobs"]) != "[]" {
+				t.Fatalf("empty %s registry.jobs must serialize as [], got %s", tc.name, obj["jobs"])
+			}
+		})
+	}
+}
+
+func TestJobRegistryCloneKeepsInputIsolated(t *testing.T) {
+	original := Registry{SchemaVersion: 1, Jobs: []Job{{Name: "Example", Kind: "check"}}}
+	copied := clone(original)
+	copied.Jobs[0].Name = "Mutated"
+	if original.Jobs[0].Name != "Example" {
+		t.Fatal("clone leaked job mutation")
+	}
+	if clone(Empty()).Jobs == nil {
+		t.Fatal("clone of empty registry lost [] contract")
+	}
+}
+
 func TestTransactionalJobsAndDestructiveProof(t *testing.T) {
 	s, r, _ := fixture(t)
 	b := registry("sync")

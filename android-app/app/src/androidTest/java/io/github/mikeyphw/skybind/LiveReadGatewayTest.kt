@@ -44,6 +44,45 @@ class LiveReadGatewayTest {
         assertEquals("job.progress", result.timeline.single().title)
     }
 
+    @Test fun legacyNullEmptyRegistryIsReadOnlyAndOnline() {
+        val result = LiveReadSnapshotReader().fetch { op, args ->
+            if (op == "jobs.status") envelope(JSONObject()
+                .put("registry", JSONObject().put("schema_version", 1)
+                    .put("revision", 0).put("jobs", JSONObject.NULL))
+                .put("runs", JSONArray()))
+            else fixture(op, args)
+        }
+        assertEquals(LinkState.ONLINE, result.link)
+        assertTrue(result.definitions.isEmpty())
+        assertTrue(result.jobs.isEmpty())
+    }
+
+    @Test fun absentJobRegistryIsStillRejected() {
+        val failure = runCatching {
+            LiveReadSnapshotReader().fetch { op, args ->
+                if (op == "jobs.status") envelope(JSONObject()
+                    .put("registry", JSONObject().put("schema_version", 1).put("revision", 0))
+                    .put("runs", JSONArray()))
+                else fixture(op, args)
+            }
+        }.exceptionOrNull()
+        assertTrue(failure is io.github.mikeyphw.skybind.bridge.SnapshotStageException)
+        assertEquals("jobs.status", (failure as io.github.mikeyphw.skybind.bridge.SnapshotStageException).operation)
+    }
+
+    @Test fun badJobRegistryRevisionIsStillRejected() {
+        val failure = runCatching {
+            LiveReadSnapshotReader().fetch { op, args ->
+                if (op == "jobs.status") envelope(JSONObject()
+                    .put("registry", JSONObject().put("schema_version", 1)
+                        .put("revision", -1).put("jobs", JSONObject.NULL))
+                    .put("runs", JSONArray()))
+                else fixture(op, args)
+            }
+        }.exceptionOrNull()
+        assertTrue(failure is io.github.mikeyphw.skybind.bridge.SnapshotStageException)
+    }
+
     @Test fun rejectsWrongProtocolInsteadOfInventingOnline() {
         val result = LiveReadSnapshotReader().fetch { op, args ->
             if (op == "system.capabilities") envelope(capabilities().put("protocol_version", 99)) else fixture(op, args)

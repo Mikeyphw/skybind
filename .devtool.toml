@@ -212,8 +212,9 @@ metadata = { read_only = true, release_qualification = false, qualification = "p
 [targets.skybind_release.workflows]
 m3-operations-source = [
   { id = "contract", ref = "job:m3-operations-contract", depends_on = [] },
-  { id = "unit", ref = "job:m3-operations-unit", depends_on = ["contract"] },
-  { id = "hosted-policy", ref = "job:m3-operations-security", depends_on = ["contract", "unit"] },
+  { id = "registry", ref = "job:m3-registry-contract", depends_on = ["contract"] },
+  { id = "unit", ref = "job:m3-operations-unit", depends_on = ["contract", "registry"] },
+  { id = "hosted-policy", ref = "job:m3-operations-security", depends_on = ["contract", "registry", "unit"] },
 ]
 m2-lifecycle-source = [
   { id = "source", ref = "job:m2-lifecycle-source", depends_on = [] },
@@ -1476,10 +1477,16 @@ command = ["python3", "-B", "../scripts/dev/android/m3_operations_source_gate.py
 inputs = ["../scripts/dev/android/m3_operations_source_gate.py", "../android-app/app/src/main/**", "../android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/LiveM3PreviewAcceptanceTest.kt", "../scripts/dev/android/m2_live_device.py", "../scripts/devtool/ci_artifacts_device.py", "../.devtool.toml"]
 metadata = { read_only = true, qualification = "M3-operations-source-only", android_build_location = "github-actions-only", device_qualified = false, release_qualified = false }
 
+[targets.skybind_release.jobs.m3-registry-contract]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/m3_registry_contract_source_gate.py"]
+inputs = ["../scripts/dev/android/m3_registry_contract_source_gate.py", "../internal/jobs/jobs.go", "../internal/jobs/jobs_test.go", "../android-app/app/src/main/java/io/github/mikeyphw/skybind/bridge/LiveReadSnapshotReader.kt", "../android-app/app/src/main/java/io/github/mikeyphw/skybind/bridge/RootReadSession.kt", "../android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/LiveReadGatewayTest.kt", "../scripts/dev/android/m2_live_device.py"]
+metadata = { read_only = true, qualification = "M3-empty-registry-contract-source-only", device_qualified = false, release_qualified = false }
+
 [targets.skybind_release.jobs.m3-operations-unit]
 runner = "command"
-command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_m3_operations_consolidated.py", "-q"]
-inputs = ["../tests/test_m3_operations_consolidated.py", "../scripts/dev/android/m3_operations_source_gate.py", "../scripts/dev/android/m2_live_device.py", "../scripts/devtool/ci_artifacts_device.py"]
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_m3_*.py", "-q"]
+inputs = ["../tests/test_m3_operations_consolidated.py", "../tests/test_m3_registry_contract.py", "../scripts/dev/android/m3_operations_source_gate.py", "../scripts/dev/android/m2_live_device.py", "../scripts/devtool/ci_artifacts_device.py"]
 metadata = { read_only = true, qualification = "M3-negative-fixture-only", device_qualified = false, release_qualified = false }
 
 [targets.skybind_release.jobs.m3-operations-security]

@@ -31,8 +31,16 @@ class LiveM3PreviewAcceptanceTest {
             try { withTimeout(90_000L) { withContext(Dispatchers.Main) { session.connect() } } }
             catch (_: Exception) { throw AssertionError("SKYBIND_M3_BLOCKED_ROOT_BIND") }
             val snapshot = session.snapshot()
-            if (snapshot.link != LinkState.ONLINE) throw AssertionError("SKYBIND_M3_BLOCKED_DAEMON")
-            val selected = snapshot.definitions.firstOrNull { it.kind == "check" || it.kind == "copy" }
+            if (snapshot.link != LinkState.ONLINE) {
+                val marker = when {
+                    snapshot.link == LinkState.UNSUPPORTED -> "SKYBIND_M3_BLOCKED_API_MISMATCH"
+                    snapshot.link == LinkState.NOT_AUTHORIZED -> "SKYBIND_M3_BLOCKED_ROOT_AUTH"
+                    snapshot.detail.contains("jobs.status") -> "SKYBIND_M3_BLOCKED_JOBS_STATUS"
+                    else -> "SKYBIND_M3_BLOCKED_DAEMON"
+                }
+                throw AssertionError(marker)
+            }
+            val selected = snapshot.definitions.firstOrNull { it.enabled && (it.kind == "check" || it.kind == "copy") }
                 ?: throw AssertionError("SKYBIND_M3_BLOCKED_NO_ELIGIBLE_JOB")
             val preview = try { session.previewJob(selected.name) }
                 catch (_: Exception) { throw AssertionError("SKYBIND_M3_FAILED_PREVIEW_REJECTED") }
