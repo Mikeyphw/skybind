@@ -62,3 +62,10 @@ python3 -B scripts/dev/android/m3_consumer_contract_gate.py \
 ```
 
 Both currently report external capabilities blocked. A new consumer version can supply its own declaration path; no Skybind source repin or Android APK rebuild is implied. See `docs/contracts/rclone-compat/INDEPENDENT_CONSUMER_UPDATE_CONTRACT.md`.
+
+## Follow-up: 2026-10-20 copy fixture and source/run mismatch
+
+- Source-only COPY preparation on the current installed daemon returned `COPY_REGISTRY_INVALID` because `m3_copy_fixture.registry()` demanded a JSON array while the daemon still emitted `registry.jobs: null` for an empty registry. Earlier M3 disposable-check fixture already handled this explicit legacy-null representation safely. Corrected COPY fixture now accepts **only explicit `null`**, normalizes it to `[]` for proof-bound candidate submission, rejects an omitted key, invalid structure, negative/boolean revision, invalid run history and malformed entries. Regression and source gates protect this exact semantics. No automatic daemon install or restart.
+- Requested GitHub run `39503382285` completed successfully but its HEAD was historical `d00f222a79c117fb57909df6dc1d02fa60e574bc`. Device runner local HEAD was `74c50ff50a2ea04badf3f41f78801066cb82f69a`. `REMOTE_BUILD_IDENTITY_OR_STATUS_INVALID` is **correct** fail-closed behavior for mismatched sources; that run must never be used to qualify COPY. Push source and dispatch a NEW GitHub hosted build; select the returned run through `$RUN_ID`.
+- Local repaired source qualification is source-only until a matching GitHub APK build and real `m3-copy-live` SHA-256/sentinel device receipt both succeed. M3 preview/check/cancel historical independent PASS evidence remains valid and must not be overwritten.
+- Consumer ABI is independently versioned; BKX/chrootctl future source revisions are NOT pinned to October 20 hashes; external runtime gateway and adapters remain NOT_IMPLEMENTED.

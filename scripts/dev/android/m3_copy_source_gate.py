@@ -33,6 +33,12 @@ def verify(root=ROOT):
                      'COPY_DEST_HASH_MISMATCH','COPY_SENTINEL_CHANGED','COPY_FOREIGN_ROOT_ENTRY'):
         if required in ("'kind':'copy'", "'interval_seconds': 0"): continue
         assert required in fixture, 'COPY_FIXTURE_CONTRACT_MISSING:'+required
+    # Empty legacy registries are accepted only when jobs:null is explicit,
+    # preventing a missing/malformed key from being treated as proof of emptiness.
+    for token in ("jobs=reg.get('jobs')", "if jobs is None:",
+                  "require('jobs' in reg, 'COPY_REGISTRY_JOBS_MISSING')",
+                  "require(isinstance(jobs,list), 'COPY_REGISTRY_INVALID')"):
+        assert token in fixture, 'COPY_LEGACY_EMPTY_CONTRACT_MISSING:'+token
     assert 'shutil.rmtree' not in fixture and 'os.system(' not in fixture and 'shell=True' not in fixture
     assert 'job-copy-consent' in ui and 'confirmedCopy' in ui and 'job-confirm-start' in ui
     for required in ('parse_m3_copy','M3_COPY_CASE',"opts.mode == 'm3-copy-live'", 

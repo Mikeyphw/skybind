@@ -85,9 +85,16 @@ def registry():
     result=rpc('jobs.status', {})
     reg=result.get('registry')
     require(isinstance(reg,dict) and reg.get('schema_version')==1 and
-            type(reg.get('revision')) is int and isinstance(reg.get('jobs'),list),
+            type(reg.get('revision')) is int and reg['revision'] >= 0,
             'COPY_REGISTRY_INVALID')
-    jobs=reg['jobs']
+    # Installed daemon versions predating the Go empty-slice serialization fix
+    # encode an *empty* registry as explicit JSON null. Match the previously
+    # qualified M3 CHECK fixture: accept only explicit null, never a missing key.
+    jobs=reg.get('jobs')
+    if jobs is None:
+        require('jobs' in reg, 'COPY_REGISTRY_JOBS_MISSING')
+        jobs=[]
+    require(isinstance(jobs,list), 'COPY_REGISTRY_INVALID')
     require(all(isinstance(j,dict) for j in jobs),'COPY_JOB_INVALID')
     runs=result.get('runs')
     require(isinstance(runs,list),'COPY_RUNS_INVALID')

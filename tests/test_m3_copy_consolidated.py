@@ -40,6 +40,36 @@ class M3Copy(unittest.TestCase):
         for marker in runner.M3_COPY_FAILED:
             self.assertEqual(runner.parse_m3_copy(RAW+marker),('FAILED',marker))
 
+    def test_legacy_empty_jobs_null_is_not_missing_or_malformed(self):
+        # Live installed Go daemon may legitimately serialize an empty jobs slice
+        # as explicit null; a missing/malformed registry must remain BLOCKED.
+        base={'schema_version':1,'revision':0}
+        responses=[
+            ({**base,'jobs':None}, [], False),
+            ({**base,'jobs':[]}, [], False),
+            ({**base,'jobs':[fixture.definition()]}, [fixture.definition()], True),
+        ]
+        for data, expected_jobs, expected_owned in responses:
+            with self.subTest(data=data):
+                with patch.object(fixture,'rpc',return_value={'registry':data,'runs':[]}):
+                    reg,owned=fixture.registry()
+                    self.assertEqual(reg,{'schema_version':1,'revision':0,'jobs':expected_jobs})
+                    self.assertEqual(owned,expected_owned)
+        for bad in (
+            {**base},  # missing key must not be silently converted into []
+            {**base,'jobs':{}},
+            {**base,'jobs':'null'},
+            {**base,'jobs':[None]},
+            {'schema_version':1,'revision':-1,'jobs':[]},
+            {'schema_version':1,'revision':True,'jobs':[]},
+        ):
+            with self.subTest(bad=bad):
+                with patch.object(fixture,'rpc',return_value={'registry':bad,'runs':[]}):
+                    with self.assertRaises(fixture.Blocked): fixture.registry()
+        # Historical copy entries are never synthesized from a null registry.
+        with patch.object(fixture,'rpc',return_value={'registry':{**base,'jobs':None},'runs':None}):
+            with self.assertRaises(fixture.Blocked): fixture.registry()
+
     def test_disposable_pre_and_post_integrity(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)/'copy-fixture'
