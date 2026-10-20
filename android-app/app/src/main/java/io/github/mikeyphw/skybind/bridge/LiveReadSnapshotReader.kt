@@ -57,6 +57,18 @@ class LiveReadSnapshotReader {
             require(name.isNotBlank() && name.length <= 96)
             MountSummary(name, name, "Not queried")
         }.take(128)
+        val registry = jobs.getJSONObject("registry")
+        val entries = registry.getJSONArray("jobs")
+        require(entries.length() <= 128)
+        val definitions = (0 until entries.length()).map { i ->
+            val obj = entries.getJSONObject(i)
+            val name = obj.getString("name")
+            val kind = obj.getString("kind")
+            require(Regex("[A-Za-z][A-Za-z0-9_-]{0,62}").matches(name))
+            require(kind in setOf("check", "copy", "sync"))
+            JobDefinition(name, kind, obj.getBoolean("enabled"))
+        }
+        require(definitions.map { it.name }.toSet().size == definitions.size)
         val runs = jobs.getJSONArray("runs")
         val runItems = (0 until runs.length()).map { i ->
             val obj = runs.getJSONObject(i)
@@ -74,7 +86,18 @@ class LiveReadSnapshotReader {
             val total = if (obj.has("total_bytes") && !obj.isNull("total_bytes")) obj.getLong("total_bytes") else null
             val bytes = obj.optLong("bytes", 0)
             require(bytes >= 0 && (total == null || total >= 0))
-            JobSummary(id, obj.optString("name", "Job").take(96), state, bytes, total)
+            fun nonnegative(key: String): Long? {
+                if (!obj.has(key) || obj.isNull(key)) return null
+                val value = obj.getLong(key)
+                require(value >= 0)
+                return value
+            }
+            val speed = if (obj.has("speed_bytes_per_second") && !obj.isNull("speed_bytes_per_second"))
+                obj.getDouble("speed_bytes_per_second").also { require(it.isFinite() && it >= 0.0) } else null
+            val percent = if (obj.has("percent") && !obj.isNull("percent"))
+                obj.getDouble("percent").also { require(it.isFinite() && it in 0.0..100.0) } else null
+            JobSummary(id, obj.optString("name", "Job").take(96), state, bytes, total,
+                speed, nonnegative("eta_seconds"), percent, nonnegative("files_done"), nonnegative("files_total"))
         }.takeLast(128)
         val reset = page.optBoolean("cursor_reset") || page.optBoolean("gap")
         val newCursor = page.getLong("next_cursor")
@@ -106,7 +129,7 @@ class LiveReadSnapshotReader {
             detail = if (degraded) "Connected · event journal gap/degraded" else "Connected · read-only root service",
             serverVersion = "Skybind protocol 1 · ${runtime.optString("provider", "runtime")}",
             remotes = remoteItems, mounts = mountItems, jobs = runItems, events = history,
-            cursor = cursor, hasEventGap = degraded,
+            cursor = cursor, hasEventGap = degraded, definitions = definitions,
         )
     }
 }

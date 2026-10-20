@@ -38,10 +38,16 @@ def verify(root=ROOT):
              'UNRESOLVED_COMPOSE_TEST_ASSERTION_IMPORT_' + test_name)
     need('"provider.browse"' in bridge and 'if (op == "provider.browse")' in bridge and
          'BrowseAddress.endpoint(name, path)' in bridge and 'socket.peerCredentials.uid != 0' in bridge and
-         '"class", "query"' in bridge and '"class", "run"' not in bridge,
+         'rpc(method, "query", checkedReadArguments(method, arguments))' in bridge and
+         'rpc("job.run", "run", JSONObject()' in bridge and
+         'if (op !in allowed || raw == null' in bridge,
          'BROWSE_ROOT_ALLOWLIST_UNSAFE')
-    for forbidden in ('"remote.transfer.start"','"mount.start"','"config.apply"','"job.run"'):
-        need(forbidden not in bridge, 'MUTATING_ROOT_BRIDGE_'+forbidden)
+    for forbidden in ('"remote.transfer.start"', '"mount.start"', '"config.apply"'):
+        need(forbidden not in bridge, 'UNBOUNDED_ROOT_BRIDGE_'+forbidden)
+    # M3 adds a *separate* one-use proof path. It must not change browse RPC class.
+    need('tickets.remove(previewId)' in bridge and
+         'ticket.session != session' in bridge and
+         'ownedRuns[runId] != session' in bridge, 'M3_MUTATION_NOT_SESSION_SCOPED')
     need('BrowseAddress.endpoint(remote, path)' in reader and 'provider.browse' in reader and
          'response.opt("ok") == true' in reader and 'data.length() <= 500)' in reader and
          'require(reported == name || reported == childPath)' in reader,

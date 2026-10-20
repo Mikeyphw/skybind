@@ -28,7 +28,11 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     onDisconnect: () -> Unit = {},
     browser: BrowserState = BrowserState(), onBrowseRemote: (String) -> Unit = {},
     onBrowseFolder: (String) -> Unit = {}, onBrowseUp: () -> Unit = {},
-    onSwitchRemote: () -> Unit = {}) {
+    onSwitchRemote: () -> Unit = {},
+    jobPreview: PreparedJob? = null, jobBusy: Boolean = false,
+    jobError: String? = null, ownedRunIds: Set<String> = emptySet(),
+    onPreviewJob: (String) -> Unit = {}, onConfirmJob: () -> Unit = {},
+    onDismissJob: () -> Unit = {}, onCancelOwnedRun: (String) -> Unit = {}) {
     var selected by rememberSaveable { mutableStateOf(Tab.HOME.name) }
     val tab = Tab.entries.firstOrNull { it.name == selected } ?: Tab.HOME
     val safe = snapshot.failClosed()
@@ -69,10 +73,45 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                 Tab.HOME -> HomePage(safe, Modifier.padding(inner), onConnect, onDisconnect) { selected = it.name }
                 Tab.BROWSER -> BrowserPage(safe, browser.forSnapshot(safe), Modifier.padding(inner),
                     onBrowseRemote, onBrowseFolder, onBrowseUp, onSwitchRemote)
-                Tab.JOBS -> JobsPage(safe, Modifier.padding(inner)) { selected = Tab.ACTIVITY.name }
+                Tab.JOBS -> JobsPage(safe, Modifier.padding(inner), ownedRunIds, jobBusy,
+                    jobError, onPreviewJob, onCancelOwnedRun) { selected = Tab.ACTIVITY.name }
                 Tab.ACTIVITY -> ActivityPage(safe, Modifier.padding(inner)) { selected = Tab.JOBS.name }
                 Tab.MORE -> MorePage(safe, Modifier.padding(inner))
             }
+        }
+        if (jobPreview != null && safe.online) {
+            var confirmedCopy by remember(jobPreview.id) { mutableStateOf(false) }
+            AlertDialog(
+                onDismissRequest = onDismissJob,
+                title = { Text("Confirm scheduled job") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${jobPreview.name} · ${jobPreview.kind.uppercase()}")
+                        Text("From: ${jobPreview.source}", style = MaterialTheme.typography.bodySmall)
+                        Text("To: ${jobPreview.destination}", style = MaterialTheme.typography.bodySmall)
+                        Text("Preview expires shortly. The daemon rechecks a one-use proof.")
+                        if (jobPreview.kind == "copy") {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = confirmedCopy,
+                                    onCheckedChange = { confirmedCopy = it },
+                                    modifier = Modifier.testTag("job-copy-consent"))
+                                Text("I authorize this copy job, including destination writes.")
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = onConfirmJob, enabled = !jobBusy &&
+                        (jobPreview.kind == "check" || confirmedCopy),
+                        modifier = Modifier.testTag("job-confirm-start")) { Text("Start job") }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissJob, modifier = Modifier.testTag("job-dismiss-preview")) {
+                        Text("Cancel")
+                    }
+                },
+                modifier = Modifier.testTag("job-confirm-dialog"),
+            )
         }
     }
 }
@@ -191,34 +230,79 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     }
 }
 
-@Composable private fun JobsPage(s: SkybindReadSnapshot, modifier: Modifier, openActivity: () -> Unit) {
-    Page("Jobs", "Active and actionable work · server-authoritative", modifier) {
+@Composable private fun JobsPage(s: SkybindReadSnapshot, modifier: Modifier,
+    ownedRunIds: Set<String>, busy: Boolean, error: String?,
+    onPreview: (String) -> Unit, onCancel: (String) -> Unit, openActivity: () -> Unit) {
+    Page("Jobs", "Daemon-owned scheduled jobs and live progress", modifier) {
         ConnectionPanel(s)
+        if (error != null) InfoPanel("Operation not confirmed", error, Modifier.testTag("job-action-error"))
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().testTag("job-operation-busy"))
+        Text("Configured jobs", style = MaterialTheme.typography.titleMedium)
+        if (!s.online) InfoPanel("Job queue unavailable", "Connect explicitly; no privileged job starts automatically.")
+        else if (s.definitions.isEmpty()) InfoPanel("No configured jobs", "Create jobs in the supported Skybind management interface first.")
+        s.definitions.take(64).forEach { definition ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(definition.name, style = MaterialTheme.typography.titleSmall)
+                    Text("${definition.kind.uppercase()} · ${if (definition.enabled) "enabled" else "disabled"}",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(onClick = { onPreview(definition.name) },
+                    enabled = !busy && definition.kind in setOf("check", "copy"),
+                    modifier = Modifier.testTag("job-preview-${definition.name}")) {
+                    Text(if (definition.kind == "sync") "Sync locked" else "Preview")
+                }
+            }
+        }
         Text("Current operations", style = MaterialTheme.typography.titleMedium)
-        if (!s.online) InfoPanel("Job queue unavailable", "The app cannot safely observe or cancel jobs until connected.")
-        else if (s.activeJobs.isEmpty()) InfoPanel("Nothing running", "Queued, running and interrupted work appears here.")
-        s.activeJobs.take(32).forEach { job -> JobCard(job, false) }
+        if (s.online && s.activeJobs.isEmpty()) InfoPanel("Nothing running", "Queued, running and interrupted work appears here.")
+        s.activeJobs.take(32).forEach { job ->
+            JobCard(job, finished = false, owned = job.id in ownedRunIds, busy = busy, onCancel = onCancel)
+        }
         Text("Recent completed", style = MaterialTheme.typography.titleMedium)
         if (s.online && s.recentJobs.isEmpty()) Text("No recently finished jobs", style = MaterialTheme.typography.bodyMedium)
-        s.recentJobs.take(10).forEach { job -> JobCard(job, true) }
-        TextButton(onClick = openActivity, modifier = Modifier.testTag("jobs-view-activity")) { Text("View chronological activity →") }
+        s.recentJobs.take(10).forEach { job ->
+            JobCard(job, finished = true, owned = false, busy = busy, onCancel = onCancel)
+        }
+        TextButton(onClick = openActivity, modifier = Modifier.testTag("jobs-view-activity")) {
+            Text("View chronological activity →")
+        }
     }
 }
 
-@Composable private fun JobCard(job: JobSummary, finished: Boolean) {
+@Composable private fun JobCard(job: JobSummary, finished: Boolean, owned: Boolean,
+    busy: Boolean, onCancel: (String) -> Unit) {
     ElevatedCard(Modifier.fillMaxWidth().testTag("job-${job.id}")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(job.title, style = MaterialTheme.typography.titleMedium)
-                Text(job.state.name.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelMedium)
+                Text(job.state.name.lowercase().replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelMedium)
             }
             if (job.totalBytes != null && job.totalBytes > 0) {
                 val ratio = (job.transferredBytes.toFloat() / job.totalBytes).coerceIn(0f, 1f)
                 LinearProgressIndicator(progress = { ratio }, modifier = Modifier.fillMaxWidth())
+            } else if (job.percent != null) {
+                LinearProgressIndicator(progress = { (job.percent / 100.0).toFloat() },
+                    modifier = Modifier.fillMaxWidth())
             } else if (!finished) Text("Progress total unknown", style = MaterialTheme.typography.bodySmall)
-            Text("ID: ${job.id}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            // Cancellation is disabled until verified broker ownership + exact job ID.
-            if (!finished) TextButton(onClick = {}, enabled = false, modifier = Modifier.testTag("cancel-${job.id}")) { Text("Cancel · authorization required") }
+            Text("${job.transferredBytes} bytes transferred" +
+                (job.totalBytes?.let { " / $it bytes" } ?: ""), style = MaterialTheme.typography.bodySmall)
+            if (job.speedBytesPerSecond != null) Text("${job.speedBytesPerSecond.toLong()} B/s",
+                style = MaterialTheme.typography.bodySmall)
+            if (job.etaSeconds != null) Text("ETA ${job.etaSeconds}s", style = MaterialTheme.typography.bodySmall)
+            if (job.filesDone != null) Text("Files: ${job.filesDone}" +
+                (job.filesTotal?.let { " / $it" } ?: ""), style = MaterialTheme.typography.bodySmall)
+            Text("ID: ${job.id}", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!finished) {
+                TextButton(onClick = { if (owned) onCancel(job.id) },
+                    enabled = owned && !busy && job.state == JobState.RUNNING,
+                    modifier = Modifier.testTag("cancel-${job.id}")) {
+                    Text(if (owned) "Cancel my job" else "Cancel · not owned by this session")
+                }
+            }
         }
     }
 }

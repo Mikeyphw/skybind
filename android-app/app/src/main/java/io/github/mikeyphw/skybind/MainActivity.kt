@@ -21,7 +21,15 @@ class MainActivity : ComponentActivity() {
                 onBrowseRemote = session::selectRemote,
                 onBrowseFolder = session::openFolder,
                 onBrowseUp = session::parentFolder,
-                onSwitchRemote = session::switchRemote)
+                onSwitchRemote = session::switchRemote,
+                jobPreview = session.preparedJob,
+                jobBusy = session.jobActionBusy,
+                jobError = session.jobActionError,
+                ownedRunIds = session.ownedRunIds,
+                onPreviewJob = session::previewJob,
+                onConfirmJob = session::confirmPreparedJob,
+                onDismissJob = session::dismissJobPreview,
+                onCancelOwnedRun = session::cancelOwnedRun)
         }
     }
 }

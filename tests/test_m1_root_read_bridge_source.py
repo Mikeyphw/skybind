@@ -54,6 +54,7 @@ class RootReadBridgeContract(unittest.TestCase):
 
     def test_cannot_drop_rpc_query_only_class(self):
         self.run_negative(gate.MAIN/'bridge/RootReadBridgeService.kt',
-            '"class", "query"', '"class", "run"')
+            'rpc(method, "query", checkedReadArguments(method, arguments))',
+            'rpc(method, "run", checkedReadArguments(method, arguments))')
 
 if __name__ == '__main__': unittest.main()

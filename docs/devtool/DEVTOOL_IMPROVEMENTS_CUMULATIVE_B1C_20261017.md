@@ -838,3 +838,33 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Remediation prepared:** one meaningful grouped overlay adds app-owned transport-loss teardown, callback/concurrency guards, controlled live loss and explicit reconnect, opt-in app-package-only force-stop/cold-launch UI checks, strict narrow receipt validation, and three-node source/fixture/security Devtool DAG.
 - **Status:** SOURCE-IMPLEMENTED; 76 M2 Python regressions and 15 CI/device-runner Python tests PASS. Hosted Kotlin APK compilation and new device lanes remain pending. Root-grant revocation and privileged daemon kill intentionally NOT_TESTED. Do not advance A1–E/R0–R6 or formal release based on this scope.
 - **Affected paths:** `android-app/app/src/main/**/RootReadSession.kt`, AndroidTest `LiveTransportAcceptanceTest.kt`, `scripts/dev/android/m2_live_device.py`, `scripts/dev/android/m2_process_live.py`, `scripts/devtool/ci_artifacts_device.py`, `.devtool.toml`, source gates and regression tests. Recommended future Devtool integration: contract-driven native instrumentation/pair receipt schema and operator opt-in policy, rather than proliferating unrelated device scripts.
+
+## SKYBIND-M3-OPS-20261020 — consolidated operation UI and qualification lanes
+
+- **Status:** Source changes bundled, Python checks pass locally; hosted Kotlin
+  compilation and exact-source real-device preview are NOT YET qualified.
+- **Evidence:** M2-L3 negative run `39427946191`, source `7cb78fde...`; M2-L3
+  transport/process run `39442535828`, source `def2d872...`, both selected lanes
+  passed on user-provided original device summary, historical receipts preserved.
+- **Affected:** `RootReadBridgeService.kt`, `IRootReadBridge.aidl`, `RootReadSession.kt`,
+  `SkybindSessionViewModel.kt`, `LiveReadSnapshotReader.kt`, `SkybindApp.kt`,
+  `ci_artifacts_device.py`, `m2_live_device.py`, new M3 source/device gates.
+- **Finding:** The old M2 app intentionally disabled all job commands although
+  existing daemon already supports durable, typed `job.run.preview`/`job.run`
+  plus `operation.cancel`. Giving the app a generic root RPC or unscoped
+  cancellation would violate owner separation and proof policy. Separate
+  explicit session-scoped Binder methods retain a one-use daemon proof in the
+  privileged process and restrict cancellation to IDs launched in that session.
+- **Fix:** One consolidated source-bound M3 overlay with proof-expiry, explicit
+  confirmation and copy consent, no automatic retry, progress/event refresh,
+  read-only live preview gate, strict receipt scopes, M1/M2 guard updates,
+  and grouped Devtool DAG.
+- **Remaining obligations:** hosted AndroidTest Kotlin compile; real configured
+  check/copy preview PASS (missing job = BLOCKED); dedicated disposable owned-job
+  execution and cancellation acceptance before promoting write-capable scope;
+  sync destructive preview/consent gate; owner persistence/recovery policy;
+  BKX/chrootctl provider compatibility; full release and independent attestation.
+- **Tooling improvement:** source gates must guard the *method-specific* read-only
+  class, rather than prohibiting every `"job.run"` token in the privileged
+  service; otherwise a properly authorized future capability is incorrectly
+  treated as a regression. M1/M2 gates now assert separation and exact checks.

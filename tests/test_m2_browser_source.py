@@ -71,7 +71,8 @@ class BrowserSafetyRegression(unittest.TestCase):
 
     def test_reject_browse_as_a_mutation(self):
         self.negative(check.MAIN/'bridge/RootReadBridgeService.kt',
-                      '"class", "query"', '"class", "run"')
+                      'rpc(method, "query", checkedReadArguments(method, arguments))',
+                      'rpc(method, "run", checkedReadArguments(method, arguments))')
 
     def test_reject_missing_root_socket_peer_check(self):
         self.negative(check.MAIN/'bridge/RootReadBridgeService.kt',

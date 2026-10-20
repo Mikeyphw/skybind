@@ -210,6 +210,11 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+m3-operations-source = [
+  { id = "contract", ref = "job:m3-operations-contract", depends_on = [] },
+  { id = "unit", ref = "job:m3-operations-unit", depends_on = ["contract"] },
+  { id = "hosted-policy", ref = "job:m3-operations-security", depends_on = ["contract", "unit"] },
+]
 m2-lifecycle-source = [
   { id = "source", ref = "job:m2-lifecycle-source", depends_on = [] },
   { id = "unit", ref = "job:m2-lifecycle-unit", depends_on = ["source"] },
@@ -1461,4 +1466,29 @@ metadata = { read_only = true, qualification = "github-only-android-build-policy
 [wrapper.commands.m2-lifecycle-source]
 description = "Consolidated M2-L3 lifecycle source, parser, security qualification (no APK/device)"
 workflow = "m2-lifecycle-source"
+target = "skybind_release"
+
+# M3 consolidated operations: source-only DAG. GitHub builds and device preview
+# require separate explicit commands and cannot claim actual job execution.
+[targets.skybind_release.jobs.m3-operations-contract]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/m3_operations_source_gate.py"]
+inputs = ["../scripts/dev/android/m3_operations_source_gate.py", "../android-app/app/src/main/**", "../android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/LiveM3PreviewAcceptanceTest.kt", "../scripts/dev/android/m2_live_device.py", "../scripts/devtool/ci_artifacts_device.py", "../.devtool.toml"]
+metadata = { read_only = true, qualification = "M3-operations-source-only", android_build_location = "github-actions-only", device_qualified = false, release_qualified = false }
+
+[targets.skybind_release.jobs.m3-operations-unit]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_m3_operations_consolidated.py", "-q"]
+inputs = ["../tests/test_m3_operations_consolidated.py", "../scripts/dev/android/m3_operations_source_gate.py", "../scripts/dev/android/m2_live_device.py", "../scripts/devtool/ci_artifacts_device.py"]
+metadata = { read_only = true, qualification = "M3-negative-fixture-only", device_qualified = false, release_qualified = false }
+
+[targets.skybind_release.jobs.m3-operations-security]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/verify_cloud_build_only.py"]
+inputs = ["../scripts/dev/android/verify_cloud_build_only.py", "../.github/workflows/skybind-android-apks.yml", "../android-app/**"]
+metadata = { read_only = true, qualification = "GitHub-only-APK-policy", device_qualified = false, release_qualified = false }
+
+[wrapper.commands.m3-operations-source]
+description = "Consolidated M3 preview/one-use run/owned-cancel source and negative checks (never installs or writes)"
+workflow = "m3-operations-source"
 target = "skybind_release"

@@ -52,12 +52,20 @@ def verify(root: Path = ROOT) -> dict:
     read_methods = ('system.capabilities', 'runtime.status', 'provider.remotes', 'mount.list', 'jobs.status', 'operation.events')
     need(all('"' + method + '"' in bridge and '"' + method + '"' in reader for method in read_methods),
          'READ_ONLY_METHOD_NOT_EXPLICIT')
-    need('"class", "query"' in bridge and 'RootService.bind' in session and
+    need('rpc(method, "query", checkedReadArguments(method, arguments))' in bridge and
+         'RootService.bind' in session and
          'root service' in session.lower() and 'Shell.cmd(' not in bridge + session,
          'UNSAFE_ROOT_EXECUTION_PATH')
-    for forbidden in ('"mount.start"', '"job.run"', '"operation.cancel"', '"config.apply"',
+    for forbidden in ('"mount.start"', '"config.apply"',
                       '"provider.crypt.password.set"', '"mount.stop"', '"remote.transfer.start"'):
-        need(forbidden not in bridge, 'MUTATING_BROKER_METHOD_' + forbidden)
+        need(forbidden not in bridge, 'UNREVIEWED_BROKER_METHOD_' + forbidden)
+    # M3-specific run/cancel are distinct from M1's unchanged query endpoint.
+    need('tickets.remove(previewId)' in bridge and
+         'ticket.session != session' in bridge and
+         'ownedRuns[runId] != session' in bridge and
+         'rpc("job.run", "run", JSONObject()' in bridge and
+         'rpc("operation.cancel", "cancel", JSONObject().put("id", runId))' in bridge,
+         'M3_OPERATIONS_BYPASS_M1_QUERY_GATE')
     need('withTimeout(20_000L)' in session and 'val api = remote ?:' in session and
          'fun reset()' in reader and reader.count('optBoolean("cursor_reset")') == 2 and 'gap' in reader,
          'FAIL_CLOSED_REPLAY_OR_CONNECT_MISSING')

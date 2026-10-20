@@ -10,6 +10,8 @@ data class MountSummary(val id: String, val displayName: String, val state: Stri
 data class JobSummary(
     val id: String, val title: String, val state: JobState,
     val transferredBytes: Long = 0, val totalBytes: Long? = null,
+    val speedBytesPerSecond: Double? = null, val etaSeconds: Long? = null,
+    val percent: Double? = null, val filesDone: Long? = null, val filesTotal: Long? = null,
 ) {
     val actionable: Boolean get() = state == JobState.RUNNING || state == JobState.QUEUED || state == JobState.INTERRUPTED
 }
@@ -28,6 +30,7 @@ data class SkybindReadSnapshot(
     val events: List<ActivityRecord> = emptyList(),
     val cursor: Long? = null,
     val hasEventGap: Boolean = false,
+    val definitions: List<JobDefinition> = emptyList(),
 ) {
     val online: Boolean get() = link == LinkState.ONLINE
     val activeJobs: List<JobSummary> get() = if (online) jobs.filter { it.actionable } else emptyList()
@@ -38,6 +41,7 @@ data class SkybindReadSnapshot(
     fun failClosed(): SkybindReadSnapshot = if (online) this else copy(
         serverVersion = null, remotes = emptyList(), mounts = emptyList(),
         jobs = emptyList(), events = emptyList(), cursor = null, hasEventGap = false,
+        definitions = emptyList(),
     )
 }
 

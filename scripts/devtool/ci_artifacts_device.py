@@ -39,7 +39,7 @@ FILES = frozenset({'android-build-manifest.json', 'app-debug.apk', 'app-debug-an
 # arbitrary Python file, --class or user-supplied script path is accepted.
 LANES = {'m2-preflight': 'preflight', 'm2-live': 'live', 'm2-ui-live': 'ui-live',
          'm2-negative-live': 'negative-live', 'm2-transport-live': 'transport-live',
-         'm2-process-live': 'process-live'}
+         'm2-process-live': 'process-live', 'm3-preview-live': 'm3-preview-live'}
 SERIAL = re.compile(r'[A-Za-z0-9_.:-]{1,128}\Z')
 APK_PATH = re.compile(r'/data/app/[A-Za-z0-9_./+@=:\-~]+/base\.apk\Z')
 
@@ -187,19 +187,22 @@ def validated_lane_receipt(record, *, lane: str, run_id: int, sha: str, artifact
                 'm2-ui-live': 'PASS_M2_L2_LIVE_UI_READONLY_RECOVERY',
                 'm2-negative-live': 'PASS_M2_L3_READONLY_NEGATIVE_BOUNDARIES',
                 'm2-transport-live': 'PASS_M2_L3_APP_OWNED_TRANSPORT_RECOVERY',
-                'm2-process-live': 'PASS_M2_L3_APP_PROCESS_COLD_LAUNCH'}[lane]
+                'm2-process-live': 'PASS_M2_L3_APP_PROCESS_COLD_LAUNCH',
+                'm3-preview-live': 'PASS_M3_REAL_DAEMON_PREVIEW_ONLY'}[lane]
     require(record.get('state') == expected, 'TEST_LANE_NOT_PASS:' + lane)
     require(record.get('m2_l1_device_qualified') is (lane == 'm2-live') and
             record.get('m2_l2_device_qualified', False) is (lane == 'm2-ui-live') and
             record.get('m2_l3_negative_device_qualified', False) is (lane == 'm2-negative-live') and
             record.get('m2_l3_transport_device_qualified', False) is (lane == 'm2-transport-live') and
-            record.get('m2_l3_process_device_qualified', False) is (lane == 'm2-process-live'),
+            record.get('m2_l3_process_device_qualified', False) is (lane == 'm2-process-live') and
+            record.get('m3_preview_device_qualified', False) is (lane == 'm3-preview-live'),
             'LANE_QUALIFICATION_OVERCLAIM')
     scopes = {'m2-live': 'M2-L1_READ_ONLY_APP_ROOTSERVICE_QUERY_BROWSE_REBIND',
               'm2-ui-live': 'M2-L2_REAL_COMPOSE_UI_BROWSE_DISCONNECT_RECONNECT',
               'm2-negative-live': 'M2-L3_READONLY_NEGATIVE_BOUNDARIES_ONLY',
               'm2-transport-live': 'M2-L3_APP_OWNED_TRANSPORT_LOSS_RECOVERY_ONLY',
-              'm2-process-live': 'M2-L3_APP_FORCE_STOP_COLD_LAUNCH_UI_ONLY'}
+              'm2-process-live': 'M2-L3_APP_FORCE_STOP_COLD_LAUNCH_UI_ONLY',
+              'm3-preview-live': 'M3_REAL_DAEMON_JOB_PREVIEW_ONLY_NO_EXECUTION'}
     require(record.get('qualified_scope') == scopes.get(lane), 'LANE_SCOPE_MISMATCH')
     return {'state': expected, 'receipt': record.get('receipt'),
             'qualified_scope': scopes.get(lane)}
@@ -233,7 +236,7 @@ def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str 
     for field in ('state', 'reason', 'source_sha', 'github_run_id', 'artifact_id',
                   'installed_pair_verified', 'm2_l1_device_qualified', 'm2_l2_device_qualified',
                   'm2_l3_negative_device_qualified', 'm2_l3_transport_device_qualified',
-                  'm2_l3_process_device_qualified'):
+                  'm2_l3_process_device_qualified', 'm3_preview_device_qualified'):
         require(summary.get(field) == doc.get(field),
                 'LANE_RECEIPT_SUMMARY_MISMATCH:' + field)
     if code != 0:
@@ -279,7 +282,7 @@ def run(args):
                selected_lanes=selected, tests={}, device_qualified=False,
                m2_l1_device_qualified=False, m2_l2_device_qualified=False,
                m2_l3_negative_device_qualified=False, m2_l3_transport_device_qualified=False,
-               m2_l3_process_device_qualified=False,
+               m2_l3_process_device_qualified=False, m3_preview_device_qualified=False,
                app_force_stop_authorized=allow_app_force_stop, release_qualified=False,
                recorded_at_utc=datetime.now(timezone.utc).isoformat())
     try:
@@ -335,6 +338,8 @@ def run(args):
                                                    'PASS_M2_L3_APP_OWNED_TRANSPORT_RECOVERY')
         doc['m2_l3_process_device_qualified'] = (doc['tests'].get('m2-process-live', {}).get('state') ==
                                                  'PASS_M2_L3_APP_PROCESS_COLD_LAUNCH')
+        doc['m3_preview_device_qualified'] = (doc['tests'].get('m3-preview-live', {}).get('state') ==
+                                              'PASS_M3_REAL_DAEMON_PREVIEW_ONLY')
     except (QualificationError, live.Blocked, OSError, ValueError, KeyError, TypeError,
             json.JSONDecodeError) as exc:
         doc['reason'] = (str(exc) if isinstance(exc, QualificationError) else
@@ -348,7 +353,7 @@ def run(args):
                       'installed_before','installed_pair_verified','installation_performed',
                       'selected_lanes','tests','m2_l1_device_qualified','m2_l2_device_qualified',
                       'm2_l3_negative_device_qualified', 'm2_l3_transport_device_qualified',
-                      'm2_l3_process_device_qualified')}, sort_keys=True))
+                      'm2_l3_process_device_qualified', 'm3_preview_device_qualified')}, sort_keys=True))
     return 0 if doc['status'].startswith('PASS_') else 2
 
 
