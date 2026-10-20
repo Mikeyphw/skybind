@@ -9,6 +9,7 @@ import android.os.RemoteException
 import com.topjohnwu.superuser.ipc.RootService
 import io.github.mikeyphw.skybind.model.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -19,24 +20,21 @@ import kotlin.coroutines.resumeWithException
 class RootReadSession(private val app: Application, private val disconnected: () -> Unit) : SkybindReadOnlyGateway {
     @Volatile private var remote: IRootReadBridge? = null
     private var connection: ServiceConnection? = null
-    private val reader = LiveReadSnapshotReader()
+    @Volatile private var reader = LiveReadSnapshotReader()
 
     suspend fun connect() {
         if (remote != null) return
-        val binder = withTimeout(20_000L) {
-            suspendCancellableCoroutine<IBinder> { continuation ->
+        val (boundConnection, binder) = withTimeout(20_000L) {
+            suspendCancellableCoroutine<Pair<ServiceConnection, IBinder>> { continuation ->
                 val conn = object : ServiceConnection {
                     override fun onServiceConnected(name: ComponentName, service: IBinder) {
-                        if (continuation.isActive) continuation.resume(service)
+                        if (continuation.isActive) continuation.resume(this to service)
                     }
                     override fun onServiceDisconnected(name: ComponentName) {
                         // A superseded binding may deliver a late Binder callback.
                         // It must never clear a newer authenticated session.
                         if (connection !== this) return
-                        connection = null
-                        remote = null
-                        reader.reset()
-                        disconnected()
+                        transportLost()
                     }
                     override fun onBindingDied(name: ComponentName) = onServiceDisconnected(name)
                     override fun onNullBinding(name: ComponentName) = onServiceDisconnected(name)
@@ -54,26 +52,55 @@ class RootReadSession(private val app: Application, private val disconnected: ()
                 }
             }
         }
+        // Binder loss may race the suspended connect continuation; never resurrect
+        // a connection whose ownership has already been invalidated.
+        if (connection !== boundConnection) throw RemoteException("root binding expired during connect")
         remote = IRootReadBridge.Stub.asInterface(binder) ?: throw RemoteException("root Binder unavailable")
     }
 
     override suspend fun snapshot(): SkybindReadSnapshot = withContext(Dispatchers.IO) {
         val api = remote ?: return@withContext SkybindReadSnapshot(LinkState.NOT_AUTHORIZED,
             "Tap Connect and approve Skybind in your root manager to begin read-only access.")
+        // A read started before a disconnect must never publish a result into a
+        // replacement session or leave its cursor in the current reader.
+        val ownedReader = reader
         try {
-            reader.fetch { method, args -> api.query(method, args) }
+            val value = ownedReader.fetch { method, args -> api.query(method, args) }
+            if (remote !== api || reader !== ownedReader) {
+                SkybindReadSnapshot(LinkState.DISCONNECTED, "Read-only session expired; reconnect explicitly.")
+            } else value
+        } catch (cancel: CancellationException) {
+            throw cancel
         } catch (e: SecurityException) {
-            reader.reset()
+            withContext(Dispatchers.Main) { transportLost() }
             SkybindReadSnapshot(LinkState.NOT_AUTHORIZED, "Root service rejected the client or its scope.")
         } catch (e: Exception) {
-            reader.reset()
-            SkybindReadSnapshot(LinkState.DISCONNECTED, "Skybind daemon unavailable. Refresh to reconnect.")
+            withContext(Dispatchers.Main) { transportLost() }
+            SkybindReadSnapshot(LinkState.DISCONNECTED, "Skybind daemon unavailable. Tap Connect to reconnect.")
         }
     }
 
     suspend fun browse(remoteName: String, path: String): List<RemoteFileEntry> = withContext(Dispatchers.IO) {
         val api = remote ?: throw SecurityException("unpaired root service")
-        RemoteBrowseReader().fetch(remoteName, path) { method, args -> api.query(method, args) }
+        try {
+            val entries = RemoteBrowseReader().fetch(remoteName, path) { method, args -> api.query(method, args) }
+            if (remote !== api) throw SecurityException("read-only session expired during listing")
+            entries
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (dead: RemoteException) {
+            withContext(Dispatchers.Main) { transportLost() }
+            throw dead
+        }
+    }
+
+    /** The same app-owned failure transition used by real Binder disconnect callbacks.
+     * Testing this path never terminates the privileged process or revokes grants.
+     */
+    fun transportLost() {
+        if (connection == null && remote == null) return
+        close()
+        disconnected()
     }
 
     fun close() {
@@ -81,7 +108,9 @@ class RootReadSession(private val app: Application, private val disconnected: ()
         val old = connection
         connection = null
         remote = null
-        reader.reset()
+        // Do not block the UI on a read already in flight: rotate the reader
+        // instead of waiting for its synchronized RPC batch to finish.
+        reader = LiveReadSnapshotReader()
         old?.let { runCatching { RootService.unbind(it) } }
     }
 }

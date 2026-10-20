@@ -27,7 +27,8 @@ def verify(root=ROOT):
     required = (
         "REPO = 'Mikeyphw/skybind'",
         "ARTIFACT = 'skybind-android-debug-apks-unqualified'",
-        "LANES = {'m2-preflight': 'preflight', 'm2-live': 'live', 'm2-ui-live': 'ui-live', 'm2-negative-live': 'negative-live'}",
+        "'m2-negative-live': 'negative-live'",
+        "'m2-transport-live': 'transport-live'", "'m2-process-live': 'process-live'",
         'select_lanes(args.test)', 'live.current_source()',
         'live.github(args.run_id, sha)', 'live.verify_candidate(folder, args.run_id, sha, pin)',
         'installation_preflight(installed_identity(serial), manifest, pin)',

@@ -31,6 +31,7 @@ TEST_APP = APP + '.test'
 CASE = APP + '.LiveRootBrowserAcceptanceTest#liveReadBrowseAndReconnect'
 UI_CASE = APP + '.LiveUiAcceptanceTest#liveUiReadOnlyNavigationRecovery'
 NEGATIVE_CASE = APP + '.LiveNegativeAcceptanceTest#liveReadOnlyNegativeBoundaries'
+TRANSPORT_CASE = APP + '.LiveTransportAcceptanceTest#liveTransportLossAndFreshReconnect'
 RUNNER = TEST_APP + '/androidx.test.runner.AndroidJUnitRunner'
 PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
 HEX = re.compile(r'[0-9a-f]{64}\Z')
@@ -113,6 +114,33 @@ def parse_negative_live(stdout):
             'FAILURES!!!' not in stdout):
         return 'PASS_M2_L3_READONLY_NEGATIVE_BOUNDARIES', None
     return 'FAILED', 'NEGATIVE_LIVE_INSTRUMENTATION_INCOMPLETE_OR_UNCLASSIFIED'
+
+
+TRANSPORT_BLOCKED = ('SKYBIND_TRANSPORT_NOT_REQUESTED', 'SKYBIND_TRANSPORT_BLOCKED_BIND',
+                     'SKYBIND_TRANSPORT_BLOCKED_ROOT_AUTH', 'SKYBIND_TRANSPORT_BLOCKED_DAEMON',
+                     'SKYBIND_TRANSPORT_BLOCKED_REBIND')
+TRANSPORT_FAILED = ('SKYBIND_TRANSPORT_FAILED_UNPAIRED', 'SKYBIND_TRANSPORT_FAILED_INITIAL_READ',
+                    'SKYBIND_TRANSPORT_FAILED_CALLBACK_COUNT', 'SKYBIND_TRANSPORT_FAILED_DUPLICATE_CALLBACK',
+                    'SKYBIND_TRANSPORT_FAILED_STALE_AUTHORITY', 'SKYBIND_TRANSPORT_FAILED_STALE_DATA',
+                    'SKYBIND_TRANSPORT_FAILED_RECONNECT')
+
+
+def parse_transport_live(stdout):
+    for marker in TRANSPORT_FAILED:
+        if marker in stdout:
+            return 'FAILED', marker
+    for marker in TRANSPORT_BLOCKED:
+        if marker in stdout:
+            return 'BLOCKED', marker
+    final, codes = FINAL.findall(stdout), CODES.findall(stdout)
+    if '-3' in codes:
+        return 'BLOCKED', 'TRANSPORT_LIVE_CASE_SKIPPED'
+    if (final == ['-1'] and codes == ['1', '0'] and
+            'INSTRUMENTATION_STATUS: test=liveTransportLossAndFreshReconnect' in stdout and
+            'INSTRUMENTATION_STATUS: numtests=1' in stdout and
+            'FAILURES!!!' not in stdout):
+        return 'PASS_M2_L3_APP_OWNED_TRANSPORT_RECOVERY', None
+    return 'FAILED', 'TRANSPORT_LIVE_INCOMPLETE_OR_UNCLASSIFIED'
 
 
 class Blocked(Exception):
@@ -281,7 +309,8 @@ def run(opts):
                installed_pair_verified=False, installed_apks_modified=False,
                root_grant_changed_by_runner=False, daemon_mutated=False,
                remote_selection='explicit' if opts.remote else 'first_configured',
-               mode=opts.mode, m2_l3_negative_device_qualified=False, tests={}, recorded_at_utc=datetime.now(timezone.utc).isoformat())
+               mode=opts.mode, m2_l3_negative_device_qualified=False,
+               m2_l3_transport_device_qualified=False, tests={}, recorded_at_utc=datetime.now(timezone.utc).isoformat())
     try:
         need(isinstance(opts.run_id, int) and opts.run_id > 0, 'RUN_ID_INVALID')
         if opts.remote is not None:
@@ -312,12 +341,16 @@ def run(opts):
         else:
             ui_mode = opts.mode == 'ui-live'
             negative_mode = opts.mode == 'negative-live'
+            transport_mode = opts.mode == 'transport-live'
             if ui_mode:
                 args = ['shell', 'am', 'instrument', '-w', '-r',
                         '-e', 'skybind.ui.live', 'true', '-e', 'class', UI_CASE]
             elif negative_mode:
                 args = ['shell', 'am', 'instrument', '-w', '-r',
                         '-e', 'skybind.negative.live', 'true', '-e', 'class', NEGATIVE_CASE]
+            elif transport_mode:
+                args = ['shell', 'am', 'instrument', '-w', '-r',
+                        '-e', 'skybind.transport.live', 'true', '-e', 'class', TRANSPORT_CASE]
             else:
                 args = ['shell', 'am', 'instrument', '-w', '-r',
                         '-e', 'skybind.live', 'true', '-e', 'class', CASE]
@@ -327,10 +360,12 @@ def run(opts):
             outcome = adb(device, *args, timeout=240 if ui_mode else 190, ok=False)
             state, reason = (parse_ui_live(outcome.stdout) if ui_mode else
                              parse_negative_live(outcome.stdout) if negative_mode else
+                             parse_transport_live(outcome.stdout) if transport_mode else
                              parse_live(outcome.stdout))
             doc['state'], doc['reason'] = state, reason
             case_name = ('liveUiReadOnlyNavigationRecovery' if ui_mode else
                          'liveReadOnlyNegativeBoundaries' if negative_mode else
+                         'liveTransportLossAndFreshReconnect' if transport_mode else
                          'liveReadBrowseAndReconnect')
             doc['tests'][case_name] = state
             doc['instrumentation_process_exit_zero'] = outcome.returncode == 0
@@ -342,6 +377,9 @@ def run(opts):
                 elif negative_mode:
                     doc['m2_l3_negative_device_qualified'] = True
                     doc['qualified_scope'] = 'M2-L3_READONLY_NEGATIVE_BOUNDARIES_ONLY'
+                elif transport_mode:
+                    doc['m2_l3_transport_device_qualified'] = True
+                    doc['qualified_scope'] = 'M2-L3_APP_OWNED_TRANSPORT_LOSS_RECOVERY_ONLY'
                 else:
                     doc['m2_l1_device_qualified'] = True  # Narrow gate only
                     doc['qualified_scope'] = 'M2-L1_READ_ONLY_APP_ROOTSERVICE_QUERY_BROWSE_REBIND'
@@ -353,7 +391,7 @@ def run(opts):
     print(json.dumps({k: doc.get(k) for k in ('state', 'reason', 'receipt', 'source_sha',
           'github_run_id', 'artifact_id', 'device_api', 'installed_pair_verified',
           'device_qualified', 'm2_l1_device_qualified', 'm2_l2_device_qualified',
-          'm2_l3_negative_device_qualified')}, sort_keys=True))
+          'm2_l3_negative_device_qualified', 'm2_l3_transport_device_qualified')}, sort_keys=True))
     return 0 if doc['state'].startswith('PASS_') else 2
 
 
@@ -369,7 +407,7 @@ def read_pin():
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--run-id', type=int, required=True, help='Current exact-source GitHub APK build')
-    p.add_argument('--mode', choices=('preflight','live','ui-live','negative-live'), default='preflight')
+    p.add_argument('--mode', choices=('preflight','live','ui-live','negative-live','transport-live'), default='preflight')
     p.add_argument('--remote', help='Optional configured remote; otherwise first sorted daemon remote')
     p.add_argument('--serial', help='ADB serial if more than one device is connected')
     p.add_argument('--artifact-dir', type=Path, help='Local gh-downloaded exact-run APK pair')

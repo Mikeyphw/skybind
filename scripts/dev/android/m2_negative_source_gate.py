@@ -40,9 +40,11 @@ def verify(root=ROOT):
         'grantRoot(', 'revokeRoot(', 'killProcess('):
         require(unsafe not in test and unsafe not in runner, 'NEGATIVE_MUTATION:' + unsafe)
     require('if (connection !== this) return' in session and
-        session.index('connection = null\n        remote = null\n        reader.reset()') <
+        session.index('connection = null\n        remote = null\n        // Do not block the UI') <
         session.index('old?.let { runCatching { RootService.unbind(it) } }'),
         'SESSION_STALE_BINDER_CALLBACK_GUARD_MISSING')
+    require('reader = LiveReadSnapshotReader()' in session,
+            'SESSION_READER_GENERATION_ROTATION_MISSING')
     for token in ("NEGATIVE_CASE = APP + '.LiveNegativeAcceptanceTest#liveReadOnlyNegativeBoundaries'",
         "'-e', 'skybind.negative.live', 'true'", "'negative-live'", 'parse_negative_live(',
         'PASS_M2_L3_READONLY_NEGATIVE_BOUNDARIES', 'm2_l3_negative_device_qualified=False',

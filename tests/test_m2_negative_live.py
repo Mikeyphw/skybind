@@ -59,8 +59,8 @@ class NegativeLiveSourceTests(unittest.TestCase):
     def test_only_opted_in_new_lane(self):
         self.assertEqual(ci.select_lanes([]),[])
         self.assertEqual(ci.select_lanes(['m2-negative-live']),['m2-negative-live'])
-        with self.assertRaises(ci.QualificationError):
-            ci.select_lanes(['m2-process-live'])
+        self.assertEqual(ci.select_lanes(['m2-process-live']), ['m2-process-live'])
+        self.assertEqual(ci.select_lanes(['m2-transport-live']), ['m2-transport-live'])
 
     def test_narrow_scoped_positive_and_negative_receipts(self):
         receipt=dict(schema='skybind-m2-live-v1',source_sha='a'*40,github_run_id=37,
