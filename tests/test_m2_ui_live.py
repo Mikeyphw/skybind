@@ -31,6 +31,34 @@ class UiLiveGate(unittest.TestCase):
     def test_source(self):
         self.assertEqual(source.verify(ROOT)['state'],'PASS_M2_L2_LIVE_UI_SOURCE_ONLY')
 
+    def test_hosted_compose_kotlin_compile_contract_regression(self):
+        # GitHub Actions run 39360456956: fail closed on the five previous
+        # AndroidTest compiler errors, without running a local APK build.
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            needed=(source.UI_TEST,source.VM,source.APP,source.ACTIVITY,
+                    source.CI,source.RUNNER,source.GROUPED,source.BROWSER_TEST)
+            for rel in needed:
+                target=root/rel;target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_bytes((ROOT/rel).read_bytes())
+            self.assertEqual(source.verify(root)['state'],'PASS_M2_L2_LIVE_UI_SOURCE_ONLY')
+            ui_path=root/source.UI_TEST
+            original_ui=ui_path.read_text()
+            ui_path.write_text(original_ui.replace(
+                'import androidx.compose.ui.semantics.getOrNull\n',
+                'import androidx.compose.ui.test.onAllNodes\n',1))
+            with self.assertRaisesRegex(source.Violation,
+                                        'M2_L2_COMPOSE_SEMANTICS_IMPORTS_INVALID'):
+                source.verify(root)
+            ui_path.write_text(original_ui)
+            browse_path=root/source.BROWSER_TEST
+            original_browser=browse_path.read_text()
+            browse_path.write_text(original_browser.replace(
+                'browser = BrowserState(', 'BrowserState(',1))
+            with self.assertRaisesRegex(source.Violation,
+                                        'M2_L2_BROWSER_FIXTURE_NAMED_BROWSER_REQUIRED'):
+                source.verify(root)
+
     def test_exact_single_case(self):
         self.assertEqual(worker.parse_ui_live(GOOD),('PASS_M2_L2_LIVE_UI_READONLY_RECOVERY', None))
         for bad in (GOOD.replace('INSTRUMENTATION_CODE: -1',''),
@@ -84,7 +112,7 @@ class UiLiveGate(unittest.TestCase):
     def test_source_guard_rejects_fixture_backend_and_lost_disconnect(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td)
-            needed=(source.UI_TEST,source.VM,source.APP,source.ACTIVITY,source.CI,source.RUNNER,source.GROUPED)
+            needed=(source.UI_TEST,source.VM,source.APP,source.ACTIVITY,source.CI,source.RUNNER,source.GROUPED,source.BROWSER_TEST)
             for rel in needed:
                 target=root/rel;target.parent.mkdir(parents=True,exist_ok=True)
                 target.write_bytes((ROOT/rel).read_bytes())

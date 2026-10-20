@@ -6,6 +6,7 @@ import json
 ROOT = Path(__file__).resolve().parents[3]
 ANDROID = Path('android-app/app/src')
 UI_TEST = ANDROID/'androidTest/java/io/github/mikeyphw/skybind/LiveUiAcceptanceTest.kt'
+BROWSER_TEST = ANDROID/'androidTest/java/io/github/mikeyphw/skybind/RemoteBrowserTest.kt'
 VM = ANDROID/'main/java/io/github/mikeyphw/skybind/bridge/SkybindSessionViewModel.kt'
 APP = ANDROID/'main/java/io/github/mikeyphw/skybind/ui/SkybindApp.kt'
 ACTIVITY = ANDROID/'main/java/io/github/mikeyphw/skybind/MainActivity.kt'
@@ -20,7 +21,7 @@ def verify(root=ROOT):
         f=root/p
         if not f.is_file() or f.is_symlink(): raise Violation('SOURCE_ABSENT_OR_SYMLINK:'+p.name)
         return f.read_text()
-    ui,vm,app,main,ci,runner,grouped=map(read,(UI_TEST,VM,APP,ACTIVITY,CI,RUNNER,GROUPED))
+    ui,vm,app,main,ci,runner,grouped,browser_test=map(read,(UI_TEST,VM,APP,ACTIVITY,CI,RUNNER,GROUPED,BROWSER_TEST))
     required_ui=(
         'createAndroidComposeRule<MainActivity>()',
         'assumeTrue("SKYBIND_UI_NOT_REQUESTED", options.getString("skybind.ui.live") == "true")',
@@ -38,6 +39,16 @@ def verify(root=ROOT):
         'assertTrue("SKYBIND_UI_FAILED_JOBS_ACTIVITY", tags("event-").isEmpty())',
         'assertTrue("SKYBIND_UI_FAILED_JOBS_ACTIVITY", tags("job-").isEmpty())',
     )
+    # Hosted compile regression 39360456956: onAllNodes is a rule member, not
+    # a top-level extension; getOrNull is a semantics extension needing import.
+    if 'import androidx.compose.ui.test.onAllNodes\n' in ui or \
+       'import androidx.compose.ui.semantics.getOrNull\n' not in ui:
+        raise Violation('M2_L2_COMPOSE_SEMANTICS_IMPORTS_INVALID')
+    # Adding onDisconnect changed the SkybindApp positional call order; both
+    # legacy BrowserState fixture parameters must now be explicitly named.
+    if browser_test.count('browser = BrowserState(') != 2 or \
+       'SkybindApp(snapshot(), {}, {}, BrowserState(' in browser_test:
+        raise Violation('M2_L2_BROWSER_FIXTURE_NAMED_BROWSER_REQUIRED')
     for token in required_ui:
         if token not in ui: raise Violation('LIVE_UI_CONTRACT_MISSING:'+token[:75])
     for forbidden in ('su -c','Runtime.getRuntime().exec','Shell.cmd(', 'pm clear', 'am force-stop',

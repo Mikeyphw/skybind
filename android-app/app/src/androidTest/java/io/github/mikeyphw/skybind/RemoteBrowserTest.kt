@@ -19,7 +19,7 @@ class RemoteBrowserTest {
         remotes = listOf(RemoteSummary("alpha", "Alpha", "drive")))
 
     @Test fun listsRealFoldersAndKeepsWritesDisabled() {
-        compose.setContent { SkybindApp(snapshot(), {}, {}, BrowserState("alpha", "",
+        compose.setContent { SkybindApp(snapshot(), {}, {}, browser = BrowserState("alpha", "",
             listOf(RemoteFileEntry("folder", true, 0), RemoteFileEntry("data.txt", false, 12))),
             onBrowseFolder = {}) }
         compose.onNodeWithTag("nav-browser").performClick()
@@ -30,7 +30,7 @@ class RemoteBrowserTest {
 
     @Test fun disconnectedStateHidesFormerContents() {
         compose.setContent { SkybindApp(SkybindReadSnapshot(LinkState.DISCONNECTED, "Offline"), {}, {},
-            BrowserState("alpha", "secret", listOf(RemoteFileEntry("private", false, 5)))) }
+            browser = BrowserState("alpha", "secret", listOf(RemoteFileEntry("private", false, 5)))) }
         compose.onNodeWithTag("nav-browser").performClick()
         compose.onNodeWithTag("file-private").assertDoesNotExist()
         compose.onNodeWithTag("browser-path").assertDoesNotExist()
