@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""M2-L1: Source-bound read-only, REAL RootService + browser device acceptance.
+"""Exact hosted-pair device acceptance: M2 read paths and opt-in M3.
 
-No build, install, uninstall, data clear, force-stop, daemon mutation or shell-root
-invocation. Opt-in live instrumentation performs only the app's trusted queries.
-Fixture-only 19-test PASS remains independent and is never rewritten.
+No local APK build, install, uninstall, data clear, force-stop, or shell-root
+invocation here. Read-only lanes never mutate the daemon. M3 disposable CHECK
+execution/cancellation changes test-owned job state ONLY after explicit lane
+selection and authorization; neither is a default. Historical M2 passes remain.
 """
 from __future__ import annotations
 
@@ -33,6 +34,49 @@ UI_CASE = APP + '.LiveUiAcceptanceTest#liveUiReadOnlyNavigationRecovery'
 NEGATIVE_CASE = APP + '.LiveNegativeAcceptanceTest#liveReadOnlyNegativeBoundaries'
 TRANSPORT_CASE = APP + '.LiveTransportAcceptanceTest#liveTransportLossAndFreshReconnect'
 M3_CASE = APP + '.LiveM3PreviewAcceptanceTest#liveM3ReadOnlyJobPreview'
+M3_EXECUTE_CASE = APP + '.LiveM3DisposableAcceptanceTest#liveDisposableCheckCompletes'
+M3_CANCEL_CASE = APP + '.LiveM3DisposableAcceptanceTest#liveDisposableOwnedCancellation'
+M3_DISPOSABLE_BLOCKED = ('SKYBIND_M3_DISPOSABLE_NOT_REQUESTED',
+    'SKYBIND_M3_DISPOSABLE_BLOCKED_BIND', 'SKYBIND_M3_DISPOSABLE_BLOCKED_SNAPSHOT',
+    'SKYBIND_M3_DISPOSABLE_BLOCKED_FIXTURE', 'SKYBIND_M3_DISPOSABLE_BLOCKED_CANCEL_RACE')
+M3_DISPOSABLE_FAILED = ('SKYBIND_M3_DISPOSABLE_FAILED_PREVIEW',
+    'SKYBIND_M3_DISPOSABLE_FAILED_FIXTURE_IDENTITY', 'SKYBIND_M3_DISPOSABLE_FAILED_START',
+    'SKYBIND_M3_DISPOSABLE_FAILED_REPLAY_ACCEPTED',
+    'SKYBIND_M3_DISPOSABLE_FAILED_LOST_SNAPSHOT',
+    'SKYBIND_M3_DISPOSABLE_FAILED_TERMINAL_TIMEOUT',
+    'SKYBIND_M3_DISPOSABLE_FAILED_TERMINAL',
+    'SKYBIND_M3_DISPOSABLE_FAILED_AUTHORITATIVE_JOB',
+    'SKYBIND_M3_DISPOSABLE_FAILED_EVENT_REPLAY',
+    'SKYBIND_M3_DISPOSABLE_FAILED_FOREIGN_CANCEL_ACCEPTED',
+    'SKYBIND_M3_DISPOSABLE_FAILED_OWNED_CANCEL',
+    'SKYBIND_M3_DISPOSABLE_FAILED_CANCEL_TIMEOUT',
+    'SKYBIND_M3_DISPOSABLE_FAILED_CANCEL_TERMINAL',
+    'SKYBIND_M3_DISPOSABLE_FAILED_CANCEL_EVENT',
+    'SKYBIND_M3_DISPOSABLE_FAILED_STALE_AFTER_CLOSE')
+
+
+def parse_m3_disposable(stdout: str, *, mode: str):
+    """One exact selected instrumented case; terminal outcome never inferred."""
+    for marker in M3_DISPOSABLE_FAILED:
+        if marker in stdout:
+            return 'FAILED', marker
+    for marker in M3_DISPOSABLE_BLOCKED:
+        if marker in stdout:
+            return 'BLOCKED', marker
+    final, codes = FINAL.findall(stdout), CODES.findall(stdout)
+    if '-3' in codes:
+        return 'BLOCKED', 'M3_DISPOSABLE_TEST_SKIPPED'
+    case, pass_state = {
+        'm3-execute-live': ('liveDisposableCheckCompletes', 'PASS_M3_DISPOSABLE_CHECK_COMPLETION'),
+        'm3-cancel-live': ('liveDisposableOwnedCancellation', 'PASS_M3_DISPOSABLE_OWNED_CANCEL'),
+    }[mode]
+    if (final == ['-1'] and codes == ['1', '0'] and
+            f'INSTRUMENTATION_STATUS: test={case}' in stdout and
+            'INSTRUMENTATION_STATUS: numtests=1' in stdout and
+            'FAILURES!!!' not in stdout):
+        return pass_state, None
+    return 'FAILED', 'M3_DISPOSABLE_INSTRUMENTATION_INCOMPLETE_OR_UNCLASSIFIED'
+
 RUNNER = TEST_APP + '/androidx.test.runner.AndroidJUnitRunner'
 PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
 HEX = re.compile(r'[0-9a-f]{64}\Z')
@@ -339,9 +383,17 @@ def run(opts):
                remote_selection='explicit' if opts.remote else 'first_configured',
                mode=opts.mode, m2_l3_negative_device_qualified=False,
                m2_l3_transport_device_qualified=False,
-               m3_preview_device_qualified=False, tests={}, recorded_at_utc=datetime.now(timezone.utc).isoformat())
+               m3_preview_device_qualified=False, m3_execute_device_qualified=False,
+               m3_cancel_device_qualified=False, tests={}, recorded_at_utc=datetime.now(timezone.utc).isoformat())
     try:
         need(isinstance(opts.run_id, int) and opts.run_id > 0, 'RUN_ID_INVALID')
+        if opts.mode == 'm3-execute-live':
+            need(getattr(opts, 'allow_disposable_job_execution', False),
+                 'M3_DISPOSABLE_EXECUTION_EXPLICIT_AUTHORIZATION_REQUIRED')
+        if opts.mode == 'm3-cancel-live':
+            need(getattr(opts, 'allow_disposable_job_execution', False) and
+                 getattr(opts, 'allow_disposable_job_cancellation', False),
+                 'M3_DISPOSABLE_CANCEL_EXPLICIT_AUTHORIZATION_REQUIRED')
         if opts.remote is not None:
             need(PATTERN.fullmatch(opts.remote), 'REMOTE_NAME_INVALID')
         sha = current_source()
@@ -372,6 +424,8 @@ def run(opts):
             negative_mode = opts.mode == 'negative-live'
             transport_mode = opts.mode == 'transport-live'
             m3_mode = opts.mode == 'm3-preview-live'
+            m3_execute = opts.mode == 'm3-execute-live'
+            m3_cancel = opts.mode == 'm3-cancel-live'
             if ui_mode:
                 args = ['shell', 'am', 'instrument', '-w', '-r',
                         '-e', 'skybind.ui.live', 'true', '-e', 'class', UI_CASE]
@@ -381,6 +435,10 @@ def run(opts):
             elif m3_mode:
                 args = ['shell', 'am', 'instrument', '-w', '-r',
                         '-e', 'skybind.m3.preview.live', 'true', '-e', 'class', M3_CASE]
+            elif m3_execute or m3_cancel:
+                args = ['shell', 'am', 'instrument', '-w', '-r',
+                        '-e', ('skybind.m3.execute.live' if m3_execute else 'skybind.m3.cancel.live'),
+                        'true', '-e', 'class', (M3_EXECUTE_CASE if m3_execute else M3_CANCEL_CASE)]
             elif transport_mode:
                 args = ['shell', 'am', 'instrument', '-w', '-r',
                         '-e', 'skybind.transport.live', 'true', '-e', 'class', TRANSPORT_CASE]
@@ -390,17 +448,20 @@ def run(opts):
             if opts.remote:
                 args += ['-e', 'skybind.remote', opts.remote]
             args.append(RUNNER)
-            outcome = adb(device, *args, timeout=240 if ui_mode else 190, ok=False)
+            outcome = adb(device, *args, timeout=300 if (ui_mode or m3_execute or m3_cancel) else 190, ok=False)
             state, reason = (parse_ui_live(outcome.stdout) if ui_mode else
                              parse_negative_live(outcome.stdout) if negative_mode else
                              parse_transport_live(outcome.stdout) if transport_mode else
                              parse_m3_preview(outcome.stdout) if m3_mode else
+                             parse_m3_disposable(outcome.stdout, mode=opts.mode) if (m3_execute or m3_cancel) else
                              parse_live(outcome.stdout))
             doc['state'], doc['reason'] = state, reason
             case_name = ('liveUiReadOnlyNavigationRecovery' if ui_mode else
                          'liveReadOnlyNegativeBoundaries' if negative_mode else
                          'liveTransportLossAndFreshReconnect' if transport_mode else
                          'liveM3ReadOnlyJobPreview' if m3_mode else
+                         'liveDisposableCheckCompletes' if m3_execute else
+                         'liveDisposableOwnedCancellation' if m3_cancel else
                          'liveReadBrowseAndReconnect')
             doc['tests'][case_name] = state
             doc['instrumentation_process_exit_zero'] = outcome.returncode == 0
@@ -415,6 +476,12 @@ def run(opts):
                 elif m3_mode:
                     doc['m3_preview_device_qualified'] = True
                     doc['qualified_scope'] = 'M3_REAL_DAEMON_JOB_PREVIEW_ONLY_NO_EXECUTION'
+                elif m3_execute:
+                    doc['m3_execute_device_qualified'] = True
+                    doc['qualified_scope'] = 'M3_DISPOSABLE_CHECK_START_TO_TERMINAL_EVENTS_ONLY'
+                elif m3_cancel:
+                    doc['m3_cancel_device_qualified'] = True
+                    doc['qualified_scope'] = 'M3_DISPOSABLE_SESSION_OWNED_CANCEL_ONLY'
                 elif transport_mode:
                     doc['m2_l3_transport_device_qualified'] = True
                     doc['qualified_scope'] = 'M2-L3_APP_OWNED_TRANSPORT_LOSS_RECOVERY_ONLY'
@@ -430,7 +497,8 @@ def run(opts):
           'github_run_id', 'artifact_id', 'device_api', 'installed_pair_verified',
           'device_qualified', 'm2_l1_device_qualified', 'm2_l2_device_qualified',
           'm2_l3_negative_device_qualified', 'm2_l3_transport_device_qualified',
-          'm3_preview_device_qualified')}, sort_keys=True))
+          'm3_preview_device_qualified', 'm3_execute_device_qualified',
+          'm3_cancel_device_qualified')}, sort_keys=True))
     return 0 if doc['state'].startswith('PASS_') else 2
 
 
@@ -446,7 +514,11 @@ def read_pin():
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--run-id', type=int, required=True, help='Current exact-source GitHub APK build')
-    p.add_argument('--mode', choices=('preflight','live','ui-live','negative-live','transport-live','m3-preview-live'), default='preflight')
+    p.add_argument('--mode', choices=('preflight','live','ui-live','negative-live','transport-live','m3-preview-live','m3-execute-live','m3-cancel-live'), default='preflight')
+    p.add_argument('--allow-disposable-job-execution', action='store_true',
+                   help='Explicitly opt into test-owned manual-only CHECK job launch')
+    p.add_argument('--allow-disposable-job-cancellation', action='store_true',
+                   help='Explicitly opt into cancellation of the test-owned run only')
     p.add_argument('--remote', help='Optional configured remote; otherwise first sorted daemon remote')
     p.add_argument('--serial', help='ADB serial if more than one device is connected')
     p.add_argument('--artifact-dir', type=Path, help='Local gh-downloaded exact-run APK pair')

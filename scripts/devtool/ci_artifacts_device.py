@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-"""Skybind CI artifact -> installed pair -> selected real-device acceptance.
+"""Skybind hosted artifact -> exact installed pair -> selected real-device lanes.
 
-Adapted from Cinderbox-Companion scripts/devtool/ci_artifacts_device.py.
-No implicit test selection, package removal, data clearing, reboot, forced process
-termination, root-shell calls, daemon writes or release publication.
-
-Default: download and authenticate the exact hosted debug pair and require it to
-be installed byte-for-byte. --install explicitly opts into *same-signer* APK
-installation/replacement only; --test m2-live explicitly opts into the app's
-RootService acceptance and the root-manager consent UI.
+No implicit test selection, package removal, data clearing, reboot, root-shell
+calls or release publication. App force-stop and test-owned job run/cancel are
+separate opt-in lanes requiring explicit operator authorization.
 """
 from __future__ import annotations
 
@@ -39,7 +34,8 @@ FILES = frozenset({'android-build-manifest.json', 'app-debug.apk', 'app-debug-an
 # arbitrary Python file, --class or user-supplied script path is accepted.
 LANES = {'m2-preflight': 'preflight', 'm2-live': 'live', 'm2-ui-live': 'ui-live',
          'm2-negative-live': 'negative-live', 'm2-transport-live': 'transport-live',
-         'm2-process-live': 'process-live', 'm3-preview-live': 'm3-preview-live'}
+         'm2-process-live': 'process-live', 'm3-preview-live': 'm3-preview-live',
+         'm3-execute-live': 'm3-execute-live', 'm3-cancel-live': 'm3-cancel-live'}
 SERIAL = re.compile(r'[A-Za-z0-9_.:-]{1,128}\Z')
 APK_PATH = re.compile(r'/data/app/[A-Za-z0-9_./+@=:\-~]+/base\.apk\Z')
 
@@ -188,28 +184,36 @@ def validated_lane_receipt(record, *, lane: str, run_id: int, sha: str, artifact
                 'm2-negative-live': 'PASS_M2_L3_READONLY_NEGATIVE_BOUNDARIES',
                 'm2-transport-live': 'PASS_M2_L3_APP_OWNED_TRANSPORT_RECOVERY',
                 'm2-process-live': 'PASS_M2_L3_APP_PROCESS_COLD_LAUNCH',
-                'm3-preview-live': 'PASS_M3_REAL_DAEMON_PREVIEW_ONLY'}[lane]
+                'm3-preview-live': 'PASS_M3_REAL_DAEMON_PREVIEW_ONLY',
+                'm3-execute-live': 'PASS_M3_DISPOSABLE_CHECK_COMPLETION',
+                'm3-cancel-live': 'PASS_M3_DISPOSABLE_OWNED_CANCEL'}[lane]
     require(record.get('state') == expected, 'TEST_LANE_NOT_PASS:' + lane)
     require(record.get('m2_l1_device_qualified') is (lane == 'm2-live') and
             record.get('m2_l2_device_qualified', False) is (lane == 'm2-ui-live') and
             record.get('m2_l3_negative_device_qualified', False) is (lane == 'm2-negative-live') and
             record.get('m2_l3_transport_device_qualified', False) is (lane == 'm2-transport-live') and
             record.get('m2_l3_process_device_qualified', False) is (lane == 'm2-process-live') and
-            record.get('m3_preview_device_qualified', False) is (lane == 'm3-preview-live'),
+            record.get('m3_preview_device_qualified', False) is (lane == 'm3-preview-live') and
+            record.get('m3_execute_device_qualified', False) is (lane == 'm3-execute-live') and
+            record.get('m3_cancel_device_qualified', False) is (lane == 'm3-cancel-live'),
             'LANE_QUALIFICATION_OVERCLAIM')
     scopes = {'m2-live': 'M2-L1_READ_ONLY_APP_ROOTSERVICE_QUERY_BROWSE_REBIND',
               'm2-ui-live': 'M2-L2_REAL_COMPOSE_UI_BROWSE_DISCONNECT_RECONNECT',
               'm2-negative-live': 'M2-L3_READONLY_NEGATIVE_BOUNDARIES_ONLY',
               'm2-transport-live': 'M2-L3_APP_OWNED_TRANSPORT_LOSS_RECOVERY_ONLY',
               'm2-process-live': 'M2-L3_APP_FORCE_STOP_COLD_LAUNCH_UI_ONLY',
-              'm3-preview-live': 'M3_REAL_DAEMON_JOB_PREVIEW_ONLY_NO_EXECUTION'}
+              'm3-preview-live': 'M3_REAL_DAEMON_JOB_PREVIEW_ONLY_NO_EXECUTION',
+              'm3-execute-live': 'M3_DISPOSABLE_CHECK_START_TO_TERMINAL_EVENTS_ONLY',
+              'm3-cancel-live': 'M3_DISPOSABLE_SESSION_OWNED_CANCEL_ONLY'}
     require(record.get('qualified_scope') == scopes.get(lane), 'LANE_SCOPE_MISMATCH')
     return {'state': expected, 'receipt': record.get('receipt'),
             'qualified_scope': scopes.get(lane)}
 
 
 def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str | None,
-                 sha: str, artifact_id: int, allow_app_force_stop: bool = False):
+                 sha: str, artifact_id: int, allow_app_force_stop: bool = False,
+                 allow_disposable_job_execution: bool = False,
+                 allow_disposable_job_cancellation: bool = False):
     # m2_live_device is the canonical isolated test implementation. Never
     # duplicate its instrumentation parser or change its root approval policy.
     import contextlib
@@ -217,7 +221,9 @@ def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str 
     opts = argparse.Namespace(run_id=run_id, mode=LANES[lane], serial=serial,
                               artifact_dir=folder, remote=remote,
                               source_sha=sha, artifact_id=artifact_id,
-                              allow_app_force_stop=allow_app_force_stop)
+                              allow_app_force_stop=allow_app_force_stop,
+                              allow_disposable_job_execution=allow_disposable_job_execution,
+                              allow_disposable_job_cancellation=allow_disposable_job_cancellation)
     output = io.StringIO()
     with contextlib.redirect_stdout(output):
         code = process.run(opts) if lane == 'm2-process-live' else live.run(opts)
@@ -236,7 +242,8 @@ def execute_lane(lane: str, run_id: int, serial: str, folder: Path, remote: str 
     for field in ('state', 'reason', 'source_sha', 'github_run_id', 'artifact_id',
                   'installed_pair_verified', 'm2_l1_device_qualified', 'm2_l2_device_qualified',
                   'm2_l3_negative_device_qualified', 'm2_l3_transport_device_qualified',
-                  'm2_l3_process_device_qualified', 'm3_preview_device_qualified'):
+                  'm2_l3_process_device_qualified', 'm3_preview_device_qualified',
+                  'm3_execute_device_qualified', 'm3_cancel_device_qualified'):
         require(summary.get(field) == doc.get(field),
                 'LANE_RECEIPT_SUMMARY_MISMATCH:' + field)
     if code != 0:
@@ -273,6 +280,15 @@ def run(args):
             'APP_FORCE_STOP_FLAG_REQUIRES_PROCESS_LANE')
     require('m2-process-live' not in selected or allow_app_force_stop,
             'M2_PROCESS_EXPLICIT_FORCE_STOP_AUTHORIZATION_REQUIRED')
+    allow_execute = getattr(args, 'allow_disposable_job_execution', False)
+    allow_cancel = getattr(args, 'allow_disposable_job_cancellation', False)
+    writes = set(selected) & {'m3-execute-live', 'm3-cancel-live'}
+    require(not writes or allow_execute, 'M3_DISPOSABLE_EXECUTION_EXPLICIT_AUTHORIZATION_REQUIRED')
+    require('m3-cancel-live' not in selected or allow_cancel,
+            'M3_DISPOSABLE_CANCEL_EXPLICIT_AUTHORIZATION_REQUIRED')
+    require(not allow_execute or bool(writes), 'M3_DISPOSABLE_FLAG_REQUIRES_EXECUTION_LANE')
+    require(not allow_cancel or 'm3-cancel-live' in selected,
+            'M3_CANCEL_FLAG_REQUIRES_CANCEL_LANE')
     doc = dict(schema='skybind-ci-artifacts-device-v1', status='BLOCKED', reason=None,
                github_run_id=args.run_id, source_sha=None, github_run_authenticated=False,
                artifact_metadata_verified=False, signing_verified=False,
@@ -283,6 +299,8 @@ def run(args):
                m2_l1_device_qualified=False, m2_l2_device_qualified=False,
                m2_l3_negative_device_qualified=False, m2_l3_transport_device_qualified=False,
                m2_l3_process_device_qualified=False, m3_preview_device_qualified=False,
+               m3_execute_device_qualified=False, m3_cancel_device_qualified=False,
+               disposable_execution_authorized=allow_execute, disposable_cancel_authorized=allow_cancel,
                app_force_stop_authorized=allow_app_force_stop, release_qualified=False,
                recorded_at_utc=datetime.now(timezone.utc).isoformat())
     try:
@@ -320,7 +338,7 @@ def run(args):
             try:
                 doc['tests'][lane] = execute_lane(lane, args.run_id, serial, folder, args.remote,
                                                   sha, artifact['id'],
-                                                  allow_app_force_stop)
+                                                  allow_app_force_stop, allow_execute, allow_cancel)
             except (QualificationError, live.Blocked) as exc:
                 reason = str(exc) if isinstance(exc, QualificationError) else exc.reason
                 doc['tests'][lane] = {'state': ('FAILED' if reason.startswith('TEST_LANE_FAILED:')
@@ -340,6 +358,10 @@ def run(args):
                                                  'PASS_M2_L3_APP_PROCESS_COLD_LAUNCH')
         doc['m3_preview_device_qualified'] = (doc['tests'].get('m3-preview-live', {}).get('state') ==
                                               'PASS_M3_REAL_DAEMON_PREVIEW_ONLY')
+        doc['m3_execute_device_qualified'] = (doc['tests'].get('m3-execute-live', {}).get('state') ==
+                                              'PASS_M3_DISPOSABLE_CHECK_COMPLETION')
+        doc['m3_cancel_device_qualified'] = (doc['tests'].get('m3-cancel-live', {}).get('state') ==
+                                             'PASS_M3_DISPOSABLE_OWNED_CANCEL')
     except (QualificationError, live.Blocked, OSError, ValueError, KeyError, TypeError,
             json.JSONDecodeError) as exc:
         doc['reason'] = (str(exc) if isinstance(exc, QualificationError) else
@@ -353,7 +375,8 @@ def run(args):
                       'installed_before','installed_pair_verified','installation_performed',
                       'selected_lanes','tests','m2_l1_device_qualified','m2_l2_device_qualified',
                       'm2_l3_negative_device_qualified', 'm2_l3_transport_device_qualified',
-                      'm2_l3_process_device_qualified', 'm3_preview_device_qualified')}, sort_keys=True))
+                      'm2_l3_process_device_qualified', 'm3_preview_device_qualified',
+                      'm3_execute_device_qualified', 'm3_cancel_device_qualified')}, sort_keys=True))
     return 0 if doc['status'].startswith('PASS_') else 2
 
 
@@ -377,6 +400,10 @@ def main(argv=None):
                          help='Verify installed APKs only (default behavior)')
     p.add_argument('--allow-app-force-stop', action='store_true',
                    help='Explicit opt-in: force-stop ONLY the Skybind app for m2-process-live')
+    p.add_argument('--allow-disposable-job-execution', action='store_true',
+                   help='Explicit authorization for preinstalled isolated CHECK fixture execution')
+    p.add_argument('--allow-disposable-job-cancellation', action='store_true',
+                   help='Explicit authorization for exact session-owned test run cancellation')
     args = p.parse_args(argv)
     if args.list_tests:
         for name in sorted(LANES):

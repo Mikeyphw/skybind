@@ -210,6 +210,12 @@ inputs = ["../docs/roadmap/**", "../scripts/devtool/**"]
 metadata = { read_only = true, release_qualification = false, qualification = "planning-only" }
 
 [targets.skybind_release.workflows]
+m3-disposable-source = [
+  { id = "guard", ref = "job:m3-disposable-contract", depends_on = [] },
+  { id = "fixture-tests", ref = "job:m3-disposable-tests", depends_on = ["guard"] },
+  { id = "regression", ref = "job:m3-operations-unit", depends_on = ["guard", "fixture-tests"] },
+  { id = "hosted-policy", ref = "job:m3-operations-security", depends_on = ["guard", "fixture-tests", "regression"] },
+]
 m3-operations-source = [
   { id = "contract", ref = "job:m3-operations-contract", depends_on = [] },
   { id = "registry", ref = "job:m3-registry-contract", depends_on = ["contract"] },
@@ -1498,4 +1504,23 @@ metadata = { read_only = true, qualification = "GitHub-only-APK-policy", device_
 [wrapper.commands.m3-operations-source]
 description = "Consolidated M3 preview/one-use run/owned-cancel source and negative checks (never installs or writes)"
 workflow = "m3-operations-source"
+target = "skybind_release"
+
+# M3 execution/cancel is NEVER part of the source DAG. Device lane requires
+# explicit authorization, exact GitHub APK pair, and disposable fixture.
+[targets.skybind_release.jobs.m3-disposable-contract]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/m3_disposable_source_gate.py"]
+inputs = ["../scripts/dev/android/m3_disposable_source_gate.py", "../scripts/dev/android/m3_disposable_fixture.py", "../scripts/dev/android/m2_live_device.py", "../scripts/devtool/ci_artifacts_device.py", "../android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/LiveM3DisposableAcceptanceTest.kt", "../.devtool.toml"]
+metadata = { read_only = true, qualification = "M3-disposable-source-only", device_qualified = false, release_qualified = false }
+
+[targets.skybind_release.jobs.m3-disposable-tests]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_m3_disposable_contract.py", "-q"]
+inputs = ["../tests/test_m3_disposable_contract.py", "../scripts/dev/android/m3_disposable_fixture.py", "../scripts/dev/android/m3_disposable_source_gate.py", "../scripts/devtool/ci_artifacts_device.py"]
+metadata = { read_only = true, qualification = "M3-disposable-negatives-only", device_qualified = false, release_qualified = false }
+
+[wrapper.commands.m3-disposable-source]
+description = "Consolidated M3 disposable execution/cancel source and evidence gates (no device mutation)"
+workflow = "m3-disposable-source"
 target = "skybind_release"
