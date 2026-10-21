@@ -229,6 +229,14 @@ inputs = ["../tests/test_r1_consumer_access_contract.py", "../scripts/dev/androi
 metadata = { read_only = true, no_automatic_device_retest = true, release_qualified = false }
 
 [targets.skybind_release.workflows]
+# R1 operator authorization and BKX PackageManager observation source only.
+r1-trust-admission-source = [
+  { id = "policy-contract", ref = "job:r1-trust-admission-contract", depends_on = [] },
+  { id = "go-admission", ref = "job:r1-trust-admission-go", depends_on = ["policy-contract"] },
+  { id = "python-negatives", ref = "job:r1-trust-admission-negatives", depends_on = ["go-admission"] },
+  { id = "prior-trust", ref = "job:r1-device-trust-contract", depends_on = ["python-negatives"] },
+  { id = "hosted-only", ref = "job:m3-operations-security", depends_on = ["prior-trust"] },
+]
 # Independently updated consumers are ABI/scoped-grant checked, not source-SHA pinned.
 r1-consumer-foundation-source = [
   { id = "policy-contract", ref = "job:r1-consumer-contract", depends_on = [] },
@@ -1617,4 +1625,28 @@ metadata = { source_only = true, read_only = true, no_android_apk_build = true }
 [wrapper.commands.r1-device-trust-source]
 description = "R1 BKX Android PM/chrootctl module trust + deny-by-default local broker source DAG (no grants/device)"
 workflow = "r1-device-trust-source"
+target = "skybind_release"
+
+# R1 single operator-admission source-only package. Does not run device lanes.
+[targets.skybind_release.jobs.r1-trust-admission-contract]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/r1_trust_admission_source_gate.py"]
+inputs = ["../scripts/dev/android/r1_trust_admission_source_gate.py", "../internal/brokerruntime/**", "../android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/R1BKXInstalledPackageAcceptanceTest.kt", "../android-app/app/src/main/AndroidManifest.xml", "../docs/contracts/rclone-compat/**"]
+metadata = { source_only = true, operator_approval_required = true, r1_provider_qualified = false }
+
+[targets.skybind_release.jobs.r1-trust-admission-go]
+runner = "command"
+command = ["go", "-C", "..", "test", "-count=1", "./internal/brokerruntime", "./internal/brokergrant", "./internal/brokeridentity", "./internal/brokeripc", "./internal/brokerissue"]
+inputs = ["../internal/brokerruntime/**", "../internal/brokergrant/**", "../internal/brokeridentity/**", "../internal/brokeripc/**", "../internal/brokerissue/**"]
+metadata = { source_only = true, production_listener_enabled = false }
+
+[targets.skybind_release.jobs.r1-trust-admission-negatives]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_r1_trust_admission_source.py", "-q"]
+inputs = ["../tests/test_r1_trust_admission_source.py", "../scripts/dev/android/r1_trust_admission_source_gate.py"]
+metadata = { source_only = true, r1_bkx_pm_live_not_run = true }
+
+[wrapper.commands.r1-trust-admission-source]
+description = "R1 read-only operator policy, attestation admission and BKX PM observation source DAG; external gateway remains disabled"
+workflow = "r1-trust-admission-source"
 target = "skybind_release"
