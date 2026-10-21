@@ -32,6 +32,21 @@ class R1IntegrationSource(unittest.TestCase):
             mutated['targets']['skybind_release']['jobs'][job]['command'] = bad_command
             self.assertFalse(all(module.release_target_cwd_checks(mutated, ROOT).values()), job)
 
+    def test_hosted_authority_apk_owner_validation_not_skipped(self):
+        workflow=(ROOT/'.github/workflows/skybind-r1-consumer-diagnostics.yml').read_text()
+        source=(ROOT/'internal/brokeridentity/authority_apk_test.go').read_text()
+        # The unprivileged CI lane must exercise the reject-untrusted-owner
+        # test; the root lane must positively run, and prove PASS rather than
+        # merely succeed with a skipped APK ownership test.
+        self.assertIn('TestAuthorityAPKUnprivilegedOwnerIsRejected', source)
+        self.assertIn('os.Geteuid() != 0', source)
+        self.assertIn('t.Skip("requires a root-owned APK fixture', source)
+        self.assertIn("-run '^TestAuthorityAPKExactApprovedBytesAndMutation$'", workflow)
+        self.assertIn('sudo env PATH="$PATH" go test -count=1 -v', workflow)
+        self.assertIn('--- PASS: TestAuthorityAPKUnprivilegedOwnerIsRejected', workflow)
+        self.assertIn('--- PASS: TestAuthorityAPKExactApprovedBytesAndMutation', workflow)
+        self.assertIn('go test -count=1 ./internal/brokeridentity', workflow)
+
     def test_no_autostart_or_external_qualification(self):
         assert not any('skybind-r1-gateway' in (ROOT/p).read_text() for p in ('module/service.sh','module/post-fs-data.sh'))
         import json

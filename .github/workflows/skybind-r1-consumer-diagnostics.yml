@@ -16,6 +16,20 @@ jobs:
           set -euo pipefail
           python3 -B scripts/dev/android/r1_consumer_integration_source_gate.py
           go test -count=1 ./internal/brokeridentity ./internal/brokerruntime ./internal/brokeripc ./cmd/skybind-r1-gateway ./cmd/skybind-r1-module-check
+          # Force a named PASS for the unprivileged wrong-owner test; this
+          # cannot be inferred from a green package test that skips all fixtures.
+          go test -count=1 -v \
+            -run '^TestAuthorityAPKUnprivilegedOwnerIsRejected$' \
+            ./internal/brokeridentity | tee "$RUNNER_TEMP/r1-apk-unprivileged-negative.log"
+          grep -F -- '--- PASS: TestAuthorityAPKUnprivilegedOwnerIsRejected' \
+            "$RUNNER_TEMP/r1-apk-unprivileged-negative.log"
+          # Independently establish the positive APK byte-seal behavior using
+          # an actual root-owned fixture, not a skipped unprivileged fixture.
+          sudo env PATH="$PATH" go test -count=1 -v \
+            -run '^TestAuthorityAPKExactApprovedBytesAndMutation$' \
+            ./internal/brokeridentity | tee "$RUNNER_TEMP/r1-apk-root-positive.log"
+          grep -F -- '--- PASS: TestAuthorityAPKExactApprovedBytesAndMutation' \
+            "$RUNNER_TEMP/r1-apk-root-positive.log"
           sudo env PATH="$PATH" go test -count=1 ./internal/brokeridentity ./internal/brokerruntime ./internal/brokeripc
       - name: Build source-bound root-only arm64 diagnostics
         env:
