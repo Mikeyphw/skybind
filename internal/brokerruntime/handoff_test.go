@@ -164,3 +164,74 @@ func TestHandoffDiagnosticCodesAreBoundedAndResettable(t *testing.T) {
 		t.Fatal("fresh gateway diagnostics are not fail-closed")
 	}
 }
+
+// Reproduce the Android failure: the root policy authorizes five read-only
+// operations but one exact-PID operator approval asks for only one. The
+// resulting grant must never inherit the rest of the operator allowlist.
+func TestGatewayNarrowOneOperationFromFiveOperationPolicy(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("root-only kernel peer test")
+	}
+	h, _, peer := rootHandoffFixture(t)
+	defer h.Close()
+	full := []string{"system.capabilities", "rclone.version", "rclone.listremotes", "rclone.lsjson", "rclone.size"}
+	for i := range h.Gateway.policy.Rules {
+		if h.Gateway.policy.Rules[i].Consumer == "chrootctl" {
+			h.Gateway.policy.Rules[i].Operations = full
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	finished := make(chan error, 1)
+	go func() { finished <- h.Serve(ctx) }()
+	op := "system.capabilities"
+	if err := h.Approve(peer, HandoffRequest{Consumer: "chrootctl", Remote: "test", Prefix: "safe", Operations: []string{op}, TTL: time.Minute}); err != nil {
+		t.Fatalf("one-op approval rejected: %v", err)
+	}
+	c, err := net.DialTimeout("unix", GrantHandoffEndpoint, time.Second*2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var delivered struct {
+		Version   int       `json:"version"`
+		Token     string    `json:"token"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	err = json.NewDecoder(c).Decode(&delivered)
+	_ = c.Close()
+	if err != nil || delivered.Version != 1 || len(delivered.Token) != 64 {
+		t.Fatalf("approved one-op grant was not delivered: %v", err)
+	}
+	identity, err := h.Gateway.Verifier.VerifyPeer(peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Gateway.Grants.Authorize(delivered.Token, identity, op, "test", "safe"); err != nil {
+		t.Fatalf("issued one-op token denied its own scope: %v", err)
+	}
+	for _, other := range full[1:] {
+		if err := h.Gateway.Grants.Authorize(delivered.Token, identity, other, "test", "safe"); err == nil {
+			t.Fatalf("one-op token inherited unapproved operation %s", other)
+		}
+	}
+	if d := h.Diagnostics(); d.Delivered != 1 || d.Rejections != 0 || d.OfferPending {
+		t.Fatalf("grant handoff was not completed: %+v", d)
+	}
+	for _, id := range h.IssuedReceiptIDs() {
+		if !h.RevokeIssued(id) {
+			t.Fatal("failed to revoke narrowed grant")
+		}
+	}
+	if err := h.Gateway.Grants.Authorize(delivered.Token, identity, op, "test", "safe"); err == nil {
+		t.Fatal("revoked one-op token remained live")
+	}
+	cancel()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("handoff socket did not shut down")
+	}
+}

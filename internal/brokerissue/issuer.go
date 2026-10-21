@@ -33,24 +33,26 @@ type Request struct {
 	TTL            time.Duration
 }
 
-func operationsEqual(a, b []string) bool {
-	if len(a) == 0 || len(a) != len(b) {
+// operationsWithinRule accepts only a nonempty, nonduplicated subset of an
+// operator-owned policy rule. A narrower request must NEVER inherit the other
+// operations from that rule when the grant is minted.
+func operationsWithinRule(approved, requested []string) bool {
+	if len(approved) == 0 || len(requested) == 0 || len(requested) > len(approved) {
 		return false
 	}
-	seen := make(map[string]int, len(a))
-	for _, v := range a {
-		seen[v]++
-	}
-	for _, v := range b {
-		seen[v]--
-		if seen[v] < 0 {
+	allowed := make(map[string]bool, len(approved))
+	for _, op := range approved {
+		if op == "" || allowed[op] {
 			return false
 		}
+		allowed[op] = true
 	}
-	for _, v := range seen {
-		if v != 0 {
+	seen := make(map[string]bool, len(requested))
+	for _, op := range requested {
+		if !allowed[op] || seen[op] {
 			return false
 		}
+		seen[op] = true
 	}
 	return true
 }
@@ -66,7 +68,7 @@ func (i *Issuer) IssueForPeer(peer brokeripc.KernelPeer, req Request) (string, b
 		return "", brokergrant.GrantReceipt{}, ErrDenied
 	}
 	for _, rule := range i.Rules {
-		if rule.Caller != identity || rule.Remote != req.Remote || rule.Prefix != req.Prefix || rule.MaxTTL <= 0 || req.TTL <= 0 || req.TTL > rule.MaxTTL || !operationsEqual(rule.Operations, req.Operations) {
+		if rule.Caller != identity || rule.Remote != req.Remote || rule.Prefix != req.Prefix || rule.MaxTTL <= 0 || req.TTL <= 0 || req.TTL > rule.MaxTTL || !operationsWithinRule(rule.Operations, req.Operations) {
 			continue
 		}
 		// Recheck the same process immediately before minting; a changed PID
@@ -75,7 +77,7 @@ func (i *Issuer) IssueForPeer(peer brokeripc.KernelPeer, req Request) (string, b
 		if e != nil || current != identity {
 			return "", brokergrant.GrantReceipt{}, ErrDenied
 		}
-		token, receipt, e := i.Grants.Issue(brokergrant.GrantSpec{Caller: current, Remote: rule.Remote, Prefix: rule.Prefix, Operations: rule.Operations, TTL: req.TTL})
+		token, receipt, e := i.Grants.Issue(brokergrant.GrantSpec{Caller: current, Remote: rule.Remote, Prefix: rule.Prefix, Operations: append([]string(nil), req.Operations...), TTL: req.TTL})
 		if e != nil {
 			return "", brokergrant.GrantReceipt{}, ErrDenied
 		}
