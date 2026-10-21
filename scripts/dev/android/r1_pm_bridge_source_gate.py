@@ -12,7 +12,11 @@ def check():
     device_runner=(ROOT/'scripts/dev/android/r1_pm_bridge_device.py').read_text()
     android_tests=(ROOT/'android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/R1PMBridgeAgentTest.kt').read_text()
     manifest=(ROOT/'android-app/app/src/main/AndroidManifest.xml').read_text()
+    peers=[(ROOT/'internal/brokeridentity'/name).read_text() for name in ('android.go','root.go','pm_bridge.go')]
+    normalizer=(ROOT/'internal/brokeridentity/proc_selinux.go').read_text()
     checks={
+      'PROC_SELINUX_NUL_NORMALIZATION': 'procSELinuxLabel' in normalizer and all('procSELinuxLabel(label)' in code and 'TrimSpace(string(label))' not in code for code in peers),
+      'PROC_SELINUX_REJECTS_EMBEDDED_NUL': 'bytes.IndexAny(raw' in normalizer and 'ErrUnverified' in normalizer,
       'ANDROID_AGENT_ABSTRACT_PEER': 'Namespace.ABSTRACT' in agent and 'skybind-r1-pm-authority-v1' in agent,
       'ROOT_PEERCRED_AND_STARTTIME': 'SO_PEERCRED' in bridge and 'parseStartTicks' in bridge and 'parseStatusUID' in bridge,
       'ROOT_PEER_LABEL_AND_UID': 'attr/current' in bridge and 'cred.Uid != b.Pin.UID' in bridge,

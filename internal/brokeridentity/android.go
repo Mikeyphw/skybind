@@ -170,7 +170,8 @@ func (v *AndroidVerifier) VerifyPeer(peer brokeripc.KernelPeer) (brokergrant.Ide
 			return 0, ErrUnverified
 		}
 		label, e := v.Proc.Read(peer.PID, "attr/current")
-		if e != nil || strings.TrimSpace(string(label)) != pin.SELinuxContext {
+		observedLabel, labelErr := procSELinuxLabel(label)
+		if e != nil || labelErr != nil || observedLabel != pin.SELinuxContext {
 			return 0, ErrUnverified
 		}
 		return ticks, nil

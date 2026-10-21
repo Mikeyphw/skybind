@@ -5,8 +5,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"skybind/internal/brokeridentity"
 	"time"
@@ -58,7 +60,7 @@ func r1PMBridgeCheck(args []string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if e := bridge.Accept(ctx); e != nil {
-		result.Reason = "AUTHORITY_PEER_NOT_ATTESTED"
+		result.Reason = classifyAuthorityAcceptError(e)
 		return 2
 	}
 	result.PMChannelAuthenticated = true
@@ -70,4 +72,17 @@ func r1PMBridgeCheck(args []string) int {
 	result.BKXSignerApproved = true
 	result.State = "PASS_R1_AUTHENTICATED_PM_CHANNEL_ONLY"
 	return 0
+}
+
+// Failure details are available only to this explicit root-only diagnostic.
+// Keep peer UID denials indistinguishable; do not expose signer material.
+func classifyAuthorityAcceptError(e error) string {
+	if errors.Is(e, brokeridentity.ErrPMBridgePeerLabelMismatch) {
+		return "AUTHORITY_PEER_SELINUX_MISMATCH"
+	}
+	if ne, ok := e.(net.Error); ok && ne.Timeout() {
+		// No accepted app peer; Android SELinux could have denied connect(2).
+		return "AUTHORITY_CONNECTION_TIMEOUT"
+	}
+	return "AUTHORITY_PEER_NOT_ATTESTED"
 }

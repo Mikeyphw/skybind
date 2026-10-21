@@ -18,6 +18,19 @@ class BridgeSourceTests(unittest.TestCase):
         self.assertIn('len(addr.Name) > 107', fixture)
         self.assertNotIn('filepath.Join(t.TempDir()', fixture)
 
+    def test_procfs_label_terminal_nul_contract(self):
+        base=ROOT/'internal/brokeridentity'
+        normalizer=(base/'proc_selinux.go').read_text()
+        self.assertIn("bytes.IndexAny(raw",normalizer)
+        self.assertIn("raw[len(raw)-1]",normalizer)
+        for file in ('android.go','root.go','pm_bridge.go'):
+            code=(base/file).read_text()
+            self.assertIn('procSELinuxLabel(label)',code)
+            self.assertNotIn('TrimSpace(string(label))',code)
+        tests=(base/'proc_selinux_test.go').read_text()
+        self.assertIn('TestAppAndRootVerifiersAcceptNULProcContextAndRejectUnsafeLabels',tests)
+        self.assertIn('TestPMBridgeAcceptsAndroidNULTerminatedProcContextButNotChangedLabel',tests)
+
     def test_android_hosted_only(self):
         workflow=(ROOT/'.github/workflows/skybind-r1-pm-bridge.yml').read_text()
         self.assertIn('GOOS: android',workflow)

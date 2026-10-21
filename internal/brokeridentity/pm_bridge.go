@@ -21,6 +21,8 @@ import (
 	"time"
 )
 
+var ErrPMBridgePeerLabelMismatch = errors.New("pm_bridge_peer_selinux_label_mismatch")
+
 const PMBridgeSocket = "\x00skybind-r1-pm-authority-v1"
 const pmMaxLine = 48 * 1024
 
@@ -101,8 +103,12 @@ func (b *PMBridge) verifyPeer(pid int32, uid uint32) (uint64, error) {
 		return 0, ErrUnverified
 	}
 	label, e := b.Proc.Read(pid, "attr/current")
-	if e != nil || strings.TrimSpace(string(label)) != b.Pin.SELinuxContext {
+	observedLabel, labelErr := procSELinuxLabel(label)
+	if e != nil || labelErr != nil {
 		return 0, ErrUnverified
+	}
+	if observedLabel != b.Pin.SELinuxContext {
+		return 0, ErrPMBridgePeerLabelMismatch
 	}
 	return ticks, nil
 }
@@ -147,7 +153,7 @@ func (b *PMBridge) Accept(ctx context.Context) error {
 	ticks, e := b.verifyPeer(cred.Pid, cred.Uid)
 	if e != nil {
 		c.Close()
-		return ErrUnverified
+		return e
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()

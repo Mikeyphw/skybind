@@ -85,7 +85,8 @@ func (v *RootVerifier) VerifyPeer(peer brokeripc.KernelPeer) (brokergrant.Identi
 			return 0, ErrUnverified
 		}
 		label, err := v.Proc.Read(peer.PID, "attr/current")
-		if err != nil || strings.TrimSpace(string(label)) != v.Pin.SELinuxContext {
+		observedLabel, labelErr := procSELinuxLabel(label)
+		if err != nil || labelErr != nil || observedLabel != v.Pin.SELinuxContext {
 			return 0, ErrUnverified
 		}
 		return ticks, nil
