@@ -22,8 +22,8 @@ import java.io.OutputStreamWriter
  * against the independent operator policy. The Android agent never accepts
  * a caller-provided certificate pin or filesystem/socket destination.
  *
- * Runs only while the user has opened the Skybind app, if an operator has
- * explicitly started the corresponding root listener. No daemon auto-start.
+ * Runs while the Skybind activity is visible or while the user explicitly
+ * enables the visible R1AuthorityService. No daemon auto-start and no grants.
  */
 object R1PMBridgeAgent {
     private const val SOCKET = "skybind-r1-pm-authority-v1"
@@ -54,7 +54,7 @@ object R1PMBridgeAgent {
         if (Process.myUid() < 10000 || Build.VERSION.SDK_INT < 28) return
         LocalSocket().use { socket ->
             socket.connect(LocalSocketAddress(SOCKET, LocalSocketAddress.Namespace.ABSTRACT))
-            socket.soTimeout = 5_000
+            socket.soTimeout = 0 // long-lived authority session; stop() closes the socket
             synchronized(lock) { active = socket }
             val input = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
             val output = BufferedWriter(OutputStreamWriter(socket.outputStream, Charsets.UTF_8))

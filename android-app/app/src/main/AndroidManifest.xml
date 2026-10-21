@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- BKX visibility is limited to its exact package; no QUERY_ALL_PACKAGES. -->
-    <queries>
-        <package android:name="com.mikeyphw.bkx.android" />
-    </queries>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Visibility is limited to the single approved BKX package. -->
+    <queries><package android:name="com.mikeyphw.bkx.android" /></queries>
     <application android:allowBackup="false" android:fullBackupContent="false"
         android:label="Skybind (Development)" android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
@@ -13,5 +14,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service android:name=".bridge.R1AuthorityService" android:exported="false"
+            android:foregroundServiceType="specialUse" android:stopWithTask="false">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled authenticated local PackageManager bridge for read-only backup clients" />
+        </service>
     </application>
 </manifest>
