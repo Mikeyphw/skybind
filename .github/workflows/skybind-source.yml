@@ -57,6 +57,10 @@ jobs:
           go test -count=1 ./internal/brokeripc ./internal/brokerruntime ./internal/brokergrant ./internal/brokeridentity
           # Real root-only abstract listener test uses SO_PEERCRED; this is a host fixture, NOT Android acceptance.
           sudo env PATH="$PATH" go test -count=1 ./internal/brokeripc ./internal/brokerruntime
+      - name: R1 chrootctl live-process diagnostic artifact and negative receipt source gate (NO device test)
+        run: |
+          python3 -B scripts/dev/android/r1_chrootctl_device_source_gate.py
+          python3 -B -m unittest discover -s tests -p 'test_r1_chrootctl_process_device.py' -q
       - name: SB-Q02 source-build contract (no external gates)
         run: bash scripts/devtool/check_q02_source_build.sh
       - name: SB-Q03 raw provenance intake contract (no external gates)

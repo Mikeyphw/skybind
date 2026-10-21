@@ -228,7 +228,23 @@ command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p"
 inputs = ["../tests/test_r1_consumer_access_contract.py", "../scripts/dev/android/m3_evidence_reconcile.py"]
 metadata = { read_only = true, no_automatic_device_retest = true, release_qualified = false }
 
+[targets.skybind_release.jobs.r1-chrootctl-live-process-source]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/r1_chrootctl_device_source_gate.py"]
+inputs = ["../scripts/dev/android/r1_chrootctl_device_source_gate.py", "../scripts/dev/android/r1_chrootctl_process_device.py", "../tests/test_r1_chrootctl_process_device.py"]
+metadata = { source_only = true, no_device_mutation = true, no_grants = true, release_qualified = false }
+
+[targets.skybind_release.jobs.r1-chrootctl-live-process-negatives]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_r1_chrootctl_process_device.py", "-q"]
+inputs = ["../tests/test_r1_chrootctl_process_device.py", "../scripts/dev/android/r1_chrootctl_process_device.py"]
+metadata = { source_only = true, simulated_device_receipts = true, no_grants = true }
+
 [targets.skybind_release.workflows]
+r1-chrootctl-process-source = [
+  { id = "contract", ref = "job:r1-chrootctl-live-process-source", depends_on = [] },
+  { id = "negative-receipts", ref = "job:r1-chrootctl-live-process-negatives", depends_on = ["contract"] },
+]
 r1-consumer-integration-source = [
   { id = "contract", ref = "job:r1-consumer-integration-contract", depends_on = [] },
   { id = "backend-and-grants", ref = "job:r1-consumer-integration-go", depends_on = ["contract"] },
@@ -1744,4 +1760,9 @@ metadata = { source_only = true, no_device_mutation = true, m3_retests = false }
 [wrapper.commands.r1-consumer-integration-source]
 description = "R1 metadata backend, one-shot authenticated grant handoff, opt-in operator gateway, chrootctl seal diagnostic and authority APK exact-byte trust source gates; NO live consumer qualification"
 workflow = "r1-consumer-integration-source"
+target = "skybind_release"
+
+[wrapper.commands.r1-chrootctl-process-source]
+description = "Source-only provenance-bound chrootctl live process attestation runner + denied forged receipt regression; NO device run or grants"
+workflow = "r1-chrootctl-process-source"
 target = "skybind_release"
