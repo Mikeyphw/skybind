@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import tomllib
 ROOT=Path(__file__).resolve().parents[1]
 class R1IntegrationSource(unittest.TestCase):
     def test_full_gate(self):
@@ -8,6 +9,29 @@ class R1IntegrationSource(unittest.TestCase):
         s=importlib.util.spec_from_file_location('source_gate',p)
         m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
         self.assertEqual(m.gate(),0)
+    def test_release_target_commands_resolve_from_release_directory(self):
+        p = ROOT / 'scripts/dev/android/r1_consumer_integration_source_gate.py'
+        spec = importlib.util.spec_from_file_location('integration_gate_cwd', p)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        config = tomllib.loads((ROOT / '.devtool.toml').read_text())
+        checks = module.release_target_cwd_checks(config, ROOT)
+        self.assertTrue(all(checks.values()), checks)
+        # Mutation tests: each original working-directory defect must FAIL.
+        from copy import deepcopy
+        jobs = config['targets']['skybind_release']['jobs']
+        for job, bad_command in (
+            ('r1-consumer-integration-contract',
+                ['python3', '-B', 'scripts/dev/android/r1_consumer_integration_source_gate.py']),
+            ('r1-consumer-integration-go',
+                ['go', 'test', '-count=1', './internal/brokerruntime']),
+            ('r1-consumer-transport-go',
+                ['go', 'test', '-count=1', './internal/brokeripc']),
+        ):
+            mutated = deepcopy(config)
+            mutated['targets']['skybind_release']['jobs'][job]['command'] = bad_command
+            self.assertFalse(all(module.release_target_cwd_checks(mutated, ROOT).values()), job)
+
     def test_no_autostart_or_external_qualification(self):
         assert not any('skybind-r1-gateway' in (ROOT/p).read_text() for p in ('module/service.sh','module/post-fs-data.sh'))
         import json

@@ -2,7 +2,46 @@
 """Fail-closed R1 consumer integration source contract; never starts a socket."""
 from pathlib import Path
 import sys
+import tomllib
 ROOT=Path(__file__).resolve().parents[3]
+
+
+
+def release_target_cwd_checks(document: dict, repo_root: Path = ROOT) -> dict[str, bool]:
+    """Validate R1 commands from Devtool's declared target root, not shell cwd.
+
+    In particular, target skybind_release has root=release, so path-bearing
+    command arguments must be relative to release/. This is a source-level
+    configuration assertion, not a command execution or device qualification.
+    """
+    try:
+        target = document["targets"]["skybind_release"]
+        target_root = (repo_root / target["root"]).resolve()
+        repo_root = repo_root.resolve()
+        jobs = target["jobs"]
+        contract = jobs["r1-consumer-integration-contract"]["command"]
+        contract_ok = (
+            contract[:2] == ["python3", "-B"] and len(contract) == 3 and
+            (target_root / contract[2]).resolve() ==
+                (repo_root / "scripts/dev/android/r1_consumer_integration_source_gate.py").resolve()
+        )
+        results = {"RELEASE_INTEGRATION_PYTHON_CWD": contract_ok}
+        for job, label in (
+            ("r1-consumer-integration-go", "RELEASE_INTEGRATION_GO_CWD"),
+            ("r1-consumer-transport-go", "RELEASE_TRANSPORT_GO_CWD"),
+        ):
+            command = jobs[job]["command"]
+            results[label] = (
+                len(command) >= 5 and command[0:2] == ["go", "-C"] and
+                command[3:5] == ["test", "-count=1"] and
+                (target_root / command[2]).resolve() == repo_root and
+                all(arg.startswith("./") for arg in command[5:])
+            )
+        return results
+    except (KeyError, TypeError, ValueError, IndexError):
+        return {key: False for key in (
+            "RELEASE_INTEGRATION_PYTHON_CWD", "RELEASE_INTEGRATION_GO_CWD",
+            "RELEASE_TRANSPORT_GO_CWD")}
 
 def gate():
     paths={name:ROOT/name for name in (
@@ -23,6 +62,7 @@ def gate():
         "NO_BKX_APK_CHANGES": "android-app" not in src["integrations/bkx/SkybindR1ReadClient.kt"] and "com.mikeyphw.bkx.r1" in src["integrations/bkx/SkybindR1ReadClient.kt"],
         "HOSTED_ANDROID_ARM64_DIAGNOSTICS": all(s in src[".github/workflows/skybind-r1-consumer-diagnostics.yml"] for s in ("GOOS: android", "GOARCH: arm64", '"release_qualified":false', "sha256sum")),
     }
+    checks.update(release_target_cwd_checks(tomllib.loads((ROOT/".devtool.toml").read_text())))
     for k,ok in checks.items():print(("PASS_" if ok else "FAIL_")+k)
     return 0 if all(checks.values()) else 2
 if __name__=="__main__":sys.exit(gate())

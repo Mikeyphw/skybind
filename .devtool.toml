@@ -1708,7 +1708,7 @@ metadata = { source_only = true, external_provider_qualified = false, no_device_
 
 [targets.skybind_release.jobs.r1-consumer-transport-go]
 runner = "command"
-command = ["go", "test", "-count=1", "./internal/brokeripc", "./internal/brokergrant", "./internal/brokeridentity", "./internal/brokerruntime"]
+command = ["go", "-C", "..", "test", "-count=1", "./internal/brokeripc", "./internal/brokergrant", "./internal/brokeridentity", "./internal/brokerruntime"]
 inputs = ["../internal/brokeripc/abstract.go", "../internal/brokeripc/abstract_test.go", "../internal/brokeripc/client.go", "../internal/brokeripc/client_test.go", "../internal/brokerruntime/gateway.go", "../internal/brokerruntime/runtime_test.go"]
 metadata = { source_only = true, root_device_acceptance = false, grants_issued = false }
 
@@ -1725,13 +1725,13 @@ target = "skybind_release"
 
 [targets.skybind_release.jobs.r1-consumer-integration-contract]
 runner = "command"
-command = ["python3", "-B", "scripts/dev/android/r1_consumer_integration_source_gate.py"]
+command = ["python3", "-B", "../scripts/dev/android/r1_consumer_integration_source_gate.py"]
 inputs = ["../scripts/dev/android/r1_consumer_integration_source_gate.py", "../internal/brokerruntime/metadata.go", "../internal/brokerruntime/handoff.go", "../internal/brokeridentity/authority_apk.go"]
 metadata = { source_only = true, device_qualification = false, no_automatic_external_access = true }
 
 [targets.skybind_release.jobs.r1-consumer-integration-go]
 runner = "command"
-command = ["go", "test", "-count=1", "./internal/brokerruntime", "./internal/brokeripc", "./internal/brokeridentity", "./cmd/skybind-r1-gateway", "./cmd/skybind-r1-module-check"]
+command = ["go", "-C", "..", "test", "-count=1", "./internal/brokerruntime", "./internal/brokeripc", "./internal/brokeridentity", "./internal/provider", "./cmd/skybind-r1-gateway", "./cmd/skybind-r1-module-check"]
 inputs = ["../internal/brokerruntime/metadata_test.go", "../internal/brokerruntime/handoff_test.go", "../internal/brokeridentity/authority_apk_test.go"]
 metadata = { source_only = true, read_only = true, grants_issued = false }
 
