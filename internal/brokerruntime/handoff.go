@@ -35,12 +35,90 @@ type pendingGrant struct {
 	Expires  time.Time
 }
 
+// HandoffDiagnostics is a bounded, operator-side snapshot. It contains no
+// client-supplied bytes, package names, PID, secret scopes, or grant tokens.
+// Only the interactive root operator command may display it.
+type HandoffDiagnostics struct {
+	OfferPending     bool              `json:"offer_pending"`
+	OfferSecondsLeft int64             `json:"offer_seconds_left"`
+	Attempts         uint64            `json:"attempts"`
+	Delivered        uint64            `json:"delivered"`
+	Rejections       uint64            `json:"rejections"`
+	LastRejection    string            `json:"last_rejection,omitempty"`
+	RejectionCounts  map[string]uint64 `json:"rejection_counts"`
+}
+
 type GrantHandoff struct {
 	Gateway  *Gateway
 	mu       sync.Mutex
 	listener *net.UnixListener
 	pending  *pendingGrant
 	issued   map[string]time.Time
+	diag     HandoffDiagnostics
+}
+
+// These are fixed diagnostic codes, NOT propagated Go error strings. No
+// kernel PID, certificate, pathname, token, or remote is ever printed.
+func safeHandoffReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch err.Error() {
+	case "r1_handoff_peer_unavailable", "r1_handoff_no_approval",
+		"r1_handoff_approval_expired", "r1_handoff_wrong_process",
+		"r1_handoff_identity_changed", "r1_grant_receipt_capacity",
+		"r1_handoff_write_failed":
+		return err.Error()
+	default:
+		return "r1_handoff_issue_or_encoding_denied"
+	}
+}
+
+// recordOutcomeLocked is called exactly once for each accepted connection,
+// while holding the same lock as the approved offer and issued receipt map.
+func (h *GrantHandoff) recordOutcomeLocked(err error) {
+	if h.diag.Attempts < ^uint64(0) {
+		h.diag.Attempts++
+	}
+	if err == nil {
+		if h.diag.Delivered < ^uint64(0) {
+			h.diag.Delivered++
+		}
+		return
+	}
+	code := safeHandoffReason(err)
+	if h.diag.Rejections < ^uint64(0) {
+		h.diag.Rejections++
+	}
+	if h.diag.RejectionCounts == nil {
+		h.diag.RejectionCounts = make(map[string]uint64, 8)
+	}
+	if h.diag.RejectionCounts[code] < ^uint64(0) {
+		h.diag.RejectionCounts[code]++
+	}
+	h.diag.LastRejection = code
+}
+
+// Diagnostics returns a defensive copy; callers cannot mutate private state.
+// Counters reset at each successfully approved new offer. An empty receipt
+// list alone cannot distinguish no grant from an expired/revoked grant.
+func (h *GrantHandoff) Diagnostics() HandoffDiagnostics {
+	if h == nil {
+		return HandoffDiagnostics{RejectionCounts: map[string]uint64{}}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	d := h.diag
+	d.RejectionCounts = make(map[string]uint64, len(h.diag.RejectionCounts))
+	for code, n := range h.diag.RejectionCounts {
+		d.RejectionCounts[code] = n
+	}
+	if h.pending != nil && time.Now().Before(h.pending.Expires) {
+		d.OfferPending = true
+		left := time.Until(h.pending.Expires)
+		d.OfferSecondsLeft = int64((left + time.Second - 1) / time.Second)
+	}
+	return d
 }
 
 func (h *GrantHandoff) Start() error {
@@ -109,20 +187,26 @@ func (h *GrantHandoff) Approve(peer brokeripc.KernelPeer, req HandoffRequest) er
 		return errors.New("r1_handoff_not_ready")
 	}
 	h.pending = &pendingGrant{Peer: peer, Identity: identity, Request: req, Expires: time.Now().Add(handoffTimeout)}
+	// Diagnostics are scoped to this offer, not prior denied connections.
+	h.diag = HandoffDiagnostics{}
 	return nil
 }
 
 // serveOne refuses every unrelated kernel peer without consuming the offer.
 // An expired offer is discarded; no token has been minted at that point.
-func (h *GrantHandoff) serveOne(c *net.UnixConn) error {
+func (h *GrantHandoff) serveOne(c *net.UnixConn) (outcome error) {
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
 	peer, e := brokeripc.PeerCredentials(c)
 	if e != nil {
+		h.mu.Lock()
+		h.recordOutcomeLocked(errors.New("r1_handoff_peer_unavailable"))
+		h.mu.Unlock()
 		return errors.New("r1_handoff_peer_unavailable")
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	defer func() { h.recordOutcomeLocked(outcome) }()
 	offer := h.pending
 	if offer == nil {
 		return errors.New("r1_handoff_no_approval")

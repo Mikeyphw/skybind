@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -76,13 +77,24 @@ func run(args []string) int {
 	go func() { _ = g.ServeAbstract(ctx) }()
 	go func() { _ = handoff.Serve(ctx) }()
 	fmt.Fprintln(os.Stderr, "R1_OPERATOR_READY (interactive; no grants issued)")
-	fmt.Fprintln(os.Stderr, "Commands: approve PID bkx|chrootctl REMOTE PREFIX|- OPERATION TTL_SECONDS ; receipts ; revoke RECEIPT_ID ; quit")
+	fmt.Fprintln(os.Stderr, "Commands: approve PID bkx|chrootctl REMOTE PREFIX|- OPERATION TTL_SECONDS ; diagnostics ; receipts ; revoke RECEIPT_ID ; quit")
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 4096), 4096)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) == 1 && fields[0] == "quit" {
 			return 0
+		}
+		if len(fields) == 1 && fields[0] == "diagnostics" {
+			// Display only bounded fixed-category counts to the authenticated
+			// interactive root operator, never to a client or persistent log.
+			payload, e := json.Marshal(handoff.Diagnostics())
+			if e != nil {
+				fmt.Fprintln(os.Stderr, "R1_HANDOFF_DIAGNOSTICS_UNAVAILABLE")
+			} else {
+				fmt.Fprintln(os.Stderr, "R1_HANDOFF_DIAGNOSTICS", string(payload))
+			}
+			continue
 		}
 		if len(fields) == 1 && fields[0] == "receipts" {
 			for _, id := range handoff.IssuedReceiptIDs() {

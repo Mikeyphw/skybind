@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -128,5 +129,38 @@ func TestHandoffPolicyAndPeerDenials(t *testing.T) {
 	}
 	if ids := h.IssuedReceiptIDs(); len(ids) != 0 {
 		t.Fatal(fmt.Sprintf("denied request created grants: %v", ids))
+	}
+}
+
+// The live operator needs causal diagnostics without leaking identities, raw
+// errors, credentials, or tokens. This test runs without root or sockets.
+func TestHandoffDiagnosticCodesAreBoundedAndResettable(t *testing.T) {
+	h := &GrantHandoff{}
+	h.mu.Lock()
+	h.recordOutcomeLocked(errors.New("r1_handoff_no_approval"))
+	h.recordOutcomeLocked(errors.New("r1_handoff_wrong_process"))
+	h.recordOutcomeLocked(errors.New("secret-token=UNTRUSTED client/path"))
+	h.recordOutcomeLocked(nil)
+	h.mu.Unlock()
+
+	d := h.Diagnostics()
+	if d.Attempts != 4 || d.Delivered != 1 || d.Rejections != 3 || d.OfferPending ||
+		d.LastRejection != "r1_handoff_issue_or_encoding_denied" ||
+		d.RejectionCounts["r1_handoff_no_approval"] != 1 ||
+		d.RejectionCounts["r1_handoff_wrong_process"] != 1 ||
+		d.RejectionCounts["r1_handoff_issue_or_encoding_denied"] != 1 {
+		t.Fatalf("wrong bounded summary: %+v", d)
+	}
+	data, e := json.Marshal(d)
+	if e != nil || strings.Contains(string(data), "secret") || strings.Contains(string(data), "UNTRUSTED") ||
+		strings.Contains(string(data), "token=") {
+		t.Fatalf("operator diagnostic leaked unsanitized error: %q, %v", data, e)
+	}
+	d.RejectionCounts["r1_handoff_wrong_process"] = 99
+	if h.Diagnostics().RejectionCounts["r1_handoff_wrong_process"] != 1 {
+		t.Fatal("diagnostic snapshot mutates privileged state")
+	}
+	if v := (&GrantHandoff{}).Diagnostics(); v.Attempts != 0 || v.Rejections != 0 || v.OfferPending {
+		t.Fatal("fresh gateway diagnostics are not fail-closed")
 	}
 }
