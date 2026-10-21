@@ -1034,3 +1034,13 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Repair:** Exclude all ignored generated cache payloads from every inventory and ZIP; replace explicit `py_compile` invocation with in-memory `compile(..., 'exec')` checks; add cross-repo archive preflight for generated paths, duplicate entries, manifest hashes, and unexpected files; retain all source preimage pins and verify outer SHA256SUMS. No device/backend/broker code changed.
 - **Regression acceptance:** Reject a synthetic cache member and a synthetic duplicate inventory entry; check every embedded artifact against its inventory with zero generated paths; run the source validators without bytecode generation.
 - **Qualification:** Source-bundle structural tests PASS. Real Devtool application and BKX/chrootctl hosted build/device evidence pending; original PM-channel PASS retained.
+
+
+## R1-CI-SDK-001 — BKX and chrootctl hosted Android SDK v3 bootstrap regression
+
+- **Status:** Source fix prepared in three source-bound Devtool overlays; awaiting fresh hosted GitHub Actions runs before treating CI or deployment as qualified.
+- **Evidence:** BKX Actions run `39632888596` at `73cccc8866e21fc5e0e0a123767b95c3c01a82c4` and chroot-ctl run `39632895344` at `84fd16abad9b5ac53a1bcebea1c978d057d4385c` both failed in `android-actions/setup-android@v3` before compilation or artifact production. Each called the removed `sdkmanager tools` package and returned `Warning: Failed to find package 'tools'` (exit 1).
+- **Working comparator:** Skybind Android build `39632874789` (commit `a706211b179762d135a9940e404f08633ce4ab0f`) passed with `android-actions/setup-android@v4`, its declared `packages` input, and `log-accepted-android-sdk-licenses: 'false'`. Skybind gateway build `39632881743` also passed.
+- **Affected:** `Mikeyphw/bkx/.github/workflows/devtool-android-build.yml`, `Mikeyphw/chroot-ctl/.github/workflows/devtool-chrootctl-build.yml`. This is a cross-consumer hosted CI bootstrap failure, not evidence that native build or the real Skybind consumer integration has passed or failed.
+- **Implemented repair:** Match Skybind's v4 `packages` configuration; BKX declares Android 36, build-tools 36.0.0, platform-tools, and NDK 29.0.14206865; chroot-ctl declares platform-tools and the same NDK; verify installed SDK/NDK files. Do not modify application signing, BKX APK identity, module provenance, root policy, or consumer grants.
+- **Acceptance remaining:** Hosted rebuild and inspected artifact for each consumer; APK signing compatibility, installed module seal, SELinux abstract-socket connectivity, real BKX and chrootctl scoped read/grant/revoke; production and release qualification remain false until real-device evidence.
