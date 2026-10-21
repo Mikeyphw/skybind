@@ -4,7 +4,6 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.UserHandle
 import io.github.mikeyphw.skybind.bridge.R1PackageManagerAuthority
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
@@ -26,11 +25,12 @@ class R1PackageManagerAuthorityTest {
         assertEquals(1, signers.size)
         val digest = MessageDigest.getInstance("SHA-256").digest(signers.single().toByteArray())
             .joinToString("") { "%02x".format(it) }
-        val accepted = R1PackageManagerAuthority.ApprovedPackage(name, uid, digest, UserHandle.getUserHandleForUid(uid).identifier)
+        val accepted = R1PackageManagerAuthority.ApprovedPackage(name, uid, digest, uid / 100_000)
         assertEquals(uid, R1PackageManagerAuthority.verify(context, accepted).uid)
         val rejected = listOf(
             accepted.copy(signerSha256="0".repeat(64)),
             accepted.copy(uid=uid+1),
+            accepted.copy(userId=accepted.userId+1),
             accepted.copy(name="com.attacker.forged")
         )
         rejected.forEach { bad ->

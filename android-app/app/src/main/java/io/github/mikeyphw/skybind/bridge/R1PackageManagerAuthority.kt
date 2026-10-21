@@ -12,6 +12,8 @@ import java.security.MessageDigest
  * No signed assertion is exported to the Go daemon by this class alone.
  */
 object R1PackageManagerAuthority {
+    private const val ANDROID_UIDS_PER_USER = 100_000
+
     data class ApprovedPackage(
         val name: String,
         val uid: Int,
@@ -40,7 +42,11 @@ object R1PackageManagerAuthority {
         if (packages != listOf(approved.name)) throw SecurityException("UID package set mismatch")
         val info = pm.getApplicationInfo(approved.name, 0)
         if (info.uid != approved.uid) throw SecurityException("installed UID mismatch")
-        if (android.os.UserHandle.getUserHandleForUid(info.uid).identifier != approved.userId)
+        // Android app UIDs are allocated in per-user ranges of 100,000.
+        // The UserHandle identifier accessor is hidden and cannot be used
+        // from an ordinary SDK application. The exact installed UID is also
+        // independently checked above against the PackageManager record.
+        if (info.uid / ANDROID_UIDS_PER_USER != approved.userId)
             throw SecurityException("installed Android user mismatch")
         val signing = pm.getPackageInfo(
             approved.name, PackageManager.GET_SIGNING_CERTIFICATES

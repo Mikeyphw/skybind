@@ -11,7 +11,7 @@ CHECKS={
  'internal/brokeridentity/module_installed.go':('InstalledModuleAttestor','module-package-manifest.json','Readlink','SameFile'),
  'internal/brokeridentity/multiplex.go':('ConsumerVerifier','Chrootctl','BKXUID'),
  'internal/brokeripc/activated.go':('ConsumerSocket','ExplicitlyEnabled','ServeConn','0660'),
- 'android-app/app/src/main/java/io/github/mikeyphw/skybind/bridge/R1PackageManagerAuthority.kt':('GET_SIGNING_CERTIFICATES','getPackagesForUid','getUserHandleForUid'),
+ 'android-app/app/src/main/java/io/github/mikeyphw/skybind/bridge/R1PackageManagerAuthority.kt':('GET_SIGNING_CERTIFICATES','getPackagesForUid','ANDROID_UIDS_PER_USER','info.uid / ANDROID_UIDS_PER_USER != approved.userId'),
  'android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/R1PackageManagerAuthorityTest.kt':('R1PackageManagerAuthority','unapproved'),
  'internal/brokeridentity/attested_package_test.go':('TestTrustedPlatformSigningAndExactUID','shared-uid'),
  'internal/brokeridentity/module_installed_test.go':('TestInstalledModuleSealAndActualProcess','other-executable'),
@@ -26,6 +26,23 @@ def check(root: pathlib.Path=ROOT)->dict:
         except OSError: errors.append('MISSING:'+file);continue
         for token in tokens:
             if token not in data: errors.append('CONTRACT_MISSING:'+file+':'+token)
+    # The SDK's public UserHandle exposes getUserHandleForUid() but not
+    # getIdentifier()/identifier. A source-only gate must block reintroduction;
+    # only the hosted Gradle build establishes Android Kotlin compilation.
+    android_paths = (
+      'android-app/app/src/main/java/io/github/mikeyphw/skybind/bridge/R1PackageManagerAuthority.kt',
+      'android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/R1PackageManagerAuthorityTest.kt',
+    )
+    for file in android_paths:
+        try: data=(root/file).read_text()
+        except OSError: continue
+        for forbidden in ('.identifier','getIdentifier(', 'UserHandle.of('):
+            if forbidden in data: errors.append('ANDROID_HIDDEN_USERHANDLE_API:'+file+':'+forbidden)
+    try:
+        tests=(root/android_paths[1]).read_text()
+        if 'accepted.copy(userId=accepted.userId+1)' not in tests:
+            errors.append('MISSING_WRONG_USER_NEGATIVE_TEST')
+    except OSError: pass
     main=(root/'cmd/skybind/main.go').read_text()
     if 'ConsumerSocket' in main or 'consumer-gateway' in main:
         errors.append('R1_PRODUCTION_ACTIVATION_NOT_QUALIFIED')
