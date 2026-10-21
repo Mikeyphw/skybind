@@ -238,6 +238,14 @@ r1-consumer-foundation-source = [
   { id = "m3-regression", ref = "job:m3-operations-unit", depends_on = ["policy-contract", "policy-go-tests", "consumer-r0", "m3-evidence-tests"] },
   { id = "hosted-only", ref = "job:m3-operations-security", depends_on = ["policy-contract", "policy-go-tests", "consumer-r0", "m3-evidence-tests", "m3-regression"] },
 ]
+# Secure consumer identity and explicit-gateway source only; NO live listener.
+r1-device-trust-source = [
+  { id = "trust-contract", ref = "job:r1-device-trust-contract", depends_on = [] },
+  { id = "go-trust-negatives", ref = "job:r1-device-trust-go", depends_on = ["trust-contract"] },
+  { id = "python-negative-gates", ref = "job:r1-device-trust-negatives", depends_on = ["trust-contract", "go-trust-negatives"] },
+  { id = "hosted-only-policy", ref = "job:m3-operations-security", depends_on = ["trust-contract", "go-trust-negatives", "python-negative-gates"] },
+]
+
 # Consolidated source-only M3 copy, reconnect/evidence and R0 cross-consumer gates.
 m3-consolidated-source = [
   { id = "copy-contract", ref = "job:m3-copy-contract", depends_on = [] },
@@ -1585,4 +1593,28 @@ target = "skybind_release"
 [wrapper.commands.r1-consumer-foundation-source]
 description = "R1 scope/grant/revocation source-only gate + M3 scoped receipt reconciler tests (no broker or APK build)"
 workflow = "r1-consumer-foundation-source"
+target = "skybind_release"
+
+# R1 installed-consumer trust source gates, no Android build or automatic broker activation.
+[targets.skybind_release.jobs.r1-device-trust-contract]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/r1_device_trust_source_gate.py"]
+inputs = ["../scripts/dev/android/r1_device_trust_source_gate.py", "../internal/brokeridentity/**", "../internal/brokeripc/**", "../android-app/app/src/main/java/io/github/mikeyphw/skybind/bridge/R1PackageManagerAuthority.kt", "../android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/R1PackageManagerAuthorityTest.kt", "../docs/contracts/rclone-compat/**"]
+metadata = { source_only = true, device_qualified = false, external_provider_qualified = false }
+
+[targets.skybind_release.jobs.r1-device-trust-go]
+runner = "command"
+command = ["go", "-C", "..", "test", "-count=1", "./internal/brokergrant", "./internal/brokeridentity", "./internal/brokeripc", "./internal/brokerissue", "./internal/daemon"]
+inputs = ["../internal/brokergrant/**", "../internal/brokeridentity/**", "../internal/brokeripc/**", "../internal/brokerissue/**", "../internal/daemon/**"]
+metadata = { source_only = true, no_native_rclone_passthrough = true }
+
+[targets.skybind_release.jobs.r1-device-trust-negatives]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_r1_device_trust_source.py", "-q"]
+inputs = ["../tests/test_r1_device_trust_source.py", "../scripts/dev/android/r1_device_trust_source_gate.py", "../cmd/skybind/main.go"]
+metadata = { source_only = true, read_only = true, no_android_apk_build = true }
+
+[wrapper.commands.r1-device-trust-source]
+description = "R1 BKX Android PM/chrootctl module trust + deny-by-default local broker source DAG (no grants/device)"
+workflow = "r1-device-trust-source"
 target = "skybind_release"
