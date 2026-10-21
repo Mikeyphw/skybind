@@ -1,0 +1,38 @@
+name: Skybind R1 consumer gateway and module diagnostics (unqualified)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r1-consumer-gateway-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Source gates and host root broker negatives
+        run: |
+          set -euo pipefail
+          python3 -B scripts/dev/android/r1_consumer_integration_source_gate.py
+          go test -count=1 ./internal/brokeridentity ./internal/brokerruntime ./internal/brokeripc ./cmd/skybind-r1-gateway ./cmd/skybind-r1-module-check
+          sudo env PATH="$PATH" go test -count=1 ./internal/brokeridentity ./internal/brokerruntime ./internal/brokeripc
+      - name: Build source-bound root-only arm64 diagnostics
+        env:
+          GOOS: android
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p dist/r1-consumer
+          go build -trimpath -ldflags '-buildid=' -o dist/r1-consumer/skybind-r1-gateway-android-arm64 ./cmd/skybind-r1-gateway
+          go build -trimpath -ldflags '-buildid=' -o dist/r1-consumer/skybind-r1-module-check-android-arm64 ./cmd/skybind-r1-module-check
+          chmod 0755 dist/r1-consumer/skybind-r1-*-android-arm64
+          (cd dist/r1-consumer && sha256sum skybind-r1-*-android-arm64 > SHA256SUMS.txt)
+          printf '{"schema":"skybind-r1-consumer-diagnostic-artifact-v1","source_sha":"%s","external_provider_qualified":false,"release_qualified":false}\n' "$GITHUB_SHA" > dist/r1-consumer/source.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skybind-r1-consumer-diagnostics-unqualified
+          path: dist/r1-consumer/*
+          if-no-files-found: error
+          retention-days: 14

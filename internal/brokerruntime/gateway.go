@@ -103,7 +103,7 @@ func (g *Gateway) StartAbstract() error {
 		return errors.New("r1_abstract_consumer_gateway_unconfigured")
 	}
 	pm, ok := g.platform.(*brokeridentity.PMBridge)
-	if !ok || pm.State() != "CONNECTED_UNQUALIFIED" {
+	if !ok || pm.State() != "CONNECTED_UNQUALIFIED" || !pm.HasIndependentAPKAnchor() {
 		return errors.New("r1_android_pm_authority_not_connected")
 	}
 	module, ok := g.module.(brokeridentity.InstalledModuleAttestor)

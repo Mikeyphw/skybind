@@ -227,3 +227,7 @@ func (s *Server) ServeConn(c *net.UnixConn) error {
 	}
 	return writeResponse(c, Response{Version: ProtocolVersion, OK: true, Result: result})
 }
+
+// PeerCredentials derives identity only from the local kernel, not from a
+// request or an Android process name. Intended for the explicit grant handoff.
+func PeerCredentials(c *net.UnixConn) (KernelPeer, error) { return kernelPeer(c) }

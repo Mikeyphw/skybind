@@ -36,6 +36,7 @@ type AuthorityPeerPin struct {
 type PMBridge struct {
 	Pin       AuthorityPeerPin
 	Proc      ProcReader
+	Anchor    AuthorityAnchor
 	mu        sync.Mutex
 	listener  *net.UnixListener
 	conn      *net.UnixConn
@@ -151,6 +152,9 @@ func (b *PMBridge) Accept(ctx context.Context) error {
 		return ErrUnverified
 	}
 	ticks, e := b.verifyPeer(cred.Pid, cred.Uid)
+	if e == nil && b.Anchor != nil {
+		e = b.Anchor.VerifyAuthorityProcess(ctx, cred.Pid, cred.Uid)
+	}
 	if e != nil {
 		c.Close()
 		return e
@@ -312,6 +316,9 @@ func (b *PMBridge) LookupInstalled(ctx context.Context, uid uint32, pkg string) 
 		return PlatformPackageRecord{}, ErrUnverified
 	}
 	before, e := b.verifyPeer(b.peerPID, b.Pin.UID)
+	if e == nil && b.Anchor != nil {
+		e = b.Anchor.VerifyAuthorityProcess(ctx, b.peerPID, b.Pin.UID)
+	}
 	if e != nil || before != b.peerTicks {
 		_ = b.conn.Close()
 		b.conn = nil
@@ -324,6 +331,9 @@ func (b *PMBridge) LookupInstalled(ctx context.Context, uid uint32, pkg string) 
 	request := pmMessage{Version: 1, Nonce: hex.EncodeToString(nonce), UID: uid, Package: pkg}
 	response, e := pmRoundTrip(ctx, b.conn, request)
 	after, ae := b.verifyPeer(b.peerPID, b.Pin.UID)
+	if ae == nil && b.Anchor != nil {
+		ae = b.Anchor.VerifyAuthorityProcess(ctx, b.peerPID, b.Pin.UID)
+	}
 	if e != nil || ae != nil || before != after {
 		_ = b.conn.Close()
 		b.conn = nil
@@ -357,3 +367,8 @@ func (b *PMBridge) State() string {
 }
 
 // Compile guard: the local socket location is never derived from a caller.
+
+// HasIndependentAPKAnchor is a necessary but not sufficient production trust
+// gate: operator-approved APK bytes do not replace independent Android signer
+// attestation and live SELinux acceptance evidence.
+func (b *PMBridge) HasIndependentAPKAnchor() bool { return b != nil && b.Anchor != nil }

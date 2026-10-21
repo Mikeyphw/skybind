@@ -229,6 +229,14 @@ inputs = ["../tests/test_r1_consumer_access_contract.py", "../scripts/dev/androi
 metadata = { read_only = true, no_automatic_device_retest = true, release_qualified = false }
 
 [targets.skybind_release.workflows]
+r1-consumer-integration-source = [
+  { id = "contract", ref = "job:r1-consumer-integration-contract", depends_on = [] },
+  { id = "backend-and-grants", ref = "job:r1-consumer-integration-go", depends_on = ["contract"] },
+  { id = "negative-regressions", ref = "job:r1-consumer-integration-python", depends_on = ["backend-and-grants"] },
+  { id = "bridge-safety", ref = "job:r1-pm-channel-contract", depends_on = ["negative-regressions"] },
+  { id = "no-auto-start", ref = "job:r1-consumer-transport-contract", depends_on = ["bridge-safety"] },
+]
+
 r1-consumer-transport-source = [
   { id = "transport-contract", ref = "job:r1-consumer-transport-contract", depends_on = [] },
   { id = "kernel-grants", ref = "job:r1-consumer-transport-go", depends_on = ["transport-contract"] },
@@ -1713,4 +1721,27 @@ metadata = { source_only = true, no_device_mutation = true, m3_retests = false }
 [wrapper.commands.r1-consumer-transport-source]
 description = "R1 bounded abstract consumer socket, Go client, scoped read/revoke/negative source tests; no live consumer activation"
 workflow = "r1-consumer-transport-source"
+target = "skybind_release"
+
+[targets.skybind_release.jobs.r1-consumer-integration-contract]
+runner = "command"
+command = ["python3", "-B", "scripts/dev/android/r1_consumer_integration_source_gate.py"]
+inputs = ["../scripts/dev/android/r1_consumer_integration_source_gate.py", "../internal/brokerruntime/metadata.go", "../internal/brokerruntime/handoff.go", "../internal/brokeridentity/authority_apk.go"]
+metadata = { source_only = true, device_qualification = false, no_automatic_external_access = true }
+
+[targets.skybind_release.jobs.r1-consumer-integration-go]
+runner = "command"
+command = ["go", "test", "-count=1", "./internal/brokerruntime", "./internal/brokeripc", "./internal/brokeridentity", "./cmd/skybind-r1-gateway", "./cmd/skybind-r1-module-check"]
+inputs = ["../internal/brokerruntime/metadata_test.go", "../internal/brokerruntime/handoff_test.go", "../internal/brokeridentity/authority_apk_test.go"]
+metadata = { source_only = true, read_only = true, grants_issued = false }
+
+[targets.skybind_release.jobs.r1-consumer-integration-python]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_r1_consumer_integration_source.py", "-q"]
+inputs = ["../tests/test_r1_consumer_integration_source.py", "../scripts/dev/android/r1_consumer_integration_source_gate.py"]
+metadata = { source_only = true, no_device_mutation = true, m3_retests = false }
+
+[wrapper.commands.r1-consumer-integration-source]
+description = "R1 metadata backend, one-shot authenticated grant handoff, opt-in operator gateway, chrootctl seal diagnostic and authority APK exact-byte trust source gates; NO live consumer qualification"
+workflow = "r1-consumer-integration-source"
 target = "skybind_release"

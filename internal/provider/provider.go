@@ -44,6 +44,11 @@ type Entry struct {
 type Runner interface {
 	Run(ctx context.Context, stdin []byte, argv ...string) ([]byte, error)
 }
+
+// RuntimeRunner is the existing bounded and shell-free root rclone executor.
+// It never uses an IPC-provided executable or environment.
+func RuntimeRunner() Runner { return commandRunner{} }
+
 type commandRunner struct{}
 
 func (commandRunner) Run(ctx context.Context, stdin []byte, argv ...string) ([]byte, error) {
