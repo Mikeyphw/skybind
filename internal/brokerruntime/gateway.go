@@ -1,6 +1,7 @@
 package brokerruntime
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -21,6 +22,9 @@ type Dependencies struct {
 }
 type Gateway struct {
 	socket   *brokeripc.ConsumerSocket
+	abstract *brokeripc.AbstractConsumerSocket
+	platform brokeridentity.PackageAuthority
+	module   brokeridentity.ModuleAttestor
 	Verifier brokeridentity.ConsumerVerifier
 	Grants   *brokergrant.Store
 	policy   Policy
@@ -40,7 +44,10 @@ func Assemble(policy Policy, deps Dependencies) (*Gateway, error) {
 	verifier := brokeridentity.ConsumerVerifier{BKXUID: policy.BKX.UID, BKX: bkx, Chrootctl: chroot}
 	grants := brokergrant.New()
 	socket := &brokeripc.ConsumerSocket{Directory: "/data/adb/skybind/consumer-gateway", BKXUID: policy.BKX.UID, ExplicitlyEnabled: true, Grants: grants, Verifier: verifier, Backend: deps.Backend}
-	return &Gateway{socket: socket, Verifier: verifier, Grants: grants, policy: policy}, nil
+	abstract := &brokeripc.AbstractConsumerSocket{BKXUID: policy.BKX.UID, ExplicitlyEnabled: true,
+		Grants: grants, Verifier: verifier, Backend: deps.Backend}
+	return &Gateway{socket: socket, abstract: abstract, platform: deps.PlatformAuthority,
+		module: deps.ModuleAuthority, Verifier: verifier, Grants: grants, policy: policy}, nil
 }
 
 // Start is never invoked by the ordinary daemon; only a separately qualified
@@ -86,3 +93,35 @@ func (g *Gateway) IssueApproved(peer brokeripc.KernelPeer, consumer, remote, pre
 	return issuer.IssueForPeer(peer, brokerissue.Request{Remote: remote, Prefix: prefix, Operations: ops, TTL: ttl})
 }
 func (g *Gateway) Revoke(id string) bool { return g != nil && g.Grants != nil && g.Grants.Revoke(id) }
+
+// StartAbstract never runs during normal module or Android app startup.
+// Unlike test-only dependency injection, an actual consumer endpoint must
+// use the peer-attested Android PM channel and the canonical installed-module
+// verifier. A merely non-nil fake authority cannot turn on this endpoint.
+func (g *Gateway) StartAbstract() error {
+	if g == nil || g.abstract == nil {
+		return errors.New("r1_abstract_consumer_gateway_unconfigured")
+	}
+	pm, ok := g.platform.(*brokeridentity.PMBridge)
+	if !ok || pm.State() != "CONNECTED_UNQUALIFIED" {
+		return errors.New("r1_android_pm_authority_not_connected")
+	}
+	module, ok := g.module.(brokeridentity.InstalledModuleAttestor)
+	if !ok || module.Root != "" || module.ProcRoot != "" {
+		return errors.New("r1_canonical_module_authority_required")
+	}
+	return g.abstract.Start()
+}
+
+func (g *Gateway) ServeAbstract(ctx context.Context) error {
+	if g == nil || g.abstract == nil {
+		return errors.New("r1_abstract_consumer_gateway_unconfigured")
+	}
+	return g.abstract.Serve(ctx)
+}
+func (g *Gateway) CloseAbstract() error {
+	if g == nil || g.abstract == nil {
+		return nil
+	}
+	return g.abstract.Close()
+}

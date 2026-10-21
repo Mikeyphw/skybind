@@ -229,6 +229,14 @@ inputs = ["../tests/test_r1_consumer_access_contract.py", "../scripts/dev/androi
 metadata = { read_only = true, no_automatic_device_retest = true, release_qualified = false }
 
 [targets.skybind_release.workflows]
+r1-consumer-transport-source = [
+  { id = "transport-contract", ref = "job:r1-consumer-transport-contract", depends_on = [] },
+  { id = "kernel-grants", ref = "job:r1-consumer-transport-go", depends_on = ["transport-contract"] },
+  { id = "offline-denials", ref = "job:r1-consumer-transport-python", depends_on = ["kernel-grants"] },
+  { id = "pm-bridge-regression", ref = "job:r1-pm-channel-contract", depends_on = ["offline-denials"] },
+  { id = "cloud-build-policy", ref = "job:m3-operations-security", depends_on = ["pm-bridge-regression"] },
+]
+
 r1-pm-channel-source = [
   { id = "protocol-contract", ref = "job:r1-pm-channel-contract", depends_on = [] },
   { id = "go-protocol-negatives", ref = "job:r1-pm-channel-go", depends_on = ["protocol-contract"] },
@@ -1681,4 +1689,28 @@ metadata = { source_only = true, no_device_mutation = true, m3_retests = false }
 [wrapper.commands.r1-pm-channel-source]
 description = "Authenticated Android-to-Go R1 PM channel, challenge/peer negatives, and hosted diagnostic source DAG; no grants"
 workflow = "r1-pm-channel-source"
+target = "skybind_release"
+
+# R1 abstract consumer transport candidate: SOURCE ONLY, NO LIVE BKX/chrootctl grants.
+[targets.skybind_release.jobs.r1-consumer-transport-contract]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/r1_consumer_transport_source_gate.py"]
+inputs = ["../scripts/dev/android/r1_consumer_transport_source_gate.py", "../internal/brokeripc/abstract.go", "../internal/brokeripc/client.go", "../internal/brokerruntime/gateway.go", "../module/service.sh"]
+metadata = { source_only = true, external_provider_qualified = false, no_device_mutation = true }
+
+[targets.skybind_release.jobs.r1-consumer-transport-go]
+runner = "command"
+command = ["go", "test", "-count=1", "./internal/brokeripc", "./internal/brokergrant", "./internal/brokeridentity", "./internal/brokerruntime"]
+inputs = ["../internal/brokeripc/abstract.go", "../internal/brokeripc/abstract_test.go", "../internal/brokeripc/client.go", "../internal/brokeripc/client_test.go", "../internal/brokerruntime/gateway.go", "../internal/brokerruntime/runtime_test.go"]
+metadata = { source_only = true, root_device_acceptance = false, grants_issued = false }
+
+[targets.skybind_release.jobs.r1-consumer-transport-python]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_r1_consumer_transport_source.py", "-q"]
+inputs = ["../tests/test_r1_consumer_transport_source.py", "../scripts/dev/android/r1_consumer_transport_source_gate.py"]
+metadata = { source_only = true, no_device_mutation = true, m3_retests = false }
+
+[wrapper.commands.r1-consumer-transport-source]
+description = "R1 bounded abstract consumer socket, Go client, scoped read/revoke/negative source tests; no live consumer activation"
+workflow = "r1-consumer-transport-source"
 target = "skybind_release"

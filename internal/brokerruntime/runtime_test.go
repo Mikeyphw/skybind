@@ -228,3 +228,31 @@ func TestVerifiedScopedGrantAndImmediateRevocation(t *testing.T) {
 		t.Fatal("pid reuse unbound", e)
 	}
 }
+
+// No real external consumer listener may be activated merely because a
+// test-provided PackageAuthority or ModuleAttestor object is non-nil.
+func TestAbstractConsumerGatewayRejectsUnconnectedAuthorities(t *testing.T) {
+	policy := policyFixture()
+	cert := []byte(strings.Repeat("Z", 300))
+	digest := sha256.Sum256(cert)
+	policy.BKX.CertSHA256 = hex.EncodeToString(digest[:])
+	deps := Dependencies{
+		PlatformAuthority: &fakePM{signer: cert},
+		Proc:              &fakeProc{uid: policy.BKX.UID, tick: 225, label: policy.BKX.SELinuxContext},
+		ModuleAuthority:   &fakeModule{},
+		Backend:           func(brokeripc.Request) (json.RawMessage, error) { return json.RawMessage(`{}`), nil },
+	}
+	g, err := Assemble(policy, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := g.StartAbstract(); e == nil {
+		t.Fatal("fake Android PM trust activated consumer listener")
+	}
+	if e := g.ServeAbstract(context.Background()); e == nil {
+		t.Fatal("unstarted consumer listener served requests")
+	}
+	if e := g.CloseAbstract(); e != nil {
+		t.Fatal(e)
+	}
+}

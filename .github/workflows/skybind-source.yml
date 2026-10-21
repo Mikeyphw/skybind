@@ -50,6 +50,13 @@ jobs:
           python3 -B scripts/dev/android/r1_pm_bridge_source_gate.py
           python3 -B -m unittest discover -s tests -p 'test_r1_pm_bridge_source.py' -q
           go test -count=1 ./internal/brokeridentity ./internal/brokerruntime ./internal/brokeripc ./cmd/skybind
+      - name: R1 abstract read-only consumer transport and revocation source gates (NO client grants)
+        run: |
+          python3 -B scripts/dev/android/r1_consumer_transport_source_gate.py
+          python3 -B -m unittest discover -s tests -p 'test_r1_consumer_transport_source.py' -q
+          go test -count=1 ./internal/brokeripc ./internal/brokerruntime ./internal/brokergrant ./internal/brokeridentity
+          # Real root-only abstract listener test uses SO_PEERCRED; this is a host fixture, NOT Android acceptance.
+          sudo env PATH="$PATH" go test -count=1 ./internal/brokeripc ./internal/brokerruntime
       - name: SB-Q02 source-build contract (no external gates)
         run: bash scripts/devtool/check_q02_source_build.sh
       - name: SB-Q03 raw provenance intake contract (no external gates)
