@@ -5,11 +5,22 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import io.github.mikeyphw.skybind.bridge.SkybindSessionViewModel
+import io.github.mikeyphw.skybind.bridge.R1PMBridgeAgent
 import io.github.mikeyphw.skybind.ui.SkybindApp
 
 /** Unprivileged UI: no su commands, socket paths, or embedded daemon. */
 class MainActivity : ComponentActivity() {
     private val session: SkybindSessionViewModel by viewModels()
+    override fun onStart() {
+        super.onStart()
+        R1PMBridgeAgent.start(applicationContext)
+    }
+
+    override fun onStop() {
+        R1PMBridgeAgent.stop()
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {

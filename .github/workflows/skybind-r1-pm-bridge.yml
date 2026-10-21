@@ -1,0 +1,37 @@
+name: Skybind R1 Android-to-Go PM bridge (unqualified diagnostic)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r1-android-arm64-diagnostic:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Validate source contracts and complete Go regressions
+        run: |
+          set -euo pipefail
+          python3 -B scripts/dev/android/r1_pm_bridge_source_gate.py
+          python3 -B -m unittest discover -s tests -p 'test_r1_pm_bridge_source.py' -q
+          go test -count=1 ./internal/brokeridentity ./internal/brokerruntime ./internal/brokeripc ./internal/brokergrant ./cmd/skybind-r1-pm
+      - name: Build source-bound Android arm64 root diagnostic without a module install
+        env:
+          CGO_ENABLED: '0'
+          GOOS: android
+          GOARCH: arm64
+        run: |
+          set -euo pipefail
+          mkdir -p dist/r1-pm-bridge
+          go build -trimpath -ldflags '-buildid=' -o dist/r1-pm-bridge/skybind-r1-pm-android-arm64 ./cmd/skybind-r1-pm
+          chmod 0755 dist/r1-pm-bridge/skybind-r1-pm-android-arm64
+          sha256sum dist/r1-pm-bridge/skybind-r1-pm-android-arm64 | sed 's|dist/r1-pm-bridge/||' > dist/r1-pm-bridge/SHA256SUMS.txt
+          printf '{"schema":"skybind-r1-pm-diag-artifact-v1","source_sha":"%s","r1_provider_qualified":false,"release_qualified":false}\n' "$GITHUB_SHA" > dist/r1-pm-bridge/source.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skybind-r1-pm-bridge-android-arm64-unqualified
+          path: dist/r1-pm-bridge/*
+          if-no-files-found: error
+          retention-days: 14

@@ -45,6 +45,11 @@ jobs:
           python3 -B -m unittest discover -s tests -p 'test_r1_bkx_pm_device.py' -q
           go test -count=1 ./internal/brokerruntime ./internal/brokergrant ./internal/brokeridentity ./internal/brokeripc ./internal/brokerissue
           sudo env PATH="$PATH" go test -count=1 ./internal/brokerruntime
+      - name: R1 Android-to-Go authenticated PM bridge source and adversarial protocol gates (NO grants)
+        run: |
+          python3 -B scripts/dev/android/r1_pm_bridge_source_gate.py
+          python3 -B -m unittest discover -s tests -p 'test_r1_pm_bridge_source.py' -q
+          go test -count=1 ./internal/brokeridentity ./internal/brokerruntime ./internal/brokeripc ./cmd/skybind
       - name: SB-Q02 source-build contract (no external gates)
         run: bash scripts/devtool/check_q02_source_build.sh
       - name: SB-Q03 raw provenance intake contract (no external gates)

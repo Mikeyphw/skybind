@@ -229,6 +229,14 @@ inputs = ["../tests/test_r1_consumer_access_contract.py", "../scripts/dev/androi
 metadata = { read_only = true, no_automatic_device_retest = true, release_qualified = false }
 
 [targets.skybind_release.workflows]
+r1-pm-channel-source = [
+  { id = "protocol-contract", ref = "job:r1-pm-channel-contract", depends_on = [] },
+  { id = "go-protocol-negatives", ref = "job:r1-pm-channel-go", depends_on = ["protocol-contract"] },
+  { id = "offline-device-negatives", ref = "job:r1-pm-channel-python", depends_on = ["go-protocol-negatives"] },
+  { id = "module-identity-regression", ref = "job:r1-device-trust-go", depends_on = ["go-protocol-negatives"] },
+  { id = "hosted-source-security", ref = "job:m3-operations-security", depends_on = ["offline-device-negatives", "module-identity-regression"] },
+]
+
 # R1 operator authorization and BKX PackageManager observation source only.
 r1-trust-admission-source = [
   { id = "policy-contract", ref = "job:r1-trust-admission-contract", depends_on = [] },
@@ -1649,4 +1657,28 @@ metadata = { source_only = true, r1_bkx_pm_live_not_run = true }
 [wrapper.commands.r1-trust-admission-source]
 description = "R1 read-only operator policy, attestation admission and BKX PM observation source DAG; external gateway remains disabled"
 workflow = "r1-trust-admission-source"
+target = "skybind_release"
+
+# R1 authenticated Android-to-Go platform authority (no consumer grants).
+[targets.skybind_release.jobs.r1-pm-channel-contract]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/r1_pm_bridge_source_gate.py"]
+inputs = ["../scripts/dev/android/r1_pm_bridge_source_gate.py", "../internal/brokeridentity/pm_bridge.go", "../android-app/app/src/main/java/io/github/mikeyphw/skybind/bridge/R1PMBridgeAgent.kt", "../.github/workflows/skybind-r1-pm-bridge.yml"]
+metadata = { source_only = true, platform_authority_connected_on_device = false, external_provider_qualified = false }
+
+[targets.skybind_release.jobs.r1-pm-channel-go]
+runner = "command"
+command = ["go", "-C", "..", "test", "-count=1", "./internal/brokeridentity", "./internal/brokerruntime", "./internal/brokergrant", "./internal/brokeripc", "./cmd/skybind-r1-pm"]
+inputs = ["../internal/brokeridentity/**", "../internal/brokerruntime/**", "../internal/brokeripc/**", "../cmd/skybind-r1-pm/**"]
+metadata = { source_only = true, negative_peer_identity = true, grant_issued = false }
+
+[targets.skybind_release.jobs.r1-pm-channel-python]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests", "-p", "test_r1_pm_bridge_*.py", "-q"]
+inputs = ["../tests/test_r1_pm_bridge_*.py", "../scripts/dev/android/r1_pm_bridge_device.py", "../.github/workflows/skybind-r1-pm-bridge.yml"]
+metadata = { source_only = true, no_device_mutation = true, m3_retests = false }
+
+[wrapper.commands.r1-pm-channel-source]
+description = "Authenticated Android-to-Go R1 PM channel, challenge/peer negatives, and hosted diagnostic source DAG; no grants"
+workflow = "r1-pm-channel-source"
 target = "skybind_release"
