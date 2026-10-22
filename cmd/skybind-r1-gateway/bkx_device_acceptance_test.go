@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"skybind/internal/brokerruntime"
 	"strings"
 	"testing"
@@ -99,5 +100,35 @@ func TestBKXInstrumentationTerminalCannotAcceptFailedJUnit(t *testing.T) {
 	}
 	if got := bkxInstrumentationFailureCategory([]byte("java.io.IOException: Connection refused"), nil); got != "instrumentation_socket_connection_refused" {
 		t.Fatalf("socket outcome miscategorized: %s", got)
+	}
+}
+
+// Regression: an empty relative path is an intentional authorized scope.
+// The installed BKX Android test uses JSONObject.getString("path") and must
+// receive an explicit JSON empty string rather than an absent key.
+func TestBKXAcceptanceHelloAlwaysSendsPath(t *testing.T) {
+	for _, path := range []string{"", "ssd", "ssd/subdir"} {
+		payload, err := json.Marshal(bkxReply{OK: true, Remote: "GDDavys", Path: path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var msg map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			t.Fatal(err)
+		}
+		raw, exists := msg["path"]
+		if !exists {
+			t.Fatalf("hello omitted path=%q: %s", path, payload)
+		}
+		var recovered string
+		if err := json.Unmarshal(raw, &recovered); err != nil {
+			t.Fatal(err)
+		}
+		if recovered != path {
+			t.Fatalf("path mismatch: got=%q want=%q", recovered, path)
+		}
+		if string(msg["remote"]) != `"GDDavys"` || string(msg["ok"]) != "true" {
+			t.Fatalf("unexpected hello envelope: %s", payload)
+		}
 	}
 }

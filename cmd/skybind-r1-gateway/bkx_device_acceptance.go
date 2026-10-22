@@ -59,7 +59,7 @@ type bkxWire struct {
 type bkxReply struct {
 	OK     bool   `json:"ok"`
 	Remote string `json:"remote,omitempty"`
-	Path   string `json:"path,omitempty"`
+	Path   string `json:"path"`
 }
 
 func bkxCaseOperation(name string) string {
