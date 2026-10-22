@@ -22,6 +22,10 @@ import m3_copy_fixture as copy
 ADB = re.compile(r'[A-Za-z0-9._:-]{1,120}\Z')
 BASE = '/storage/emulated/0/Download'
 CLI = '/data/adb/modules/skybind/system/bin/skybind'
+# Keep each adb-shell command well below Android's shell argument limits.
+# A 512-pair CHECK fixture must never put 1025 paths in one command.
+HASH_BATCH_SIZE = 16
+HASH_BATCH_COMMAND_MAX = 4096
 
 class Blocked(Exception):
     pass
@@ -192,17 +196,34 @@ def scan(serial, kind, files, phase='prepared'):
     for directory in dirs:
         need(shelltest(serial,'test -d '+shlex.quote(directory)+' && test ! -L '+shlex.quote(directory)),
              'TARGET_FIXTURE_DIRECTORY_UNSAFE')
-    # SHA256 utility is invoked with exact, generated paths and no unchecked globbing.
+    # Exact generated path list, after independently checking complete membership,
+    # type, and symlink exclusion. Android adb-shell/su command transport has a
+    # far smaller practical argv budget than desktop Linux. Never send a whole
+    # large fixture as one argument list (512 CHECK pairs = 1025 files).
     paths=sorted(hashes)
-    command='/system/bin/sha256sum '+' '.join(shlex.quote(p) for p in paths)
-    lines=root(serial,command,timeout=150,stage='FIXTURE_SHA256_VERIFICATION').splitlines()
     actual={}
-    for line in lines:
-        match=re.fullmatch(r'([0-9a-f]{64})\s+\*?(.+)',line)
-        need(match is not None,'TARGET_FIXTURE_SHA_FORMAT')
-        digest,p=match.groups()
-        need(p not in actual,'TARGET_FIXTURE_DUPLICATE_SHA_ROW')
-        actual[p]=digest
+    for offset in range(0,len(paths),HASH_BATCH_SIZE):
+        batch=paths[offset:offset+HASH_BATCH_SIZE]
+        expected=set(batch)
+        command='/system/bin/sha256sum '+' '.join(shlex.quote(p) for p in batch)
+        need(len(command.encode('utf-8'))<=HASH_BATCH_COMMAND_MAX,
+             'TARGET_FIXTURE_HASH_BATCH_COMMAND_TOO_LONG')
+        # No hidden retry / fallback that could silently omit a failed batch.
+        # Bounded, numbered stage names remain safe for diagnostic receipts.
+        stage_name=f'FIXTURE_SHA256_BATCH_{offset//HASH_BATCH_SIZE+1:03d}'
+        lines=root(serial,command,timeout=50,stage=stage_name).splitlines()
+        need(len(lines)==len(batch),'TARGET_FIXTURE_SHA_BATCH_ROW_COUNT_MISMATCH')
+        got=set()
+        for line in lines:
+            match=re.fullmatch(r'([0-9a-f]{64})\s+\*?(.+)',line)
+            need(match is not None,'TARGET_FIXTURE_SHA_FORMAT')
+            digest,path=match.groups()
+            need(path in expected and path not in got and path not in actual,
+                 'TARGET_FIXTURE_UNEXPECTED_OR_DUPLICATE_SHA_ROW')
+            need(digest==hashes[path],'TARGET_FIXTURE_HASH_OR_MEMBERSHIP_MISMATCH')
+            got.add(path)
+            actual[path]=digest
+        need(got==expected,'TARGET_FIXTURE_SHA_BATCH_MEMBERSHIP_MISMATCH')
     need(actual==hashes,'TARGET_FIXTURE_HASH_OR_MEMBERSHIP_MISMATCH')
     value={'kind':kind,'phase':phase,'count':files,'target_files_verified':len(hashes),
            'target_digest_sha256':hashlib.sha256(''.join(p+':'+h+'\n' for p,h in sorted(hashes.items())).encode()).hexdigest()}
@@ -233,8 +254,13 @@ def verify(serial,kind,phase='prepared'):
 def stage(serial,kind,files):
     path,_,_=fixture_paths(kind,files,'prepared')
     loc=shlex.quote(str(path))
-    # Must not install into any preexisting fixture. Never delete on failure.
-    need(shelltest(serial,f'test ! -e {loc} && test ! -L {loc}'), 'TARGET_FIXTURE_ALREADY_EXISTS')
+    # A previous ADB push may have completed but the old oversized SHA command
+    # failed. Safely adopt that *exact* already-staged directory only after full
+    # membership, symlink and content-hash verification. Do not overwrite it,
+    # recurse-delete it or assume that a previously failed scan was valid.
+    if not shelltest(serial,f'test ! -e {loc} && test ! -L {loc}'):
+        evidence=scan(serial,kind,files,'prepared')
+        return {**evidence,'previously_staged_exact_fixture_verified':True}
     with tempfile.TemporaryDirectory(prefix='skybind-target-fixture-') as tmp:
         parent=Path(tmp)
         staged=parent/path.name
@@ -256,7 +282,8 @@ def stage(serial,kind,files):
                                                        'count':files},sort_keys=True))
         # Push exactly one isolated test-owned directory to the selected target.
         run_adb(serial,'push',str(staged),BASE+'/',timeout=200,stage='FIXTURE_ADB_PUSH')
-    return scan(serial,kind,files,'prepared')
+    evidence=scan(serial,kind,files,'prepared')
+    return {**evidence,'previously_staged_exact_fixture_verified':False}
 
 def apply_registry(serial,kind,reg):
     candidate={**reg,'jobs':reg['jobs']+[check.definition() if kind=='check' else copy.definition()]}

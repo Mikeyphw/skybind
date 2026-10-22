@@ -72,6 +72,100 @@ class RemoteFixtureTests(unittest.TestCase):
             with self.assertRaisesRegex(f.Blocked,'SYMLINK'):
                 f.scan('emulator-5554','copy',64,'prepared')
 
+    def test_large_check_fixture_hashes_every_file_in_small_batches(self):
+        import shlex
+        _,dirs,hashes=f.fixture_paths('check',512,'prepared')
+        commands=[]
+        def fake_root(serial,command,timeout=90,stage='ROOT_COMMAND'):
+            if '-type l' in command:
+                return ''
+            if 'find ' in command:
+                return '\n'.join(sorted(dirs|set(hashes)))
+            if command.startswith('/system/bin/sha256sum '):
+                paths=shlex.split(command)[1:]
+                commands.append((paths,stage,len(command.encode())))
+                return '\n'.join(hashes[p]+'  '+p for p in paths)
+            raise AssertionError((command,stage))
+        with patch.object(f,'shelltest',return_value=True), \
+             patch.object(f,'root',side_effect=fake_root):
+            got=f.scan('emulator-5554','check',512,'prepared')
+        self.assertEqual(got['target_files_verified'],1025)
+        self.assertEqual(sum(len(paths) for paths,_,_ in commands),1025)
+        self.assertEqual(len({path for paths,_,_ in commands for path in paths}),1025)
+        self.assertGreater(len(commands),1)
+        for i,(paths,stage,length) in enumerate(commands,1):
+            self.assertLessEqual(len(paths),f.HASH_BATCH_SIZE)
+            self.assertLessEqual(length,f.HASH_BATCH_COMMAND_MAX)
+            self.assertEqual(stage,f'FIXTURE_SHA256_BATCH_{i:03d}')
+
+    def test_sha_batched_verification_fails_closed_on_missing_swapped_and_bad_digest(self):
+        import shlex
+        _,dirs,hashes=f.fixture_paths('check',64,'prepared')
+        def fake_root_factory(failure):
+            def fake_root(serial,command,timeout=90,stage='ROOT_COMMAND'):
+                if '-type l' in command: return ''
+                if 'find ' in command: return '\n'.join(sorted(dirs|set(hashes)))
+                if command.startswith('/system/bin/sha256sum '):
+                    names=shlex.split(command)[1:]
+                    lines=[hashes[p]+'  '+p for p in names]
+                    if stage=='FIXTURE_SHA256_BATCH_002':
+                        if failure=='missing': lines.pop()
+                        if failure=='unexpected': lines[0]=hashes[names[0]]+'  /tmp/untrusted'
+                        if failure=='digest': lines[0]='0'*64+'  '+names[0]
+                        if failure=='duplicate': lines[0]=lines[1]
+                    return '\n'.join(lines)
+                raise AssertionError(command)
+            return fake_root
+        for failure in ('missing','unexpected','digest','duplicate'):
+            with self.subTest(failure=failure), \
+                 patch.object(f,'shelltest',return_value=True), \
+                 patch.object(f,'root',side_effect=fake_root_factory(failure)):
+                with self.assertRaisesRegex(f.Blocked,'TARGET_FIXTURE_'):
+                    f.scan('emulator-5554','check',64)
+
+    def test_sha_batch_transport_failure_identifies_exact_failing_batch(self):
+        import shlex
+        _,dirs,hashes=f.fixture_paths('check',64,'prepared')
+        def fake_root(serial,command,timeout=90,stage='ROOT_COMMAND'):
+            if '-type l' in command:return ''
+            if 'find ' in command:return '\n'.join(sorted(dirs|set(hashes)))
+            if stage=='FIXTURE_SHA256_BATCH_002':
+                raise f.Blocked('TARGET_ADB_COMMAND_FAILED stage=FIXTURE_SHA256_BATCH_002 exit=1 category=UNCLASSIFIED')
+            paths=shlex.split(command)[1:]
+            return '\n'.join(hashes[p]+'  '+p for p in paths)
+        with patch.object(f,'shelltest',return_value=True), \
+             patch.object(f,'root',side_effect=fake_root):
+            with self.assertRaisesRegex(f.Blocked,'stage=FIXTURE_SHA256_BATCH_002'):
+                f.scan('emulator-5554','check',64)
+
+    def test_existing_unregistered_fixture_is_adopted_only_after_complete_verification(self):
+        expected={'kind':'check','target_files_verified':1025}
+        with patch.object(f,'shelltest',return_value=False), \
+             patch.object(f,'scan',return_value=expected) as scan, \
+             patch.object(f,'run_adb') as adb:
+            actual=f.stage('emulator-5554','check',512)
+        self.assertTrue(actual['previously_staged_exact_fixture_verified'])
+        self.assertEqual(actual['target_files_verified'],1025)
+        scan.assert_called_once_with('emulator-5554','check',512,'prepared')
+        adb.assert_not_called()
+        with patch.object(f,'shelltest',return_value=False), \
+             patch.object(f,'scan',side_effect=f.Blocked('TARGET_FIXTURE_FOREIGN_OR_MISSING_ENTRY')), \
+             patch.object(f,'run_adb') as adb:
+            with self.assertRaisesRegex(f.Blocked,'TARGET_FIXTURE_FOREIGN_OR_MISSING_ENTRY'):
+                f.stage('emulator-5554','check',512)
+            adb.assert_not_called()
+
+    def test_no_registry_apply_if_exact_staged_fixture_does_not_verify(self):
+        from types import SimpleNamespace
+        no_jobs=({'revision':6,'jobs':[]},[])
+        with patch.object(f,'target',return_value='a'*64), \
+             patch.object(f,'registry',return_value=no_jobs), \
+             patch.object(f,'stage',side_effect=f.Blocked('TARGET_FIXTURE_HASH_OR_MEMBERSHIP_MISMATCH')), \
+             patch.object(f,'apply_registry') as apply:
+            with self.assertRaisesRegex(f.Blocked,'TARGET_FIXTURE_HASH_OR_MEMBERSHIP_MISMATCH'):
+                f.run(SimpleNamespace(serial='emulator-5554',action='prepare-check',files=512,copy_phase='prepared',apply=True))
+            apply.assert_not_called()
+
     def test_probe_prefers_verified_su_and_falls_back_to_root_adbd(self):
         from types import SimpleNamespace
         def fake_su(serial,*args,**kw):
