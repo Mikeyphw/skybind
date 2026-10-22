@@ -77,28 +77,90 @@ def classify(mode: str, stdout: str, exitcode: int) -> tuple[str, str | None]:
     return state, reason
 
 
-def check_fixture(profile: str):
+def check_fixture(profile: str, serial: str):
+    """Use the admitted ADB target, NEVER the invoking Termux filesystem.
+
+    Full profile has two explicitly operator-prepared, non-SYNC test fixtures.
+    No mutation is made by this preflight. Exact target files are hashed.
+    """
     if profile != 'full':
         return None
-    import m3_disposable_fixture as check_fixture_module
-    import m3_copy_fixture as copy_fixture
+    import m3_adb_fixture
     try:
-        reg, runs = check_fixture_module.registry()
-        found = check_fixture_module.reject_unsafe_registry(reg, runs)
-        live.need(len(found) == 1, 'CHECK_FIXTURE_NOT_REGISTERED')
-        check_fixture_module.check_files()
-        _reg, found_copy = copy_fixture.registry()
-        live.need(found_copy is True, 'COPY_FIXTURE_NOT_REGISTERED')
-        pre = copy_fixture.fixture_state('prepared')
-    except (check_fixture_module.Blocked, copy_fixture.Blocked, ValueError, OSError, KeyError) as e:
-        raise BatchBlocked('TEST_OWNED_FIXTURE_NOT_READY') from e
+        registry, _runs = m3_adb_fixture.registry(serial)
+        jobs = registry['jobs']
+        if not any(j.get('name') == 'M3DisposableCheck' for j in jobs):
+            raise BatchBlocked('TARGET_CHECK_FIXTURE_NOT_REGISTERED')
+        if not any(j.get('name') == 'M3DisposableCopy' for j in jobs):
+            raise BatchBlocked('TARGET_COPY_FIXTURE_NOT_REGISTERED')
+        m3_adb_fixture.verify(serial, 'check', 'prepared')
+        pre = m3_adb_fixture.verify(serial, 'copy', 'prepared')
+    except (m3_adb_fixture.Blocked, ValueError, OSError, KeyError, TypeError) as e:
+        raise BatchBlocked('TARGET_TEST_OWNED_FIXTURE_NOT_READY') from e
     return pre
+
+
+# Exact five-file, Android-free source delta admitted only by explicit choice.
+# Keep these postimages tied to the shipped and locally tested repair overlay.
+SOURCE_ONLY_DELTA = {
+    'docs/devtool/DEVTOOL_IMPROVEMENTS_CUMULATIVE_B1C_20261017.md': 'M',
+    'scripts/dev/android/m2_m3_retest_batch.py': 'M',
+    'scripts/dev/android/m3_adb_fixture.py': 'A',
+    'tests/test_m2_m3_retest_batch.py': 'M',
+    'tests/test_m3_adb_fixture.py': 'A',
+}
+# Filled by bundle finalization. All postimages must match reviewed bytes.
+SOURCE_ONLY_POSTIMAGES = {  # SOURCE_ONLY_LOCK
+    'docs/devtool/DEVTOOL_IMPROVEMENTS_CUMULATIVE_B1C_20261017.md': '7996de8f8f10c69cc2e0418a5580cab7c49597b0a06b1b6f8178d02502b59b13',
+    'scripts/dev/android/m3_adb_fixture.py': '415157bff88d48932fc439ad9b5aa1323851e6804b89ef63963c2f5f0461eed0',
+    'tests/test_m2_m3_retest_batch.py': '1ab2c1b4ca8d23f75213fd9500afa9376294b5ba4036098b558abeb455b811c8',
+    'tests/test_m3_adb_fixture.py': 'a5b06ff2923cfb0db955cb55573c7b745454f52e9ec953da747e2dcc56c57b06',
+}
+
+
+def admitted_source(opts):
+    current = live.current_source()
+    approved = getattr(opts, 'apk_source_sha', None)
+    if not approved or approved == current:
+        return current, current, []
+    if not re.fullmatch('[0-9a-f]{40}',approved):
+        raise BatchBlocked('APK_SOURCE_PIN_INVALID')
+    def git(*args):
+        try:
+            r = subprocess.run(['git','-C',str(ROOT),*args],capture_output=True,
+                               text=True,timeout=20,check=False)
+        except (OSError,subprocess.TimeoutExpired) as exc:
+            raise BatchBlocked('GIT_DELTA_VERIFICATION_UNAVAILABLE') from exc
+        if r.returncode:
+            raise BatchBlocked('GIT_DELTA_VERIFICATION_FAILED')
+        return r.stdout.strip()
+    if git('status','--porcelain','--untracked-files=normal'):
+        raise BatchBlocked('GIT_DIRTY_RUNNER_TREE')
+    git('merge-base','--is-ancestor',approved,current)
+    raw=git('diff','--name-status','--no-renames',approved,current)
+    rows={}
+    for line in raw.splitlines():
+        parts=line.split('\t')
+        if len(parts)!=2 or parts[1] in rows or parts[0] not in ('A','M'):
+            raise BatchBlocked('UNREVIEWED_RUNNER_SOURCE_DELTA')
+        rows[parts[1]]=parts[0]
+    if rows!=SOURCE_ONLY_DELTA:
+        raise BatchBlocked('UNREVIEWED_RUNNER_SOURCE_DELTA')
+    for path, sha in SOURCE_ONLY_POSTIMAGES.items():
+        p=ROOT/path
+        if p.is_symlink() or not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=sha:
+            raise BatchBlocked('REVIEWED_RUNNER_FILE_DRIFT')
+    if set(SOURCE_ONLY_POSTIMAGES)!=set(SOURCE_ONLY_DELTA)-{'scripts/dev/android/m2_m3_retest_batch.py'}:
+        raise BatchBlocked('REVIEWED_RUNNER_POSTIMAGE_INCOMPLETE')
+    return approved,current,list(SOURCE_ONLY_DELTA)
 
 
 def install_readonly_guard(opts, doc):
     # No installation is ever attempted by this runner.
-    sha = live.current_source()
+    sha, runner_sha, delta = admitted_source(opts)
     doc['source_sha'] = sha
+    doc['runner_source_sha'] = runner_sha
+    doc['reviewed_host_tooling_delta'] = delta
     artifact = live.github(opts.run_id, sha)
     doc['artifact_id'] = artifact['id']
     doc['artifact_digest'] = artifact['digest']
@@ -166,7 +228,7 @@ def run(opts):
         if opts.run_id <= 0:
             raise BatchBlocked('GITHUB_RUN_ID_INVALID')
         serial = install_readonly_guard(opts, report)
-        copy_pre = check_fixture(opts.profile)
+        copy_pre = check_fixture(opts.profile, serial)
         if copy_pre is not None:
             report['copy_preflight'] = copy_pre
         for mode in modes:
@@ -198,13 +260,13 @@ def run(opts):
                 except (OSError,subprocess.TimeoutExpired):
                     state,reason='BLOCKED','INSTRUMENTATION_TIMEOUT_OR_UNAVAILABLE'
             if mode == 'm3-copy-live' and state.startswith('PASS_'):
-                import m3_copy_fixture
+                import m3_adb_fixture
                 try:
-                    after = m3_copy_fixture.fixture_state('complete')
+                    after = m3_adb_fixture.verify(serial,'copy','complete')
                     if after['expected_content_sha256'] != copy_pre['expected_content_sha256']:
                         raise BatchBlocked('COPY_SOURCE_INTEGRITY_DRIFT')
                     report['copy_integrity'] = after
-                except (m3_copy_fixture.Blocked, BatchBlocked, OSError, ValueError, KeyError):
+                except (m3_adb_fixture.Blocked, BatchBlocked, OSError, ValueError, KeyError):
                     state,reason='FAILED','COPY_DESTINATION_INTEGRITY_NOT_VERIFIED'
             report['cases'][mode] = {'state': state, 'reason': reason,
                                       'elapsed_ms': int((time.monotonic()-start)*1000),
@@ -245,6 +307,7 @@ def main(argv=None):
     p.add_argument('--remote', help='Exact configured remote (e.g. GDDavys)')
     p.add_argument('--serial', help='ADB device serial, required for multiple devices')
     p.add_argument('--artifact-dir',type=Path,help='Pre-downloaded exact GitHub app+test APK pair')
+    p.add_argument('--apk-source-sha',help='Explicit hosted APK source when the reviewed host-only tool delta is committed')
     p.add_argument('--output-dir',type=Path)
     p.add_argument('--profile',choices=('readonly','full'),default='readonly')
     p.add_argument('--allow-disposable-job-execution',action='store_true')

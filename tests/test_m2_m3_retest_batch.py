@@ -75,7 +75,7 @@ class BatchTests(unittest.TestCase):
             result=batch.run(opts(output_dir=Path(d)))
             self.assertEqual(result,0)
             self.assertEqual(admission.call_count,1)
-            fixture.assert_called_once_with('readonly')
+            fixture.assert_called_once_with('readonly','a-device')
             self.assertEqual(adb.call_count,5)
             receipts=list(Path(d).glob('m2m3-*.json'))
             self.assertEqual(len(receipts),1)
@@ -88,12 +88,12 @@ class BatchTests(unittest.TestCase):
             self.assertFalse(data['external_provider_qualified'])
 
     def test_full_nine_qualified_only_with_fixture_and_terminal(self):
-        import m3_copy_fixture
+        import m3_adb_fixture
         checked={'expected_content_sha256':'a'*64}
         with tempfile.TemporaryDirectory() as d, \
              patch.object(batch,'install_readonly_guard',return_value='a-device') as admission, \
              patch.object(batch,'check_fixture',return_value=checked), \
-             patch.object(m3_copy_fixture,'fixture_state',return_value={**checked,'destination_verified':True}), \
+             patch.object(m3_adb_fixture,'verify',return_value={**checked,'destination_verified':True}), \
              patch('m2_process_live.verify_app_cold_launch', return_value={'cold_ui_observed':True,'new_process_observed':True}) as process, \
              patch.object(batch.live,'adb',side_effect=lambda serial,*a,**k: FakeResult(passing(next(
                  mode for mode in batch.FULL if batch.LANES[mode][0] in a)))) as adb:
@@ -145,5 +145,57 @@ class BatchTests(unittest.TestCase):
         self.assertIn("'m3-copy-live'), default='preflight'",text)
         self.assertIn("p.add_argument('--allow-disposable-copy-writes'",text)
 
+
+
+    def test_full_fixture_validation_uses_admitted_serial_not_host(self):
+        import m3_adb_fixture
+        registry={'revision':5,'jobs':[{'name':'M3DisposableCheck'},
+                                        {'name':'M3DisposableCopy'}]}
+        results={'expected_content_sha256':'a'*64,'source_verified':True,'destination_verified':False}
+        with patch.object(m3_adb_fixture,'registry',return_value=(registry,[])) as reg, \
+             patch.object(m3_adb_fixture,'verify',return_value=results) as verify:
+            self.assertEqual(batch.check_fixture('full','emulator-5554'),results)
+            reg.assert_called_once_with('emulator-5554')
+            self.assertEqual(verify.call_count,2)
+            self.assertEqual(verify.call_args_list[0].args,('emulator-5554','check','prepared'))
+            self.assertEqual(verify.call_args_list[1].args,('emulator-5554','copy','prepared'))
+
+    def test_full_missing_fixture_never_qualifies(self):
+        import m3_adb_fixture
+        with patch.object(m3_adb_fixture,'registry',return_value=({'jobs':[]},[])), \
+             patch.object(m3_adb_fixture,'verify') as verify:
+            with self.assertRaisesRegex(batch.BatchBlocked,'TARGET_CHECK_FIXTURE'):
+                batch.check_fixture('full','emulator-5554')
+            verify.assert_not_called()
+
+    def test_readonly_fixture_preflight_is_unmodified(self):
+        from unittest.mock import patch
+        import m3_adb_fixture
+        with patch.object(m3_adb_fixture,'registry') as registered:
+            self.assertIsNone(batch.check_fixture('readonly','emulator-5554'))
+            registered.assert_not_called()
+
+
+    def test_apk_source_override_requires_valid_commit_pin(self):
+        with patch.object(batch.live,'current_source',return_value='b'*40):
+            with self.assertRaisesRegex(batch.BatchBlocked,'APK_SOURCE_PIN_INVALID'):
+                batch.admitted_source(opts(apk_source_sha='not-a-commit'))
+
+    def test_apk_source_default_is_exact_head(self):
+        with patch.object(batch.live,'current_source',return_value='b'*40):
+            self.assertEqual(batch.admitted_source(opts()),('b'*40,'b'*40,[]))
+
+    def test_source_override_rejects_unreviewed_diff(self):
+        class R:
+            returncode=0
+            stdout='M\tandroid-app/app/src/main/AndroidManifest.xml\n'
+        def fake(cmd,*a,**k):
+            if 'status' in cmd:return type('D',(),{'returncode':0,'stdout':''})()
+            if 'merge-base' in cmd:return type('D',(),{'returncode':0,'stdout':''})()
+            return R()
+        with patch.object(batch.live,'current_source',return_value='b'*40), \
+             patch.object(batch.subprocess,'run',side_effect=fake):
+            with self.assertRaisesRegex(batch.BatchBlocked,'UNREVIEWED_RUNNER_SOURCE_DELTA'):
+                batch.admitted_source(opts(apk_source_sha='a'*40))
 
 if __name__=='__main__': unittest.main()
