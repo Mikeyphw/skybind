@@ -30,43 +30,101 @@ def need(cond, why):
     if not cond:
         raise Blocked(why)
 
-def run_adb(serial, *args, timeout=90):
+# Commands sent over `adb shell` are parsed by Android's shell, not passed as
+# an argv array to su. Preserve the *whole* root command as one quoted -c arg.
+# In emulator images, an already-root adbd shell may not expose `su` at all.
+_ROOT_MODE = {}
+
+
+def adb_failure(stage, result):
+    stderr = (getattr(result, 'stderr', '') or '').strip()
+    stdout = (getattr(result, 'stdout', '') or '').strip()
+    # Never store daemon registry output, remote entries, job arguments, or tokens
+    # in failure diagnostics. Limit details to known environmental failure types.
+    content = (stderr + '\n' + stdout).lower()
+    markers = (
+        ('permission denied', 'PERMISSION_DENIED'),
+        ('not found', 'NOT_FOUND'),
+        ('no such file', 'FILE_MISSING'),
+        ('not permitted', 'NOT_PERMITTED'),
+        ('read-only file system', 'READ_ONLY_FILESYSTEM'),
+        ('device offline', 'DEVICE_OFFLINE'),
+        ('unauthorized', 'ADB_UNAUTHORIZED'),
+        ('failed transaction', 'PACKAGE_SERVICE_TRANSACTION'),
+    )
+    category = next((code for word, code in markers if word in content), 'UNCLASSIFIED')
+    return (f'TARGET_ADB_COMMAND_FAILED stage={stage} exit={result.returncode} '
+            f'category={category} stdout_bytes={len(stdout)} stderr_bytes={len(stderr)}')
+
+
+def run_adb(serial, *args, timeout=90, stage='ADB_COMMAND', ok=True):
     need(bool(ADB.fullmatch(serial)), 'ADB_SERIAL_INVALID')
     try:
-        p = subprocess.run(['adb','-s',serial,*args],capture_output=True,text=True,
-                           timeout=timeout,check=False)
-    except (OSError,subprocess.TimeoutExpired) as exc:
-        raise Blocked('TARGET_ADB_TRANSPORT_UNAVAILABLE') from exc
-    need(p.returncode == 0, 'TARGET_ADB_COMMAND_FAILED')
-    return p.stdout.strip()
+        p = subprocess.run(['adb', '-s', serial, *args], capture_output=True,
+                           text=True, timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Blocked(f'TARGET_ADB_TRANSPORT_UNAVAILABLE stage={stage}') from exc
+    if ok:
+        if p.returncode != 0:
+            raise Blocked(adb_failure(stage, p))
+        return p.stdout.strip()
+    return p
+
+
+def root_mode(serial):
+    # Probe root without changing adbd state or escalating an unrelated target.
+    # Prefer explicit KernelSU/Magisk su when present; otherwise accept only an
+    # already-root adb shell with observed uid=0. Never call `adb root`.
+    su = run_adb(serial, 'shell', "su -c '/system/bin/id -u'",
+                 stage='ROOT_SU_UID_PROBE', ok=False)
+    if su.returncode == 0 and su.stdout.strip() == '0':
+        return 'su'
+    shell = run_adb(serial, 'shell', '/system/bin/id -u',
+                    stage='ROOT_ADBD_UID_PROBE', ok=False)
+    if shell.returncode == 0 and shell.stdout.strip() == '0':
+        return 'adbd'
+    raise Blocked('TARGET_ROOT_UID_NOT_VERIFIED '
+                  + adb_failure('ROOT_SU_UID_PROBE', su) + ' '
+                  + adb_failure('ROOT_ADBD_UID_PROBE', shell))
+
 
 def target(serial):
-    devices=run_adb(serial,'get-state')
-    need(devices == 'device','TARGET_ADB_NOT_READY')
-    fingerprint=run_adb(serial,'shell','getprop','ro.build.fingerprint')
-    need(bool(fingerprint) and len(fingerprint) < 512,'TARGET_FINGERPRINT_UNAVAILABLE')
-    uid=run_adb(serial,'shell','su','-c','/system/bin/id -u')
-    need(uid.strip()=='0','TARGET_ROOT_UID_NOT_VERIFIED')
+    devices = run_adb(serial, 'get-state', stage='GET_STATE')
+    need(devices == 'device', 'TARGET_ADB_NOT_READY')
+    fingerprint = run_adb(serial, 'shell', 'getprop ro.build.fingerprint',
+                          stage='TARGET_FINGERPRINT')
+    need(bool(fingerprint) and len(fingerprint) < 512, 'TARGET_FINGERPRINT_UNAVAILABLE')
+    _ROOT_MODE[serial] = root_mode(serial)
     return hashlib.sha256(fingerprint.encode()).hexdigest()
 
-def root(serial, command, timeout=90):
-    need(len(command)<160000,'TARGET_COMMAND_TOO_LARGE')
-    return run_adb(serial,'shell','su','-c',command,timeout=timeout)
+
+def root(serial, command, timeout=90, stage='ROOT_COMMAND'):
+    need(len(command) < 160000, 'TARGET_COMMAND_TOO_LARGE')
+    mode = _ROOT_MODE.get(serial)
+    if mode is None:
+        mode = root_mode(serial)
+        _ROOT_MODE[serial] = mode
+    prefix = 'su -c ' if mode == 'su' else '/system/bin/sh -c '
+    return run_adb(serial, 'shell', prefix + shlex.quote(command),
+                   timeout=timeout, stage=stage)
+
 
 def shelltest(serial, expression):
-    # No user-controlled shell substitutions; caller supplies only constants.
-    try:
-        r=subprocess.run(['adb','-s',serial,'shell','su','-c',expression],
-                         capture_output=True,text=True,timeout=35,check=False)
-    except (OSError,subprocess.TimeoutExpired) as exc:
-        raise Blocked('TARGET_SHELL_TEST_UNAVAILABLE') from exc
-    return r.returncode==0
+    # Exit=1 for a missing path is an expected read-only probe, not an error.
+    mode = _ROOT_MODE.get(serial)
+    if mode is None:
+        mode = root_mode(serial)
+        _ROOT_MODE[serial] = mode
+    prefix = 'su -c ' if mode == 'su' else '/system/bin/sh -c '
+    result = run_adb(serial, 'shell', prefix + shlex.quote(expression),
+                     timeout=35, stage='ROOT_SHELL_TEST', ok=False)
+    return result.returncode == 0
 
 def rpc(serial, op, args):
     need(op in ('jobs.status','jobs.preview','jobs.apply'),'OPERATION_NOT_ALLOWLISTED')
     command=' '.join(shlex.quote(x) for x in
         [CLI,'operation',op,json.dumps(args,separators=(',',':'))])
-    out=root(serial,command,timeout=40)
+    out=root(serial,command,timeout=40,stage='RPC_'+op.replace('.', '_').upper())
     try: obj=json.loads(out)
     except ValueError as exc: raise Blocked('TARGET_DAEMON_NON_JSON') from exc
     need(type(obj) is dict and obj.get('ok') is True and
@@ -127,9 +185,9 @@ def scan(serial, kind, files, phase='prepared'):
     loc=shlex.quote(str(root_path))
     need(shelltest(serial,f'test -d {loc} && test ! -L {loc}'), 'TARGET_FIXTURE_ROOT_ABSENT_OR_LINK')
     # Exact membership: no extra directory, file, or link of any type is acceptable.
-    observed=set(root(serial,'/system/bin/find '+loc+' -print',timeout=90).splitlines())
+    observed=set(root(serial,'/system/bin/find '+loc+' -print',timeout=90,stage='FIXTURE_MEMBERSHIP_SCAN').splitlines())
     need(observed==dirs|set(hashes),'TARGET_FIXTURE_FOREIGN_OR_MISSING_ENTRY')
-    symlinks=root(serial,'/system/bin/find '+loc+' -type l -print')
+    symlinks=root(serial,'/system/bin/find '+loc+' -type l -print',stage='FIXTURE_SYMLINK_SCAN')
     need(symlinks=='','TARGET_FIXTURE_SYMLINK')
     for directory in dirs:
         need(shelltest(serial,'test -d '+shlex.quote(directory)+' && test ! -L '+shlex.quote(directory)),
@@ -137,7 +195,7 @@ def scan(serial, kind, files, phase='prepared'):
     # SHA256 utility is invoked with exact, generated paths and no unchecked globbing.
     paths=sorted(hashes)
     command='/system/bin/sha256sum '+' '.join(shlex.quote(p) for p in paths)
-    lines=root(serial,command,timeout=150).splitlines()
+    lines=root(serial,command,timeout=150,stage='FIXTURE_SHA256_VERIFICATION').splitlines()
     actual={}
     for line in lines:
         match=re.fullmatch(r'([0-9a-f]{64})\s+\*?(.+)',line)
@@ -161,7 +219,7 @@ def recorded_count(serial,kind):
     root_path=check.ROOT if kind=='check' else copy.ROOT
     marker=check.MARKER if kind=='check' else copy.MARKER
     path=shlex.quote(str(root_path/marker))
-    text=root(serial,'/system/bin/cat '+path)
+    text=root(serial,'/system/bin/cat '+path,stage='FIXTURE_MARKER_READ')
     try: obj=json.loads(text)
     except ValueError as exc: raise Blocked('TARGET_MARKER_NON_JSON') from exc
     need(obj.get('schema')==('skybind-m3-disposable-v1' if kind=='check' else 'skybind-m3-copy-v1')
@@ -197,7 +255,7 @@ def stage(serial,kind,files):
             (staged/copy.MARKER).write_text(json.dumps({'schema':'skybind-m3-copy-v1',
                                                        'count':files},sort_keys=True))
         # Push exactly one isolated test-owned directory to the selected target.
-        run_adb(serial,'push',str(staged),BASE+'/',timeout=200)
+        run_adb(serial,'push',str(staged),BASE+'/',timeout=200,stage='FIXTURE_ADB_PUSH')
     return scan(serial,kind,files,'prepared')
 
 def apply_registry(serial,kind,reg):

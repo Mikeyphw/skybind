@@ -64,13 +64,71 @@ class RemoteFixtureTests(unittest.TestCase):
             with self.assertRaisesRegex(f.Blocked,'FOREIGN_OR_MISSING'):
                 f.scan('emulator-5554','copy',64,'prepared')
         commands=[]
-        def fake_root(serial,command,timeout=90):
+        def fake_root(serial,command,timeout=90,stage='ROOT_COMMAND'):
             commands.append(command)
             if '-type l' in command:return '/storage/emulated/0/Download/.skybind-m3-copy/source/fake-link'
             return '\n'.join(sorted(dirs|set(hashes)))
         with patch.object(f,'shelltest',return_value=True),patch.object(f,'root',side_effect=fake_root):
             with self.assertRaisesRegex(f.Blocked,'SYMLINK'):
                 f.scan('emulator-5554','copy',64,'prepared')
+
+    def test_probe_prefers_verified_su_and_falls_back_to_root_adbd(self):
+        from types import SimpleNamespace
+        def fake_su(serial,*args,**kw):
+            if 'su -c' in args[-1]:
+                return SimpleNamespace(returncode=0,stdout='0\n',stderr='')
+            raise AssertionError('unexpected root method')
+        with patch.object(f,'run_adb',side_effect=fake_su) as adb:
+            self.assertEqual(f.root_mode('emulator-5554'),'su')
+            self.assertEqual(adb.call_count,1)
+        def fake_adbd(serial,*args,**kw):
+            if 'su -c' in args[-1]:
+                return SimpleNamespace(returncode=1,stdout='',stderr='su: not found')
+            return SimpleNamespace(returncode=0,stdout='0\n',stderr='')
+        with patch.object(f,'run_adb',side_effect=fake_adbd) as adb:
+            self.assertEqual(f.root_mode('emulator-5554'),'adbd')
+            self.assertEqual(adb.call_count,2)
+        def unrooted(serial,*args,**kw):
+            return SimpleNamespace(returncode=1,stdout='',stderr='permission denied')
+        with patch.object(f,'run_adb',side_effect=unrooted):
+            with self.assertRaisesRegex(f.Blocked,'TARGET_ROOT_UID_NOT_VERIFIED'):
+                f.root_mode('emulator-5554')
+
+    def test_root_shell_preserves_json_and_never_calls_adb_root(self):
+        command=f.CLI+" operation jobs.preview '{\"candidate\":{\"jobs\":[]}}'"
+        for mode,needle in [('su',"su -c "),('adbd','/system/bin/sh -c ')]:
+            with self.subTest(mode=mode),patch.dict(f._ROOT_MODE,{'emulator-5554':mode},clear=True), \
+                 patch.object(f,'run_adb',return_value='ok') as adb:
+                self.assertEqual(f.root('emulator-5554',command,stage='RPC_JOBS_PREVIEW'),'ok')
+                args=adb.call_args.args
+                self.assertEqual(args[0],'emulator-5554')
+                self.assertEqual(args[1],'shell')
+                self.assertTrue(args[2].startswith(needle))
+                self.assertIn('jobs.preview',args[2])
+                self.assertEqual(adb.call_args.kwargs['stage'],'RPC_JOBS_PREVIEW')
+                self.assertNotIn('adb root',args[2])
+                # shlex.split models Android's shell argv parsing after adb shell.
+                import shlex
+                self.assertEqual(shlex.split(args[2])[-1],command)
+
+    def test_adb_failure_reports_stage_without_leaking_stdout(self):
+        from types import SimpleNamespace
+        failed=SimpleNamespace(returncode=127,stdout='token=secret_credentials',stderr='su: not found')
+        with patch.object(f.subprocess,'run',return_value=failed):
+            with self.assertRaisesRegex(f.Blocked,'stage=ROOT_SU_UID_PROBE exit=127 category=NOT_FOUND') as caught:
+                f.run_adb('emulator-5554','shell','su -c x',stage='ROOT_SU_UID_PROBE')
+        self.assertNotIn('secret_credentials',str(caught.exception))
+
+    def test_target_records_root_mode_on_selected_serial_only(self):
+        from types import SimpleNamespace
+        def fake(serial,*args,**kw):
+            if args == ('get-state',): return 'device'
+            if args == ('shell','getprop ro.build.fingerprint'): return 'build/test'
+            raise AssertionError(args)
+        with patch.dict(f._ROOT_MODE,{},clear=True),patch.object(f,'run_adb',side_effect=fake), \
+             patch.object(f,'root_mode',return_value='adbd'):
+            self.assertEqual(len(f.target('emulator-5554')),64)
+            self.assertEqual(f._ROOT_MODE,{'emulator-5554':'adbd'})
 
     def test_no_implicit_mutation(self):
         from types import SimpleNamespace
