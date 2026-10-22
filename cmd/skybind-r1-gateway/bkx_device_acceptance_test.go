@@ -57,3 +57,47 @@ func TestBKXAcceptanceOrderAndNoArbitraryGrant(t *testing.T) {
 		t.Fatal("client-controlled operation admitted")
 	}
 }
+
+func TestBKXAndroidInstrumentationEnvironment(t *testing.T) {
+	got := bkxInstrumentationEnv([]string{
+		"PATH=/data/data/com.termux/files/usr/bin", "HOME=/data/data/com.termux/files/home",
+		"LD_PRELOAD=/data/data/com.termux/lib.so", "CLASSPATH=/bad",
+		"ANDROID_ROOT=/evil", "ANDROID_DATA=/evil",
+		"ANDROID_RUNTIME_ROOT=/apex/com.android.runtime", "BOOTCLASSPATH=/apex/ok.jar",
+		"ANDROID_RUNTIME_ROOT=/evil", "TERMUX_VERSION=invalid",
+	})
+	joined := strings.Join(got, "\n")
+	for _, required := range []string{
+		"PATH=/system/bin:/system/xbin", "HOME=/data/adb/skybind",
+		"ANDROID_ROOT=/system", "ANDROID_DATA=/data",
+		"ANDROID_RUNTIME_ROOT=/apex/com.android.runtime", "BOOTCLASSPATH=/apex/ok.jar",
+	} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("lost Android variable %q: %v", required, got)
+		}
+	}
+	for _, rejected := range []string{"LD_PRELOAD=", "\nCLASSPATH=", "ANDROID_ROOT=/evil", "TERMUX_VERSION=", "ANDROID_RUNTIME_ROOT=/evil"} {
+		if strings.Contains(joined, rejected) {
+			t.Fatalf("Termux env contamination %q: %v", rejected, got)
+		}
+	}
+}
+
+func TestBKXInstrumentationTerminalCannotAcceptFailedJUnit(t *testing.T) {
+	failed := []byte("INSTRUMENTATION_STATUS_CODE: -2\nFAILURES!!!\nINSTRUMENTATION_CODE: -1\n")
+	if bkxInstrumentationTerminalPassed(failed) {
+		t.Fatal("Android's -1 falsely qualified a failed JUnit")
+	}
+	if got := bkxInstrumentationFailureCategory(failed, nil); got != "instrumentation_junit_failed" {
+		t.Fatalf("wrong failure class: %s", got)
+	}
+	if bkxInstrumentationTerminalPassed([]byte("INSTRUMENTATION_CODE: -1")) {
+		t.Fatal("missing JUnit pass marker qualified")
+	}
+	if !bkxInstrumentationTerminalPassed([]byte("Time: 1.0\nOK (1 test)\nINSTRUMENTATION_CODE: -1\n")) {
+		t.Fatal("correct JUnit pass not recognized")
+	}
+	if got := bkxInstrumentationFailureCategory([]byte("java.io.IOException: Connection refused"), nil); got != "instrumentation_socket_connection_refused" {
+		t.Fatalf("socket outcome miscategorized: %s", got)
+	}
+}

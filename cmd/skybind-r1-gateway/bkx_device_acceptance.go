@@ -263,6 +263,68 @@ func bkxServeControl(ctx context.Context, c *net.UnixConn, g *brokerruntime.Gate
 	return send(bkxReply{OK: true})
 }
 
+// Android's am entrypoint is a shell/app_process launcher and needs the
+// Android runtime environment. The prior two-entry environment erased
+// ANDROID_ROOT, ANDROID_DATA, APEX runtime paths, and boot class paths.
+// Never forward Termux LD_PRELOAD, LD_LIBRARY_PATH, CLASSPATH, or PATH.
+func bkxInstrumentationEnv(inherited []string) []string {
+	env := []string{"PATH=/system/bin:/system/xbin", "HOME=/data/adb/skybind", "ANDROID_ROOT=/system", "ANDROID_DATA=/data"}
+	allowed := map[string]bool{
+		"ANDROID_RUNTIME_ROOT": true, "ANDROID_ART_ROOT": true,
+		"ANDROID_TZDATA_ROOT": true, "ANDROID_I18N_ROOT": true,
+		"ANDROID_STORAGE": true, "EXTERNAL_STORAGE": true, "ASEC_MOUNTPOINT": true,
+		"BOOTCLASSPATH": true, "DEX2OATBOOTCLASSPATH": true, "SYSTEMSERVERCLASSPATH": true,
+	}
+	seen := map[string]bool{}
+	for _, entry := range inherited {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || !allowed[name] || seen[name] || value == "" || strings.ContainsAny(value, "\x00\r\n") {
+			continue
+		}
+		seen[name] = true
+		env = append(env, entry)
+	}
+	return env
+}
+
+// Return fixed, non-sensitive categories only; instrumentation output could
+// include device paths, remote data, or app-owned stack traces.
+func bkxInstrumentationFailureCategory(stdout, stderr []byte) string {
+	output := string(stdout) + "\n" + string(stderr)
+	switch {
+	case strings.Contains(output, "INSTRUMENTATION_FAILED") || strings.Contains(output, "Unable to find instrumentation info"):
+		return "android_instrumentation_registration_failed"
+	case strings.Contains(output, "ClassNotFoundException") || strings.Contains(output, "No tests found"):
+		return "android_instrumentation_class_missing"
+	case strings.Contains(output, "SecurityException") || strings.Contains(output, "Permission Denial") || strings.Contains(output, "Permission denied"):
+		return "android_instrumentation_permission_denied"
+	case strings.Contains(output, "Connection refused"):
+		return "instrumentation_socket_connection_refused"
+	case strings.Contains(output, "INSTRUMENTATION_STATUS_CODE: -2") || strings.Contains(output, "FAILURES!!!"):
+		return "instrumentation_junit_failed"
+	case strings.Contains(output, "CANNOT LINK EXECUTABLE") || strings.Contains(output, "app_process") || strings.Contains(output, "ANDROID_DATA"):
+		return "android_instrumentation_runtime_environment_failed"
+	case strings.Contains(output, "INSTRUMENTATION_CODE:"):
+		return "instrumentation_terminated_without_socket"
+	default:
+		return "instrumentation_no_recognized_terminal_evidence"
+	}
+}
+
+// AndroidJUnitRunner uses INSTRUMENTATION_CODE: -1 even when JUnit reports
+// failures. Therefore -1 alone is never proof of success.
+func bkxInstrumentationTerminalPassed(stdout []byte) bool {
+	return bytes.Contains(stdout, []byte("INSTRUMENTATION_CODE: -1")) &&
+		bytes.Contains(stdout, []byte("OK (1 test)")) &&
+		!bytes.Contains(stdout, []byte("FAILURES!!!")) &&
+		!bytes.Contains(stdout, []byte("INSTRUMENTATION_STATUS_CODE: -2"))
+}
+
+type bkxAcceptOutcome struct {
+	conn *net.UnixConn
+	err  error
+}
+
 func runBKXDeviceAcceptance(parent context.Context, g *brokerruntime.Gateway, h *brokerruntime.GrantHandoff, policy brokerruntime.Policy, remote, path string) bkxDeviceReceipt {
 	r := bkxDeviceReceipt{Schema: "skybind-r1-bkx-device-acceptance-v1", State: "BLOCKED", CapturedUTC: time.Now().UTC().Format(time.RFC3339Nano), Remote: remote, Cases: map[string]bkxCaseResult{}, ExternalProviderQualified: false, ReleaseQualified: false}
 	reason := ""
@@ -286,35 +348,67 @@ func runBKXDeviceAcceptance(parent context.Context, g *brokerruntime.Gateway, h 
 		defer listener.Close()
 		// Android's instrumentation controller, not a shell-selected executable.
 		cmd := exec.CommandContext(ctx, "/system/bin/am", "instrument", "-w", "-r", "-e", "class", bkxTestClass, bkxTestComponent)
-		cmd.Env = []string{"PATH=/system/bin:/system/xbin", "HOME=/data/adb/skybind"}
+		cmd.Env = bkxInstrumentationEnv(os.Environ())
 		var output bytes.Buffer
+		var errorOutput bytes.Buffer
 		cmd.Stdout = &boundedBKXWriter{out: &output, limit: 65536}
-		cmd.Stderr = io.Discard
+		cmd.Stderr = &boundedBKXWriter{out: &errorOutput, limit: 4096}
 		if err = cmd.Start(); err != nil {
-			reason = "android_instrumentation_unavailable"
+			reason = "android_instrumentation_process_start_failed"
 			goto finalize
 		}
+		// Observe early process termination independently of the 30-second socket
+		// accept deadline. This is diagnostic only; never counts as a case PASS.
+		processDone := make(chan error, 1)
+		go func() { processDone <- cmd.Wait() }()
+		accepted := make(chan bkxAcceptOutcome, 1)
 		_ = listener.SetDeadline(time.Now().Add(30 * time.Second))
-		conn, err := listener.AcceptUnix()
-		if err != nil {
-			reason = "bkx_test_process_did_not_connect"
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			goto finalize
+		go func() {
+			conn, acceptErr := listener.AcceptUnix()
+			accepted <- bkxAcceptOutcome{conn: conn, err: acceptErr}
+		}()
+		var conn *net.UnixConn
+		var waitErr error
+		var processAlreadyExited bool
+		select {
+		case connection := <-accepted:
+			if connection.err != nil {
+				_ = cmd.Process.Kill()
+				waitErr = <-processDone
+				_ = waitErr
+				reason = "bkx_test_process_did_not_connect__" + bkxInstrumentationFailureCategory(output.Bytes(), errorOutput.Bytes())
+				goto finalize
+			}
+			conn = connection.conn
+		case waitErr = <-processDone:
+			processAlreadyExited = true
+			select {
+			case connection := <-accepted:
+				if connection.err == nil {
+					conn = connection.conn
+				}
+			default:
+			}
+			if conn == nil {
+				_ = waitErr
+				reason = "android_instrumentation_exited_before_socket__" + bkxInstrumentationFailureCategory(output.Bytes(), errorOutput.Bytes())
+				goto finalize
+			}
 		}
 		err = bkxServeControl(ctx, conn, g, h, policy, remote, prefix, path, &r)
-		if err != nil {
+		if err != nil && !processAlreadyExited {
 			_ = cmd.Process.Kill()
 		}
-		waitErr := cmd.Wait()
+		if !processAlreadyExited {
+			waitErr = <-processDone
+		}
 		if err != nil {
 			reason = "bkx_control_or_socket_assertion_failed"
 			goto finalize
 		}
-		// The test sends the final success only after all socket assertions. Android's
-		// terminal instrumentation code is separately required; no marker = BLOCKED.
-		if waitErr != nil || !bytes.Contains(output.Bytes(), []byte("INSTRUMENTATION_CODE: -1")) || bytes.Contains(output.Bytes(), []byte("FAILURES!!!")) {
-			reason = "android_instrumentation_terminal_not_pass"
+		// A JUnit test can fail while Android still emits INSTRUMENTATION_CODE: -1.
+		if waitErr != nil || !bkxInstrumentationTerminalPassed(output.Bytes()) {
+			reason = "android_instrumentation_terminal_not_pass__" + bkxInstrumentationFailureCategory(output.Bytes(), errorOutput.Bytes())
 			goto finalize
 		}
 		r.InstrumentationTerminalPass = true
