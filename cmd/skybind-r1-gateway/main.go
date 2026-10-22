@@ -77,7 +77,7 @@ func run(args []string) int {
 	go func() { _ = g.ServeAbstract(ctx) }()
 	go func() { _ = handoff.Serve(ctx) }()
 	fmt.Fprintln(os.Stderr, "R1_OPERATOR_READY (interactive; no grants issued)")
-	fmt.Fprintln(os.Stderr, "Commands: approve PID bkx|chrootctl REMOTE PREFIX|- OPERATION TTL_SECONDS ; diagnostics ; receipts ; revoke RECEIPT_ID ; quit")
+	fmt.Fprintln(os.Stderr, "Commands: approve PID bkx|chrootctl REMOTE PREFIX|- OPERATION TTL_SECONDS ; diagnostics ; acceptance REMOTE ; receipts ; revoke RECEIPT_ID ; quit")
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 4096), 4096)
 	for scanner.Scan() {
@@ -93,6 +93,17 @@ func run(args []string) int {
 				fmt.Fprintln(os.Stderr, "R1_HANDOFF_DIAGNOSTICS_UNAVAILABLE")
 			} else {
 				fmt.Fprintln(os.Stderr, "R1_HANDOFF_DIAGNOSTICS", string(payload))
+			}
+			continue
+		}
+		if len(fields) == 2 && fields[0] == "acceptance" {
+			fmt.Fprintln(os.Stderr, "R1_SECURITY_ACCEPTANCE_STARTED (real module socket checks; grant-store checks; private JSON receipt)")
+			result := runSecurityAcceptance(ctx, g, handoff, policy, fields[1])
+			data, err := json.Marshal(result)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "R1_SECURITY_ACCEPTANCE_REPORT_FAILED")
+			} else {
+				fmt.Fprintln(os.Stderr, "R1_SECURITY_ACCEPTANCE", string(data))
 			}
 			continue
 		}
