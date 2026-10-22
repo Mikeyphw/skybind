@@ -566,11 +566,13 @@ def read_pin():
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--run-id', type=int, required=True, help='Current exact-source GitHub APK build')
-    p.add_argument('--mode', choices=('preflight','live','ui-live','negative-live','transport-live','m3-preview-live','m3-execute-live','m3-cancel-live'), default='preflight')
+    p.add_argument('--mode', choices=('preflight','live','ui-live','negative-live','transport-live','m3-preview-live','m3-execute-live','m3-cancel-live','m3-copy-live'), default='preflight')
     p.add_argument('--allow-disposable-job-execution', action='store_true',
                    help='Explicitly opt into test-owned manual-only CHECK job launch')
     p.add_argument('--allow-disposable-job-cancellation', action='store_true',
                    help='Explicitly opt into cancellation of the test-owned run only')
+    p.add_argument('--allow-disposable-copy-writes', action='store_true',
+                   help='Explicitly authorize only prepared test-owned COPY destination writes')
     p.add_argument('--remote', help='Optional configured remote; otherwise first sorted daemon remote')
     p.add_argument('--serial', help='ADB serial if more than one device is connected')
     p.add_argument('--artifact-dir', type=Path, help='Local gh-downloaded exact-run APK pair')
