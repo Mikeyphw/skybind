@@ -99,23 +99,45 @@ func (m *Metadata) Read(r brokeripc.Request) (json.RawMessage, error) {
 		}
 		return json.Marshal(entries)
 	case "rclone.size":
-		out, e := m.Runner.Run(ctx, nil, "--config", paths.RcloneConfig, "size", "--json", "--", r.Remote+":"+r.Path)
-		if e != nil || len(out) == 0 || len(out) > 4096 {
+		// rclone's actual "size --json" emits count, bytes, sizeless and fs.
+		// The latter two are NOT unexpected fields: older fixture-only tests
+		// accidentally made the live response fail closed for every real Size.
+		target := r.Remote + ":" + r.Path
+		out, e := m.Runner.Run(ctx, nil, "--config", paths.RcloneConfig, "size", "--json", "--", target)
+		if e != nil || len(out) == 0 || len(out) > 8192 {
 			return nil, errors.New("r1_metadata_size_failed")
 		}
 		dec := json.NewDecoder(bytes.NewReader(out))
 		dec.DisallowUnknownFields()
-		var result struct {
-			Count int64 `json:"count"`
-			Bytes int64 `json:"bytes"`
+		var parsed struct {
+			Count    *int64  `json:"count"`
+			Bytes    *int64  `json:"bytes"`
+			Sizeless *int64  `json:"sizeless"`
+			Fs       *string `json:"fs"`
 		}
-		if e = dec.Decode(&result); e != nil {
+		if e = dec.Decode(&parsed); e != nil || parsed.Count == nil || parsed.Bytes == nil {
 			return nil, errors.New("r1_metadata_bad_size")
 		}
-		if e = dec.Decode(new(any)); e != io.EOF || result.Count < 0 || result.Bytes < 0 {
+		if e = dec.Decode(new(any)); e != io.EOF || *parsed.Count < 0 || *parsed.Bytes < 0 {
 			return nil, errors.New("r1_metadata_bad_size")
 		}
-		return json.Marshal(result)
+		// A positive sizeless count means some remote objects have no known
+		// size. Preserve that signal instead of silently presenting a complete
+		// byte total. rclone's fs must echo our independently validated target.
+		var sizeless int64
+		if parsed.Sizeless != nil {
+			sizeless = *parsed.Sizeless
+		}
+		if sizeless < 0 || sizeless > *parsed.Count || (parsed.Fs != nil && *parsed.Fs != target) {
+			return nil, errors.New("r1_metadata_bad_size")
+		}
+		// Never expose the engine-reported fs identifier; the caller already
+		// knows its operator-approved remote and path.
+		return json.Marshal(struct {
+			Count    int64 `json:"count"`
+			Bytes    int64 `json:"bytes"`
+			Sizeless int64 `json:"sizeless,omitempty"`
+		}{*parsed.Count, *parsed.Bytes, sizeless})
 	default:
 		return nil, fmt.Errorf("r1_metadata_unsupported_operation")
 	}
