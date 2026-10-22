@@ -59,6 +59,33 @@ class UiLiveGate(unittest.TestCase):
                                         'M2_L2_BROWSER_FIXTURE_NAMED_BROWSER_REQUIRED'):
                 source.verify(root)
 
+    def test_jobs_activity_transitions_are_scrolled_and_individually_classified(self):
+        ui = (ROOT/source.UI_TEST).read_text()
+        controls = ('jobs-view-activity', 'activity-filter-warnings', 'activity-view-jobs')
+        for control in controls:
+            self.assertIn(f'compose.onNodeWithTag("{control}").performScrollTo().performClick()', ui)
+        stages = ('SKYBIND_UI_FAILED_JOBS_OPEN', 'SKYBIND_UI_FAILED_ACTIVITY_OPEN',
+                  'SKYBIND_UI_FAILED_ACTIVITY_FILTER', 'SKYBIND_UI_FAILED_ACTIVITY_RETURN')
+        for marker in stages:
+            self.assertIn('step("'+marker+'")',ui)
+            self.assertIn(marker,worker.UI_FAILED)
+            out=GOOD.replace('INSTRUMENTATION_STATUS_CODE: 0',
+                             'INSTRUMENTATION_STATUS: stack='+marker+'\nINSTRUMENTATION_STATUS_CODE: -2')
+            self.assertEqual(worker.parse_ui_live(out),('FAILED',marker))
+        self.assertIn('SKYBIND_UI_FAILED_JOBS_ACTIVITY',worker.UI_FAILED) # legacy receipt classifier
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            needed=(source.UI_TEST,source.VM,source.APP,source.ACTIVITY,
+                    source.CI,source.RUNNER,source.GROUPED,source.BROWSER_TEST)
+            for rel in needed:
+                target=root/rel;target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_bytes((ROOT/rel).read_bytes())
+            ui_path=root/source.UI_TEST
+            ui_path.write_text(ui.replace('compose.onNodeWithTag("jobs-view-activity").performScrollTo().performClick()',
+                                          'compose.onNodeWithTag("jobs-view-activity").performClick()',1))
+            with self.assertRaisesRegex(source.Violation,'LIVE_UI_CONTRACT_MISSING'):
+                source.verify(root)
+
     def test_exact_single_case(self):
         self.assertEqual(worker.parse_ui_live(GOOD),('PASS_M2_L2_LIVE_UI_READONLY_RECOVERY', None))
         for bad in (GOOD.replace('INSTRUMENTATION_CODE: -1',''),

@@ -105,15 +105,26 @@ class LiveUiAcceptanceTest {
             compose.onNodeWithTag("browser-switch-remote").performClick()
             awaitTag("browser-search")
         }
-        step("SKYBIND_UI_FAILED_JOBS_ACTIVITY") {
+        // Real daemon snapshots may contain many existing jobs and events.  The
+        // cross-screen navigation buttons follow those lists inside a scrollable
+        // Page; clicking an offscreen button without performScrollTo is flaky.
+        // Keep all read-only/no-cross-screen-data assertions, but identify the
+        // failing UI transition precisely rather than collapsing four phases.
+        step("SKYBIND_UI_FAILED_JOBS_OPEN") {
             compose.onNodeWithTag("nav-jobs").performClick()
             awaitTag("screen-jobs")
-            assertTrue("SKYBIND_UI_FAILED_JOBS_ACTIVITY", tags("event-").isEmpty())
-            compose.onNodeWithTag("jobs-view-activity").performClick()
+            assertTrue("SKYBIND_UI_FAILED_JOBS_OPEN", tags("event-").isEmpty())
+        }
+        step("SKYBIND_UI_FAILED_ACTIVITY_OPEN") {
+            compose.onNodeWithTag("jobs-view-activity").performScrollTo().performClick()
             awaitTag("screen-activity")
-            assertTrue("SKYBIND_UI_FAILED_JOBS_ACTIVITY", tags("job-").isEmpty())
-            compose.onNodeWithTag("activity-filter-warnings").performClick()
-            compose.onNodeWithTag("activity-view-jobs").performClick()
+            assertTrue("SKYBIND_UI_FAILED_ACTIVITY_OPEN", tags("job-").isEmpty())
+        }
+        step("SKYBIND_UI_FAILED_ACTIVITY_FILTER") {
+            compose.onNodeWithTag("activity-filter-warnings").performScrollTo().performClick()
+        }
+        step("SKYBIND_UI_FAILED_ACTIVITY_RETURN") {
+            compose.onNodeWithTag("activity-view-jobs").performScrollTo().performClick()
             awaitTag("screen-jobs")
         }
         step("SKYBIND_UI_FAILED_ACTIVITY_RECREATE") {
