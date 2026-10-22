@@ -1077,3 +1077,11 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Evidence:** supplied Skybind source snapshot at `56fe4e24e1cd1839b8005d5bca0bbc0852f9b09a` contains the Size parser fix; the earlier acceptance artifact was mistakenly pinned to parent commit `5f3aa97442a8a6ed2947c4999105528ebcfa5fc9`. Original affected-file preimages match the supplied source exactly.
 - **Additional defect:** the previous acceptance main.go patch replaced existing root-only `diagnostics`; revised acceptance now retains diagnostics and all existing commands.
 - **Remedy/status:** fixed in the new base-bound batch acceptance overlay, validation pending on actual Android device.
+
+## 2026-10-22 — BKX one-session real Android socket campaign (R1-BKX-LIVE)
+
+- **Evidence gap:** existing BKX five-operation UI success was operator-reported; chrootctl 9/9 acceptance covered a distinct root module process and was insufficient to claim BKX negative socket qualification.
+- **Source evidence:** Skybind `5877fba370898945b5a2b8ccc3dc532d7495ac8d`; BKX `8886dc044976a3e5217190a4b85049cfcb23619f`; real BKX `SkybindR1ReadClient.kt` and Android instrumentation source; installed BKX signer/policy remain individually authoritative.
+- **Implemented fix:** one root operator `acceptance-bkx REMOTE [PATH]` runs a fixed attested app-process instrumentation, grants only individually approved operations, tests five real responses and seven real socket negative paths (missing token, wrong operation, wrong remote, traversal, same-UID wrong process, revocation, expiry), writes a separate, root-private 12-case JSON receipt and retains existing `diagnostics`, `acceptance`, `receipts` and `revoke` behavior. Source/devices stay separated by explicit qualification flags.
+- **Risks and constraints:** ephemeral hosted debug signing can mismatch a currently installed BKX APK; no uninstall, data wipe, production enabling, signer bypass, SELinux weakening or automatic root grants. BKX Kotlin compile, signer compatibility and real-device execution still pending. Cross-UID and distinct-signer token replay, M2/M3, external-provider, release remain open.
+- **Status:** SOURCE IMPLEMENTED; GO TESTS/RACE/ANDROID ARM64 COMPILE PASSED; BKX HOSTED/DEVICE PENDING.

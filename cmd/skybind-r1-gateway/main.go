@@ -77,7 +77,7 @@ func run(args []string) int {
 	go func() { _ = g.ServeAbstract(ctx) }()
 	go func() { _ = handoff.Serve(ctx) }()
 	fmt.Fprintln(os.Stderr, "R1_OPERATOR_READY (interactive; no grants issued)")
-	fmt.Fprintln(os.Stderr, "Commands: approve PID bkx|chrootctl REMOTE PREFIX|- OPERATION TTL_SECONDS ; diagnostics ; acceptance REMOTE ; receipts ; revoke RECEIPT_ID ; quit")
+	fmt.Fprintln(os.Stderr, "Commands: approve PID bkx|chrootctl REMOTE PREFIX|- OPERATION TTL_SECONDS ; diagnostics ; acceptance REMOTE ; acceptance-bkx REMOTE [PATH] ; receipts ; revoke RECEIPT_ID ; quit")
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 4096), 4096)
 	for scanner.Scan() {
@@ -104,6 +104,21 @@ func run(args []string) int {
 				fmt.Fprintln(os.Stderr, "R1_SECURITY_ACCEPTANCE_REPORT_FAILED")
 			} else {
 				fmt.Fprintln(os.Stderr, "R1_SECURITY_ACCEPTANCE", string(data))
+			}
+			continue
+		}
+		if (len(fields) == 2 || len(fields) == 3) && fields[0] == "acceptance-bkx" {
+			path := ""
+			if len(fields) == 3 {
+				path = fields[2]
+			}
+			fmt.Fprintln(os.Stderr, "R1_BKX_ACCEPTANCE_STARTED (one explicitly authorized instrumentation session)")
+			result := runBKXDeviceAcceptance(ctx, g, handoff, policy, fields[1], path)
+			encoded, encodeErr := json.Marshal(result)
+			if encodeErr != nil {
+				fmt.Fprintln(os.Stderr, "R1_BKX_ACCEPTANCE_REPORT_FAILED")
+			} else {
+				fmt.Fprintln(os.Stderr, "R1_BKX_ACCEPTANCE", string(encoded))
 			}
 			continue
 		}
