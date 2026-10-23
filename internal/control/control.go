@@ -4,8 +4,10 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"skybind/internal/journal"
+	"skybind/internal/mounts/config"
 	"skybind/internal/opevents"
 	"skybind/internal/protocol"
 	"strings"
@@ -221,6 +223,16 @@ func (e *Engine) Dispatch(ctx context.Context, req protocol.Request) (response p
 		failure := protocol.Fail(req.RequestID, "operation_failed", "operation", "execute", false)
 		if failure.Error != nil && reason != "operation_failed" {
 			failure.Error.Message = reason
+		}
+		// Keep the failure status. Expose only a whitelist of structural field
+		// codes to the private native editor; never forward raw errors/values.
+		if req.Operation == "config.validate" && failure.Error != nil {
+			var issue *config.FieldValidationError
+			if errors.As(err, &issue) && issue.Issue.Index >= 0 && issue.Issue.Index < 128 {
+				failure.Error.FieldErrors = []protocol.FieldIssue{{
+					Index: issue.Issue.Index, Field: issue.Issue.Field, Code: issue.Issue.Code,
+				}}
+			}
 		}
 		return failure
 	}

@@ -42,8 +42,9 @@ def verify(root=ROOT):
          'rpc("job.run", "run", JSONObject()' in bridge and
          'if (op !in allowed || raw == null' in bridge,
          'BROWSE_ROOT_ALLOWLIST_UNSAFE')
-    for forbidden in ('"remote.transfer.start"', '"config.apply"'):
+    for forbidden in ('"remote.transfer.start"', '"provider.crypt.password.set"'):
         need(forbidden not in bridge, 'UNBOUNDED_ROOT_BRIDGE_'+forbidden)
+    need('"config.apply"' not in bridge.split('private fun checkedReadArguments(', 1)[1].split('private fun checkedMountState(', 1)[0], 'CONFIG_WRITE_IN_BROWSER_QUERY_ALLOWLIST')
     # NATIVE-02 mount methods are separate typed preview/confirm calls, not an
     # excuse to mutate provider.browse query class. M3 jobs remain separate.
     need('tickets.remove(previewId)' in bridge and

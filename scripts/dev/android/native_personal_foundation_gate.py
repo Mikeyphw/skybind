@@ -56,8 +56,10 @@ def verify(root=ROOT):
          'MOUNT_AUTHORITY_NOT_FAIL_CLOSED')
     # Native-02 mount actions are reviewed, while configuration writes and
     # unconstrained broker RPCs remain forbidden until NATIVE-03.
-    for forbidden in ('"config.apply"', '"config.rollback"', '"remote.transfer.start"'):
+    for forbidden in ('"config.patch"', '"remote.transfer.start"'):
         need(forbidden not in broker, 'MOUNT_UNREVIEWED_WRITE:'+forbidden)
+    need('configTickets.remove(previewId)' in broker and
+         'rpc("config.apply", "run", JSONObject()' in broker, 'CONFIG_APPLY_MUST_USE_TYPED_ONE_SHOT_TICKET')
     need('mountTickets.remove(previewId)' in broker and
          'mountTicket.session != session' in broker and
          'checkedMountState(mountTicket.name)' in broker and

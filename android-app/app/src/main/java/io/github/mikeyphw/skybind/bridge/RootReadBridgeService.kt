@@ -29,6 +29,12 @@ class RootReadBridgeService : RootService() {
         val deadline: Long,
     )
     private val mountTickets = mutableMapOf<String, MountTicket>()
+    private data class ConfigTicket(val session: String, val action: String, val name: String,
+        val candidate: String, val proof: String, val revision: Long, val deadline: Long)
+    private val configTickets = mutableMapOf<String, ConfigTicket>()
+    private data class RollbackTicket(val session: String, val proof: String,
+        val revision: Long, val deadline: Long)
+    private val rollbackTickets = mutableMapOf<String, RollbackTicket>()
     // Ownership is attached to an authenticated app session, NOT every daemon job.
     private val ownedRuns = mutableMapOf<String, String>()
     private val liveSessions = mutableSetOf<String>()
@@ -223,12 +229,211 @@ class RootReadBridgeService : RootService() {
             return JSONObject().put("action", mountTicket.action).put("name", mountTicket.name)
                 .put("accepted", true).put("refresh_required", true).toString()
         }
+        override fun readMountConfiguration(sessionId: String?): String {
+            authenticatedCaller()
+            val session = checkedSession(sessionId)
+            synchronized(gate) {
+                if (session in forgottenSessions) throw SecurityException("closed config session")
+                if (session !in liveSessions && liveSessions.size >= 32)
+                    throw SecurityException("too many live sessions")
+                liveSessions.add(session)
+            }
+            // Registry contains typed mount settings only; no provider credentials or args file bytes.
+            return checkedRegistry().toString()
+        }
+        override fun previewCreateMount(sessionId: String?, typedMount: String?): String =
+            previewConfigTicket(sessionId, "create", "", typedMount)
+        override fun previewEditMount(sessionId: String?, originalName: String?, typedMount: String?): String =
+            previewConfigTicket(sessionId, "edit", originalName, typedMount)
+        override fun previewDeleteMount(sessionId: String?, mountName: String?): String =
+            previewConfigTicket(sessionId, "delete", mountName, null)
+
+        private fun previewConfigTicket(sessionId: String?, action: String,
+            originalName: String?, typedMount: String?): String {
+            authenticatedCaller()
+            val session = checkedSession(sessionId)
+            if (action !in setOf("create", "edit", "delete")) throw SecurityException("unreviewed config operation")
+            val before = checkedRegistry()
+            val revision = before.getLong("revision")
+            val entries = before.getJSONArray("mounts")
+            val name = originalName ?: ""
+            if (action != "create" && !jobName.matches(name)) throw SecurityException("bad original mount name")
+            val previous = (0 until entries.length()).map { entries.getJSONObject(it) }
+            val target = previous.firstOrNull { it.getString("name") == name }
+            if (action != "create" && target == null) throw SecurityException("original mount missing")
+            val spec = if (action == "delete") null else checkedMountDraft(typedMount)
+            if (spec != null) {
+                // Native editor accepts configured provider remotes only, not arbitrary paths
+                // or user-supplied credential/config files.
+                val remoteName = spec.getString("remote").substringBefore(':')
+                if (remoteName !in checkedConfiguredRemotes())
+                    throw SecurityException("mount source is not a configured remote")
+            }
+            if (action == "create" && previous.any { it.getString("name") == spec!!.getString("name") })
+                throw SecurityException("duplicate mount name")
+            if (action == "edit" && spec!!.getString("name") != name)
+                throw SecurityException("renaming a mount is unsupported")
+            val candidate = JSONArray()
+            previous.forEach { if (action == "create" || it.getString("name") != name) candidate.put(it) }
+            if (spec != null) candidate.put(spec)
+            val assembled = JSONObject().put("schema_version", 2).put("revision", revision)
+                .put("mounts", candidate)
+            val raw = assembled.toString()
+            if (raw.length > 65_536) throw SecurityException("oversized registry candidate")
+            // Independent daemon validation precedes the daemon's revision/digest-bound proof.
+            val validation = rpc("config.validate", "query", JSONObject().put("candidate", assembled))
+            if (validation.opt("ok") != true) {
+                val issues = validation.optJSONObject("error")?.optJSONArray("field_errors")
+                // No untrusted daemon messages or values are propagated. Only a
+                // targeted, whitelisted field code for this new/edited mount.
+                if (issues != null && issues.length() == 1) {
+                    val item = issues.optJSONObject(0)
+                    val field = item?.optString("field") ?: ""
+                    val code = item?.optString("code") ?: ""
+                    if (item?.optInt("index", -1) == candidate.length() - 1 &&
+                        field in setOf("name", "remote", "mountpoint", "vfs_profile", "cache_mode",
+                            "network_mode", "log_level", "cache_max_bytes", "min_cache_free_bytes",
+                            "cache_max_age_seconds", "dir_cache_seconds", "poll_seconds",
+                            "min_battery_percent", "boot_settle_seconds", "network_settle_seconds",
+                            "cache_low_percent", "cache_high_percent") &&
+                        code in setOf("INVALID_OR_DUPLICATE", "INVALID_REMOTE", "INVALID_PATH",
+                            "OUTSIDE_SUPPORTED_STORAGE", "PATH_TOO_LONG", "OVERLAPPING_DESTINATION",
+                            "INVALID_CHOICE", "OUT_OF_RANGE", "EXCEEDS_HIGH_WATERMARK")) {
+                        return JSONObject().put("field_errors", JSONArray().put(JSONObject()
+                            .put("field", field).put("code", code))).toString()
+                    }
+                }
+                throw IOException("daemon rejected mount configuration")
+            }
+            val validated = requireResult(validation)
+            if (validated.getLong("revision") != revision || validated.getJSONArray("mounts").length() != candidate.length())
+                throw IOException("config validation returned inconsistent registry")
+            val plan = requireResult(rpc("config.preview", "preview", JSONObject().put("candidate", assembled)))
+            if (plan.getLong("base_revision") != revision ||
+                !Regex("[a-f0-9]{64}").matches(plan.getString("candidate_digest")))
+                throw IOException("invalid config preview identity")
+            val proof = plan.getString("proof")
+            if (proof.length !in 16..2048) throw IOException("invalid config proof")
+            val effects = plan.getJSONArray("effects")
+            if (effects.length() !in 1..64) throw SecurityException("no changes or oversized diff")
+            val affected = (0 until effects.length()).map { effects.getJSONObject(it) }
+            val affectedName = if (action == "create") spec!!.getString("name") else name
+            if (affected.none { it.optString("name") == affectedName } ||
+                affected.any { it.optString("name") != affectedName || it.optString("change") !in
+                    setOf("create", "update", "delete") }) throw IOException("unexpected config diff")
+            val id = UUID.randomUUID().toString()
+            synchronized(gate) {
+                val now = SystemClock.elapsedRealtime()
+                configTickets.entries.removeAll { it.value.deadline <= now || it.value.session == session }
+                if (session in forgottenSessions || session !in liveSessions)
+                    throw SecurityException("closed config session")
+                if (configTickets.size >= 8) throw SecurityException("too many pending config previews")
+                configTickets[id] = ConfigTicket(session, action, affectedName, raw,
+                    proof, revision, now + 60_000L)
+            }
+            // App gets only a scoped ticket and a human-readable diff, never the daemon proof.
+            return JSONObject().put("id", id).put("action", action).put("name", affectedName)
+                .put("base_revision", revision)
+                .put("effects", JSONArray(affected.map { "${it.getString("change")}: ${it.getString("name")}" }))
+                .put("remote", spec?.optString("remote") ?: target?.optString("remote") ?: "")
+                .put("mountpoint", spec?.optString("mountpoint") ?: target?.optString("mountpoint") ?: "").toString()
+        }
+        override fun applyMountConfiguration(sessionId: String?, previewId: String?): String {
+            authenticatedCaller()
+            val session = checkedSession(sessionId)
+            if (previewId == null || !uuid.matches(previewId)) throw SecurityException("invalid config preview ticket")
+            // Destructive / ambiguous result never reuses a ticket, even if the daemon times out.
+            val ticket = synchronized(gate) { configTickets.remove(previewId) }
+                ?: throw SecurityException("config preview already consumed")
+            if (ticket.session != session || ticket.deadline <= SystemClock.elapsedRealtime())
+                throw SecurityException("foreign or expired config preview")
+            synchronized(gate) {
+                if (session in forgottenSessions || session !in liveSessions)
+                    throw SecurityException("config session closed")
+            }
+            if (checkedRegistry().getLong("revision") != ticket.revision)
+                throw SecurityException("config revision changed after preview")
+            val outcome = requireResult(rpc("config.apply", "run", JSONObject()
+                .put("candidate", JSONObject(ticket.candidate)).put("proof", ticket.proof)))
+            if (outcome.getLong("revision") != ticket.revision + 1 ||
+                outcome.getInt("schema_version") != 2 ||
+                outcome.getJSONArray("mounts").length() > 64)
+                throw IOException("config application result not verified")
+            return JSONObject().put("name", ticket.name).put("action", ticket.action)
+                .put("revision", outcome.getLong("revision")).put("refresh_required", true).toString()
+        }
+        /** Whole-registry rollback uses daemon's previous-known-good state, never UI JSON. */
+        override fun previewRollbackMountConfiguration(sessionId: String?): String {
+            authenticatedCaller()
+            val session = checkedSession(sessionId)
+            val before = checkedRegistry()
+            val revision = before.getLong("revision")
+            synchronized(gate) {
+                if (session in forgottenSessions || session !in liveSessions)
+                    throw SecurityException("closed rollback session")
+            }
+            val plan = requireResult(rpc("config.rollback.preview", "preview", JSONObject()))
+            if (plan.getLong("base_revision") != revision ||
+                !Regex("[a-f0-9]{64}").matches(plan.getString("candidate_digest")))
+                throw IOException("rollback revision or digest mismatch")
+            val proof = plan.getString("proof")
+            if (proof.length !in 16..2048) throw IOException("invalid daemon rollback proof")
+            val effects = plan.getJSONArray("effects")
+            if (effects.length() !in 1..64) throw SecurityException("empty or oversized rollback changes")
+            val descriptions = JSONArray()
+            for (i in 0 until effects.length()) {
+                val item = effects.getJSONObject(i)
+                val name = item.getString("name")
+                if (!jobName.matches(name) || item.getString("change") !in setOf("create", "update", "delete"))
+                    throw IOException("unreviewed rollback effect")
+                descriptions.put(item.getString("change") + ": " + name)
+            }
+            val id = UUID.randomUUID().toString()
+            synchronized(gate) {
+                val now = SystemClock.elapsedRealtime()
+                rollbackTickets.entries.removeAll { it.value.deadline <= now || it.value.session == session }
+                if (session in forgottenSessions || session !in liveSessions)
+                    throw SecurityException("rollback session closed during preview")
+                if (rollbackTickets.size >= 8) throw SecurityException("too many rollback previews")
+                rollbackTickets[id] = RollbackTicket(session, proof, revision, now + 60_000L)
+            }
+            return JSONObject().put("id", id).put("base_revision", revision)
+                .put("effects", descriptions).put("scope", "ENTIRE_REGISTRY").toString()
+        }
+        override fun applyRollbackMountConfiguration(sessionId: String?, previewId: String?): String {
+            authenticatedCaller()
+            val session = checkedSession(sessionId)
+            if (previewId == null || !uuid.matches(previewId))
+                throw SecurityException("invalid rollback ticket")
+            val ticket = synchronized(gate) { rollbackTickets.remove(previewId) }
+                ?: throw SecurityException("rollback ticket already consumed")
+            if (ticket.session != session || ticket.deadline <= SystemClock.elapsedRealtime())
+                throw SecurityException("foreign or expired rollback ticket")
+            synchronized(gate) {
+                if (session in forgottenSessions || session !in liveSessions)
+                    throw SecurityException("rollback session closed")
+            }
+            if (checkedRegistry().getLong("revision") != ticket.revision)
+                throw SecurityException("registry changed since rollback preview")
+            // The previous-known-good candidate remains daemon-owned; no client
+            // registry body or arbitrary root operation may be submitted.
+            val outcome = requireResult(rpc("config.rollback", "run",
+                JSONObject().put("proof", ticket.proof)))
+            if (outcome.getInt("schema_version") != 2 ||
+                outcome.getLong("revision") != ticket.revision + 1 ||
+                outcome.getJSONArray("mounts").length() > 64)
+                throw IOException("rollback result identity not verified")
+            return JSONObject().put("revision", outcome.getLong("revision"))
+                .put("refresh_required", true).put("scope", "ENTIRE_REGISTRY").toString()
+        }
         override fun forgetSession(sessionId: String?) {
             authenticatedCaller()
             val session = checkedSession(sessionId)
             synchronized(gate) {
                 tickets.entries.removeAll { it.value.session == session }
                 mountTickets.entries.removeAll { it.value.session == session }
+                configTickets.entries.removeAll { it.value.session == session }
+                rollbackTickets.entries.removeAll { it.value.session == session }
                 ownedRuns.entries.removeAll { it.value == session }
                 liveSessions.remove(session)
                 forgottenSessions.add(session)
@@ -299,6 +504,62 @@ class RootReadBridgeService : RootService() {
     }
 
     /** Read back the real owned mount identity immediately before issuing a mutation. */
+    private fun checkedConfiguredRemotes(): Set<String> {
+        val envelope = rpc("provider.remotes", "query", JSONObject())
+        if (envelope.opt("ok") != true) throw IOException("remote registry unavailable")
+        val values = envelope.optJSONArray("result") ?: throw IOException("remote inventory malformed")
+        if (values.length() > 128) throw IOException("remote inventory exceeds editor limit")
+        val remoteNames = mutableSetOf<String>()
+        for (i in 0 until values.length()) {
+            val name = values.getJSONObject(i).getString("name")
+            if (!Regex("[A-Za-z0-9_.-]{1,64}").matches(name) || !remoteNames.add(name))
+                throw IOException("unsafe remote inventory")
+        }
+        return remoteNames
+    }
+
+    /** Exact public mount schema, no unknown fields, no credentials, no hidden args file. */
+    private fun checkedMountDraft(raw: String?): JSONObject {
+        if (raw == null || raw.length !in 2..8192) throw SecurityException("invalid mount draft size")
+        val source = JSONObject(raw)
+        val stringFields = setOf("name", "remote", "mountpoint", "vfs_profile", "cache_mode", "log_level", "network_mode")
+        val booleanFields = setOf("enabled", "allow_other", "read_only", "charging_only")
+        val longFields = setOf("cache_max_bytes", "cache_max_age_seconds", "dir_cache_seconds",
+            "poll_seconds", "min_cache_free_bytes")
+        val intFields = setOf("min_battery_percent", "boot_settle_seconds", "network_settle_seconds",
+            "cache_high_percent", "cache_low_percent")
+        val names = stringFields + booleanFields + longFields + intFields
+        if (source.length() != names.size || source.keys().asSequence().toSet() != names)
+            throw SecurityException("missing or unrecognized mount fields")
+        for (key in stringFields) if (source.opt(key) !is String)
+            throw SecurityException("invalid mount text type")
+        for (key in booleanFields) if (source.opt(key) !is Boolean)
+            throw SecurityException("invalid mount boolean type")
+        for (key in longFields + intFields) if (source.opt(key) !is Number ||
+            !Regex("[0-9]{1,16}").matches(source.opt(key).toString()) ||
+            source.getLong(key) < 0)
+            throw SecurityException("invalid mount numeric type")
+        if (!jobName.matches(source.getString("name")) ||
+            source.getString("remote").length > 1024 || source.getString("mountpoint").length > 256)
+            throw SecurityException("invalid config input bounds")
+        return source
+    }
+    private fun checkedRegistry(): JSONObject {
+        val result = requireResult(rpc("config.snapshot", "query", JSONObject()))
+        if (result.getInt("schema_version") != 2 || result.getLong("revision") < 0)
+            throw IOException("unsupported mount registry")
+        val mounts = result.getJSONArray("mounts")
+        if (mounts.length() > 64 || result.toString().length > 65_536)
+            throw IOException("registry is outside native editor limits")
+        val seen = mutableSetOf<String>()
+        for (i in 0 until mounts.length()) {
+            val name = mounts.getJSONObject(i).getString("name")
+            if (!jobName.matches(name) || !seen.add(name))
+                throw IOException("unsafe mount registry identity")
+        }
+        return result
+    }
+
     private fun checkedMountState(name: String): JSONObject {
         val state = requireResult(rpc("mount.status", "query", JSONObject().put("name", name)))
         if (state.optString("name") != name ||
@@ -334,7 +595,7 @@ class RootReadBridgeService : RootService() {
         LocalSocket().use { socket ->
             socket.connect(LocalSocketAddress(SOCKET, LocalSocketAddress.Namespace.FILESYSTEM))
             socket.soTimeout = if (op == "provider.browse" ||
-                op in setOf("mount.start", "mount.stop", "mount.restart", "mount.reconcile")) 35_000 else 8_000
+                op in setOf("mount.start", "mount.stop", "mount.restart", "mount.reconcile", "config.apply", "config.rollback")) 35_000 else 8_000
             if (socket.peerCredentials.uid != 0) throw SecurityException("non-root daemon peer")
             socket.outputStream.write(payload)
             socket.outputStream.flush()

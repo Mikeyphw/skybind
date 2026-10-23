@@ -63,6 +63,21 @@ type Effect struct {
 	Cache     string `json:"cache"`
 	Namespace string `json:"namespace"`
 }
+
+// FieldViolation is a bounded, non-sensitive validation detail. No user-controlled
+// values, provider URLs, credentials or filesystem paths cross the RPC boundary.
+type FieldViolation struct {
+	Index int    `json:"index"`
+	Field string `json:"field"`
+	Code  string `json:"code"`
+}
+type FieldValidationError struct{ Issue FieldViolation }
+
+func (e *FieldValidationError) Error() string { return "invalid config field" }
+func invalidField(index int, field, code string) error {
+	return &FieldValidationError{Issue: FieldViolation{Index: index, Field: field, Code: code}}
+}
+
 type Plan struct {
 	BaseRevision    uint64   `json:"base_revision"`
 	CandidateDigest string   `json:"candidate_digest"`
@@ -83,35 +98,61 @@ func normalize(r Registry) (Registry, error) {
 	for i := range r.Mounts {
 		m := &r.Mounts[i]
 		if !safeName.MatchString(m.Name) || seen[m.Name] {
-			return r, errors.New("invalid/duplicate mount name")
+			return r, invalidField(i, "name", "INVALID_OR_DUPLICATE")
 		}
 		seen[m.Name] = true
 		if !safeRemote.MatchString(m.Remote) || strings.ContainsAny(m.Remote, "\\\x00\r\n") || len(m.Remote) > 1024 {
-			return r, errors.New("invalid remote")
+			return r, invalidField(i, "remote", "INVALID_REMOTE")
 		}
 		if !filepath.IsAbs(m.Mountpoint) || filepath.Clean(m.Mountpoint) != m.Mountpoint || strings.ContainsAny(m.Mountpoint, "\\\x00\r\n") {
-			return r, errors.New("invalid mountpoint")
+			return r, invalidField(i, "mountpoint", "INVALID_PATH")
 		}
 		if !(strings.HasPrefix(m.Mountpoint, "/storage/") || strings.HasPrefix(m.Mountpoint, "/mnt/")) {
-			return r, errors.New("mountpoint outside supported storage")
+			return r, invalidField(i, "mountpoint", "OUTSIDE_SUPPORTED_STORAGE")
 		}
 		if len(m.Mountpoint) > 256 {
-			return r, errors.New("mountpoint too long")
+			return r, invalidField(i, "mountpoint", "PATH_TOO_LONG")
 		}
 		for _, other := range destinations {
 			if m.Mountpoint == other || strings.HasPrefix(m.Mountpoint, other+"/") || strings.HasPrefix(other, m.Mountpoint+"/") {
-				return r, errors.New("overlapping mountpoints")
+				return r, invalidField(i, "mountpoint", "OVERLAPPING_DESTINATION")
 			}
 		}
 		destinations = append(destinations, m.Mountpoint)
-		if !oneOf(m.VFSProfile, "", "streaming", "balanced", "offline", "offline-ready", "documents", "minimal", "read-only", "custom") || !oneOf(m.CacheMode, "", "off", "minimal", "writes", "full") || !oneOf(m.NetworkMode, "", "any", "wifi", "unmetered", "offline-allowed") || !oneOf(m.LogLevel, "", "DEBUG", "INFO", "NOTICE", "ERROR") {
-			return r, errors.New("invalid policy enumeration")
+		for _, item := range []struct {
+			field, value string
+			allowed      []string
+		}{
+			{"vfs_profile", m.VFSProfile, []string{"", "streaming", "balanced", "offline", "offline-ready", "documents", "minimal", "read-only", "custom"}},
+			{"cache_mode", m.CacheMode, []string{"", "off", "minimal", "writes", "full"}},
+			{"network_mode", m.NetworkMode, []string{"", "any", "wifi", "unmetered", "offline-allowed"}},
+			{"log_level", m.LogLevel, []string{"", "DEBUG", "INFO", "NOTICE", "ERROR"}},
+		} {
+			if !oneOf(item.value, item.allowed...) {
+				return r, invalidField(i, item.field, "INVALID_CHOICE")
+			}
 		}
-		if m.CacheMaxBytes < 0 || m.CacheMaxBytes > 1<<44 || m.MinCacheFreeBytes < 0 || m.MinCacheFreeBytes > 1<<44 || m.CacheMaxAgeSeconds < 0 || m.CacheMaxAgeSeconds > 31536000 || m.DirCacheSeconds < 0 || m.DirCacheSeconds > 31536000 || m.PollSeconds < 0 || m.PollSeconds > 86400 {
-			return r, errors.New("invalid cache or polling limit")
+		for _, rule := range []struct {
+			field          string
+			value, maximum int64
+		}{
+			{"cache_max_bytes", m.CacheMaxBytes, 1 << 44},
+			{"min_cache_free_bytes", m.MinCacheFreeBytes, 1 << 44},
+			{"cache_max_age_seconds", m.CacheMaxAgeSeconds, 31536000},
+			{"dir_cache_seconds", m.DirCacheSeconds, 31536000},
+			{"poll_seconds", m.PollSeconds, 86400},
+			{"min_battery_percent", int64(m.MinBatteryPercent), 100},
+			{"boot_settle_seconds", int64(m.BootSettleSeconds), 3600},
+			{"network_settle_seconds", int64(m.NetworkSettleSeconds), 3600},
+			{"cache_low_percent", int64(m.CacheLowPercent), 100},
+			{"cache_high_percent", int64(m.CacheHighPercent), 100},
+		} {
+			if rule.value < 0 || rule.value > rule.maximum {
+				return r, invalidField(i, rule.field, "OUT_OF_RANGE")
+			}
 		}
-		if m.MinBatteryPercent < 0 || m.MinBatteryPercent > 100 || m.BootSettleSeconds < 0 || m.BootSettleSeconds > 3600 || m.NetworkSettleSeconds < 0 || m.NetworkSettleSeconds > 3600 || m.CacheLowPercent < 0 || m.CacheHighPercent < 0 || m.CacheHighPercent > 100 || m.CacheLowPercent > m.CacheHighPercent {
-			return r, errors.New("invalid resource threshold")
+		if m.CacheLowPercent > m.CacheHighPercent {
+			return r, invalidField(i, "cache_low_percent", "EXCEEDS_HIGH_WATERMARK")
 		}
 	}
 	// Canonical sorting prevents semantically identical reorderings from defeating proofs.

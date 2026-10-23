@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -76,5 +77,38 @@ func TestConfigurationRPCPreviewApplyAndCapabilities(t *testing.T) {
 	}
 	if unknown := call("mount.start", protocol.Run, "{}"); unknown.OK || unknown.Error.Code != "not_implemented" {
 		t.Fatalf("future run incorrectly advertised: %+v", unknown)
+	}
+}
+
+func TestConfigValidationReportsBoundedFieldErrorsThroughDaemon(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "private")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := config.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := EngineWithConfig(nil, store)
+	candidate := `{"schema_version":2,"revision":0,"mounts":[{"name":"alpha","remote":"cloud:/","mountpoint":"/data/private-token"}]}`
+	req := protocol.Request{SchemaVersion: 1, RequestID: "field-error-test", Operation: "config.validate",
+		Class: protocol.Query, Arguments: json.RawMessage(`{"candidate":` + candidate + `}`)}
+	response := eng.Dispatch(context.Background(), req)
+	if response.OK || response.Error == nil || len(response.Error.FieldErrors) != 1 {
+		t.Fatalf("missing failure detail: %+v", response)
+	}
+	issue := response.Error.FieldErrors[0]
+	if issue.Index != 0 || issue.Field != "mountpoint" || issue.Code != "OUTSIDE_SUPPORTED_STORAGE" {
+		t.Fatalf("bad field identity: %+v", issue)
+	}
+	wire, err := protocol.MarshalResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(wire, []byte("private-token")) {
+		t.Fatal("daemon leaked mount path in field errors")
+	}
+	if response.Error.Code != "operation_failed" {
+		t.Fatalf("invalid request falsely succeeded: %+v", response)
 	}
 }

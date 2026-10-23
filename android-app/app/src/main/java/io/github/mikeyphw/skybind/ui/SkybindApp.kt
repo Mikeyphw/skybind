@@ -2,6 +2,8 @@ package io.github.mikeyphw.skybind.ui
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,6 +32,20 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     autoConnectEnabled: Boolean = true, onAutoConnectChanged: (Boolean) -> Unit = {},
     bkxAuthorityRunning: Boolean = false, onEnableBkx: () -> Unit = {},
     onDisableBkx: () -> Unit = {},
+    mountConfigMode: String? = null, mountConfigDraft: MountDraft? = null,
+    mountConfigPreview: PreparedConfigChange? = null, mountConfigBusy: Boolean = false,
+    mountConfigError: String? = null,
+    mountConfigFieldErrors: Map<String, String> = emptyMap(),
+    rollbackPreview: PreparedRegistryRollback? = null,
+    rollbackBusy: Boolean = false,
+    rollbackError: String? = null,
+    onPreviewRollback: () -> Unit = {},
+    onConfirmRollback: () -> Unit = {},
+    onDismissRollback: () -> Unit = {},
+    onOpenMountConfig: (String, String) -> Unit = { _, _ -> },
+    onUpdateMountConfig: (MountDraft) -> Unit = {},
+    onPreviewMountConfig: () -> Unit = {}, onApplyMountConfig: () -> Unit = {},
+    onDismissMountConfig: () -> Unit = {},
     mountPreview: PreparedMountAction? = null, mountBusy: Boolean = false,
     mountError: String? = null, onPreviewMount: (String, String) -> Unit = { _, _ -> },
     onConfirmMount: () -> Unit = {}, onDismissMount: () -> Unit = {},
@@ -79,7 +95,8 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
         ) { inner ->
             when (tab) {
                 Tab.HOME -> HomePage(safe, Modifier.padding(inner), onConnect, onDisconnect) { selected = it.name }
-                Tab.MOUNTS -> MountsPage(safe, Modifier.padding(inner), mountBusy, mountError, onPreviewMount)
+                Tab.MOUNTS -> MountsPage(safe, Modifier.padding(inner), mountBusy || mountConfigBusy || rollbackBusy,
+                    mountError ?: mountConfigError ?: rollbackError, onPreviewMount, onOpenMountConfig, onPreviewRollback)
                 Tab.BROWSER -> BrowserPage(safe, browser.forSnapshot(safe), Modifier.padding(inner),
                     onBrowseRemote, onBrowseFolder, onBrowseUp, onSwitchRemote)
                 Tab.JOBS -> JobsPage(safe, Modifier.padding(inner), ownedRunIds, jobBusy,
@@ -91,6 +108,37 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                         activityFromJobs = it
                     })
             }
+        }
+        if (mountConfigMode != null && mountConfigDraft != null && safe.online) {
+            MountConfigEditor(mountConfigMode, if (mountConfigMode == "create") "" else mountConfigDraft.name,
+                mountConfigDraft, safe.remotes.map { it.id }, mountConfigPreview, mountConfigBusy, mountConfigError,
+                mountConfigFieldErrors, onUpdateMountConfig, onPreviewMountConfig, onApplyMountConfig, onDismissMountConfig)
+        }
+        if (rollbackPreview != null && safe.online) {
+            var approved by remember(rollbackPreview.id) { mutableStateOf(false) }
+            AlertDialog(onDismissRequest = onDismissRollback,
+                title = { Text("Restore previous mount configuration") },
+                text = {
+                    Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("This restores the ENTIRE registry, not just one mount. Any affected active mount may be stopped or restarted by the daemon.")
+                        Text("Revision: ${rollbackPreview.baseRevision} · expires in 60 seconds")
+                        rollbackPreview.effects.forEach { Text("Effect: $it") }
+                        Text("The daemon performs ownership and pending-write checks. A failed or ambiguous response must be inspected before another attempt.")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = approved, onCheckedChange = { approved = it },
+                                modifier = Modifier.testTag("rollback-consent"))
+                            Text("I approve restoring the full previous configuration")
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = onConfirmRollback, enabled = approved && !rollbackBusy,
+                        modifier = Modifier.testTag("rollback-confirm")) { Text("Restore") }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissRollback, modifier = Modifier.testTag("rollback-cancel")) { Text("Cancel") }
+                }, modifier = Modifier.testTag("rollback-review"))
         }
         if (mountPreview != null && safe.online) {
             var acknowledged by remember(mountPreview.id) { mutableStateOf(false) }
@@ -239,7 +287,8 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
 }
 
 @Composable private fun MountsPage(s: SkybindReadSnapshot, modifier: Modifier,
-    busy: Boolean, error: String?, preview: (String, String) -> Unit) {
+    busy: Boolean, error: String?, preview: (String, String) -> Unit,
+    editConfig: (String, String) -> Unit, rollback: () -> Unit) {
     LazyColumn(modifier.fillMaxSize().testTag("screen-mounts"),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -250,12 +299,20 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
             }
         }
         item { ConnectionPanel(s) }
+        if (s.online) item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { editConfig("create", "") }, enabled = !busy,
+                    modifier = Modifier.testTag("mount-add")) { Text("Add mount") }
+                OutlinedButton(onClick = rollback, enabled = !busy,
+                    modifier = Modifier.testTag("mount-rollback")) { Text("Restore previous") }
+            }
+        }
         if (error != null) item { InfoPanel("Mount action not verified", error, Modifier.testTag("mount-action-error")) }
         if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth().testTag("mount-action-busy")) }
         if (!s.online) {
             item { InfoPanel("Mount status unavailable", "Authorize Skybind to inspect configured mounts.") }
         } else if (s.mounts.isEmpty()) {
-            item { InfoPanel("No mounts configured", "Create a mount in the WebUI. Native configuration editing is planned separately.") }
+            item { InfoPanel("No mounts configured", "Use Add mount to configure your first remote filesystem.") }
         } else {
             item { Row(verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
@@ -278,6 +335,12 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                         mount.reason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
                         badge = status)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick = { editConfig("edit", mount.id) },
+                            enabled = !busy, modifier = Modifier.testTag("mount-edit-${mount.id}")) { Text("Edit") }
+                        TextButton(onClick = { editConfig("delete", mount.id) },
+                            enabled = !busy, modifier = Modifier.testTag("mount-delete-${mount.id}")) { Text("Delete") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutlinedButton(onClick = { preview("start", mount.id) },
                             enabled = !busy && mount.state == "STOPPED",
                             modifier = Modifier.testTag("mount-start-${mount.id}")) { Text("Start") }
@@ -290,7 +353,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                     }
                 }
             }
-            item { Text("Every operation needs a fresh root-service preview and explicit confirmation. Mount configuration remains WebUI-only.",
+            item { Text("Every operation needs a fresh root-service preview and explicit confirmation. Configuration changes require daemon validation, a one-use proof, and explicit approval.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }

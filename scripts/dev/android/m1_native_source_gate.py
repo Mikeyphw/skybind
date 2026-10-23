@@ -57,16 +57,22 @@ def verify(root: Path = ROOT) -> dict:
     read_methods = ('system.capabilities', 'runtime.status', 'provider.remotes', 'mount.list', 'mount.status', 'jobs.status', 'operation.events')
     need(all('"' + method + '"' in bridge and '"' + method + '"' in reader for method in read_methods),
          'READ_ONLY_METHOD_NOT_EXPLICIT')
+    allowlist=bridge.split('val allowed = setOf(',1)[1].split(')',1)[0]
+    need('"operation.events"' in allowlist and '"config.apply"' not in allowlist and
+         '"config.preview"' not in allowlist, 'QUERY_ALLOWLIST_ESCALATED')
     need('rpc(method, "query", checkedReadArguments(method, arguments))' in bridge and
          'RootService.bind' in session and
          'root service' in session.lower() and 'Shell.cmd(' not in bridge + session,
          'UNSAFE_ROOT_EXECUTION_PATH')
     # NATIVE-02 replaces the M1 read-only mount prohibition with exact typed
     # preview/confirm, authenticated root ownership and bounded daemon operations.
-    for forbidden in ('"config.apply"', '"provider.crypt.password.set"',
+    for forbidden in ('"provider.crypt.password.set"',
                       '"remote.transfer.start"', '"remote.transfer.cancel"'):
         need(forbidden not in bridge, 'UNREVIEWED_BROKER_METHOD_' + forbidden)
-    need(all(('"mount.'+action+'"') in bridge for action in
+    need('rpc("config.apply", "run", JSONObject()' in bridge and
+         'configTickets.remove(previewId)' in bridge and
+         'checkedMountDraft(typedMount)' in bridge and
+         all(('"mount.'+action+'"') in bridge for action in
              ('start','stop','restart','reconcile')) and
          'private fun previewMountTicket(' in bridge and
          'override fun confirmMount(' in bridge and

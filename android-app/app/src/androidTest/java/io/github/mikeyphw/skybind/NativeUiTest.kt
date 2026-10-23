@@ -74,6 +74,33 @@ class NativeUiTest {
         compose.runOnIdle { assertEquals(1, submitted) }
     }
 
+    @Test fun nativeMountConfigurationOpensFromTheMountsTab() {
+        var action: String? = null
+        compose.setContent { SkybindApp(fixture(), {}, onOpenMountConfig = { selected, _ -> action = selected }) }
+        compose.onNodeWithTag("nav-mounts").performClick()
+        compose.onNodeWithTag("mount-add").assertExists().performClick()
+        compose.runOnIdle { assertEquals("create", action) }
+        compose.onNodeWithTag("mount-edit-photos").performClick()
+        compose.runOnIdle { assertEquals("edit", action) }
+        compose.onNodeWithTag("mount-delete-photos").performClick()
+        compose.runOnIdle { assertEquals("delete", action) }
+    }
+
+    @Test fun configApplyRequiresReviewConsent() {
+        var applies = 0
+        compose.setContent { SkybindApp(fixture(), {},
+            mountConfigMode = "delete", mountConfigDraft = MountDraft(name = "photos"),
+            mountConfigPreview = PreparedConfigChange(
+                "f7bf6776-6ee3-4520-bbfb-9f55e327c7c1", "delete", "photos", 4,
+                listOf("delete: photos"), "/storage/emulated/0/Photos", "photos:"),
+            onApplyMountConfig = { applies++ }) }
+        compose.onNodeWithTag("config-editor-dialog").assertExists()
+        compose.onNodeWithTag("config-apply").assertIsNotEnabled()
+        compose.onNodeWithTag("config-consent").performClick()
+        compose.onNodeWithTag("config-apply").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(1, applies) }
+    }
+
     @Test fun unpairedMountActionsAreNotAvailable() {
         compose.setContent { SkybindApp(fixture().copy(link = LinkState.NOT_AUTHORIZED), {}) }
         compose.onNodeWithTag("nav-mounts").performClick()

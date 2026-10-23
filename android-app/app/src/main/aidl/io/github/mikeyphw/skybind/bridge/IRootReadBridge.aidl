@@ -11,5 +11,12 @@ interface IRootReadBridge {
     String previewRestartMount(String sessionId, String mountName);
     String previewReconcileMount(String sessionId);
     String confirmMount(String sessionId, String previewId);
+    String readMountConfiguration(String sessionId);
+    String previewCreateMount(String sessionId, String typedMount);
+    String previewEditMount(String sessionId, String originalName, String typedMount);
+    String previewDeleteMount(String sessionId, String mountName);
+    String applyMountConfiguration(String sessionId, String previewId);
+    String previewRollbackMountConfiguration(String sessionId);
+    String applyRollbackMountConfiguration(String sessionId, String previewId);
     void forgetSession(String sessionId);
 }

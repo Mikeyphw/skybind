@@ -41,9 +41,12 @@ def verify(root=ROOT):
                   'if (mountTicket.action == "reconcile")',
                   'socket.shutdownOutput()', 'out.size() + n > 262144'):
         need(field in svc,'LIFECYCLE_SECURITY_GUARD_MISSING:'+field)
-    for forbidden in ('"config.apply"', '"config.rollback"', 'Shell.cmd(', 'Runtime.getRuntime(',
+    for forbidden in ('Shell.cmd(', 'Runtime.getRuntime(',
                       '"remote.transfer.start"'):
         need(forbidden not in svc,'LIFECYCLE_SCOPE_ESCALATED:'+forbidden)
+    need('configTickets.remove(previewId)' in svc and
+         'rpc("config.apply", "run", JSONObject()' in svc,
+         'CONFIG_AUTHORITY_MUST_BE_PROOF_BOUND')
     need('"run", checkedReadArguments' not in svc and
          'rpc(method, "query", checkedReadArguments(method, arguments))' in svc,
          'UNREVIEWED_QUERY_TO_WRITE_ESCALATION')
@@ -62,6 +65,12 @@ def verify(root=ROOT):
          'EXPLICIT_UI_CONSENT_MISSING')
     need('onPreviewMount(' not in activity and 'session.previewMount(' not in activity,
          'AUTOMATIC_MUTATION_FROM_LIFECYCLE')
+    need('rollbackTickets.remove(previewId)' in svc and
+         'rpc("config.rollback", "run"' in svc and
+         'ticket.session != session' in svc, 'UNREVIEWED_ROLLBACK_SCOPE')
+    need('rollbackTickets.remove(previewId)' in svc and
+         'rpc("config.rollback", "run"' in svc and
+         'ticket.session != session' in svc, 'UNREVIEWED_ROLLBACK_SCOPE')
     return {'state':'PASS_NATIVE_02_STATIC_GUARD_ONLY','backend_mutation':'TYPED_PREVIEW_CONFIRM',
             'android_built':False,'real_device_tested':False,'personal_apk_qualified':False}
 if __name__=='__main__':

@@ -32,6 +32,28 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var mountActionError by mutableStateOf<String?>(null)
         private set
+    var mountConfigDraft by mutableStateOf<MountDraft?>(null)
+        private set
+    var mountConfigMode by mutableStateOf<String?>(null)
+        private set
+    var mountConfigOriginal by mutableStateOf("")
+        private set
+    var configPreview by mutableStateOf<PreparedConfigChange?>(null)
+        private set
+    var configBusy by mutableStateOf(false)
+        private set
+    var configError by mutableStateOf<String?>(null)
+        private set
+    var configFieldErrors by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+    var rollbackPreview by mutableStateOf<PreparedRegistryRollback?>(null)
+        private set
+    var rollbackBusy by mutableStateOf(false)
+        private set
+    var rollbackError by mutableStateOf<String?>(null)
+        private set
+    private var rollbackOperation: Job? = null
+    private var configOperation: Job? = null
     private var mountOperation: Job? = null
     private var operationJob: Job? = null
     private var progressWatch: Job? = null
@@ -66,6 +88,17 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun clearOperations() {
         mountOperation?.cancel()
+        configOperation?.cancel()
+        rollbackOperation?.cancel()
+        rollbackPreview = null
+        rollbackBusy = false
+        rollbackError = null
+        mountConfigDraft = null
+        mountConfigMode = null
+        configPreview = null
+        configBusy = false
+        configError = null
+        configFieldErrors = emptyMap()
         preparedMount = null
         mountActionBusy = false
         mountActionError = null
@@ -159,6 +192,152 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
                     "Root approval was denied or the service is unavailable. Retry when ready.")
             }
             if (token == generation) snapshot = result
+        }
+    }
+
+    /** A Mounts screen gesture opens the editor; no config RPC occurs during auto-root. */
+    fun openMountEditor(action: String, name: String = "") {
+        if (!snapshot.online || configBusy || rollbackBusy || mountConfigMode != null || preparedMount != null) return
+        if (action !in setOf("create", "edit", "delete")) return
+        if (action != "create" && snapshot.mounts.none { it.id == name }) return
+        configError = null
+        configBusy = true
+        val token = generation
+        configOperation = viewModelScope.launch {
+            try {
+                val registry = bridge.loadMountRegistry()
+                if (token != generation || !snapshot.online) return@launch
+                val existing = registry.mounts.firstOrNull { it.name == name }
+                if (action != "create" && existing == null) throw SecurityException("mount not configured")
+                mountConfigMode = action
+                mountConfigOriginal = if (action == "create") "" else name
+                mountConfigDraft = existing ?: MountDraft()
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { if (token == generation) configError =
+                "The current mount configuration is unavailable. Refresh before editing." }
+            finally { if (token == generation) configBusy = false }
+        }
+    }
+
+    fun updateMountDraft(next: MountDraft) {
+        if (mountConfigMode !in setOf("create", "edit") || configBusy) return
+        mountConfigDraft = next
+        configPreview = null
+        configError = null
+        configFieldErrors = next.fieldErrors()
+    }
+
+    fun dismissMountEditor() {
+        if (configBusy) return
+        mountConfigMode = null
+        mountConfigDraft = null
+        mountConfigOriginal = ""
+        configPreview = null
+        configError = null
+        configFieldErrors = emptyMap()
+    }
+
+    fun previewMountConfig() {
+        val action = mountConfigMode ?: return
+        val draft = mountConfigDraft ?: return
+        if (!snapshot.online || configBusy || rollbackBusy || configPreview != null) return
+        val localErrors = if (action == "delete") emptyMap() else draft.fieldErrors()
+        if (localErrors.isNotEmpty()) {
+            configFieldErrors = localErrors
+            configError = "Correct the highlighted fields before preview."
+            return
+        }
+        configFieldErrors = emptyMap()
+        configError = null
+        configBusy = true
+        val token = generation
+        configOperation = viewModelScope.launch {
+            try {
+                val preview = bridge.previewConfig(action, mountConfigOriginal,
+                    if (action == "delete") null else draft)
+                if (token == generation && mountConfigMode == action && snapshot.online)
+                    configPreview = preview
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (validation: ConfigFieldValidation) {
+                if (token == generation) {
+                    configFieldErrors = validation.fields
+                    configError = "Daemon validation identified specific fields; review them before retrying."
+                }
+            }
+            catch (_: Exception) { if (token == generation) configError =
+                "Daemon rejected the proposed configuration or its revision. Refresh before retrying." }
+            finally { if (token == generation) configBusy = false }
+        }
+    }
+
+    /** Preview is consumed locally before attempting a single daemon transaction. */
+    fun applyMountConfig() {
+        val preview = configPreview ?: return
+        if (!snapshot.online || configBusy) return
+        configPreview = null
+        configBusy = true
+        configError = null
+        val token = generation
+        configOperation = viewModelScope.launch {
+            try {
+                bridge.applyConfig(preview)
+                if (token == generation && snapshot.online) {
+                    val updated = coordinator.refresh()
+                    if (token == generation) {
+                        snapshot = updated
+                        mountConfigMode = null
+                        mountConfigDraft = null
+                        mountConfigOriginal = ""
+                    }
+                }
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { if (token == generation) configError =
+                "Apply result uncertain or rejected. Refresh Mounts and review the registry before making another change." }
+            finally { if (token == generation) configBusy = false }
+        }
+    }
+
+    /** Roll back the entire registry to the daemon's previous-known-good version. */
+    fun previewRegistryRollback() {
+        if (!snapshot.online || rollbackBusy || configBusy || mountConfigMode != null ||
+            preparedMount != null || rollbackPreview != null) return
+        rollbackBusy = true
+        rollbackError = null
+        val token = generation
+        rollbackOperation = viewModelScope.launch {
+            try {
+                val value = bridge.previewRollback()
+                if (token == generation && snapshot.online) rollbackPreview = value
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { if (token == generation) rollbackError =
+                "Rollback unavailable. There may be no previous registry, or the daemon refused the preview." }
+            finally { if (token == generation) rollbackBusy = false }
+        }
+    }
+
+    fun dismissRegistryRollback() {
+        if (!rollbackBusy) { rollbackPreview = null; rollbackError = null }
+    }
+
+    /** Consumes the one-use ticket before submitting one RPC; never retry automatically. */
+    fun confirmRegistryRollback() {
+        val ticket = rollbackPreview ?: return
+        if (!snapshot.online || rollbackBusy || configBusy) return
+        rollbackPreview = null
+        rollbackBusy = true
+        rollbackError = null
+        val token = generation
+        rollbackOperation = viewModelScope.launch {
+            try {
+                bridge.applyRollback(ticket)
+                if (token == generation && snapshot.online) {
+                    val value = coordinator.refresh()
+                    if (token == generation) snapshot = value
+                }
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { if (token == generation) rollbackError =
+                "Rollback result uncertain or rejected. Refresh the full registry before requesting a fresh preview." }
+            finally { if (token == generation) rollbackBusy = false }
         }
     }
 

@@ -35,12 +35,21 @@ type Request struct {
 	Class         Class           `json:"class"`
 	Arguments     json.RawMessage `json:"arguments,omitempty"`
 }
+
+// FieldIssue is emitted only for recognized config.validate field violations.
+// All values are constrained server-owned codes, never user-supplied strings.
+type FieldIssue struct {
+	Index int    `json:"index"`
+	Field string `json:"field"`
+	Code  string `json:"code"`
+}
 type Fault struct {
-	Code      string `json:"code"`
-	Category  string `json:"category"`
-	Stage     string `json:"stage"`
-	Message   string `json:"message"`
-	Retryable bool   `json:"retryable"`
+	Code        string       `json:"code"`
+	Category    string       `json:"category"`
+	Stage       string       `json:"stage"`
+	Message     string       `json:"message"`
+	Retryable   bool         `json:"retryable"`
+	FieldErrors []FieldIssue `json:"field_errors,omitempty"`
 }
 type Response struct {
 	SchemaVersion int    `json:"schema_version"`

@@ -63,9 +63,11 @@ def verify(root=ROOT):
             service.count('rpc("operation.cancel", "cancel"') == 1,
             'UNREVIEWED_MUTATING_METHOD')
     for unsafe in ('Shell.cmd(', 'Runtime.getRuntime()', 'su -c', 'RootService.stop(',
-                   '"remote.transfer.start"', '"jobs.apply"', '"config.apply"',
-                   '"config.rollback"', '"sync" ||', '"sync", "copy"'):
+                   '"remote.transfer.start"', '"jobs.apply"',
+                   '"config.patch"', '"sync" ||', '"sync", "copy"'):
         require(unsafe not in service, 'UNREVIEWED_PRIVILEGE:' + unsafe)
+    require(service.count('rpc("config.apply", "run"') == 1 and
+            'configTickets.remove(previewId)' in service, 'UNREVIEWED_CONFIG_MUTATION')
     tokens('SESSION_SCOPE', session, ('sessionId = UUID.randomUUID().toString()',
         'api.previewJob(current, name)', 'api.startPreparedJob(current, preview.id)',
         'api.cancelOwnedRun(current, id)', 'it.forgetSession(oldSession)',

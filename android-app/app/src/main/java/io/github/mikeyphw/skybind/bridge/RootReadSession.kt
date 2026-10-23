@@ -163,6 +163,84 @@ class RootReadSession(private val app: Application, private val disconnected: ()
             !obj.getBoolean("refresh_required")) throw SecurityException("unverified mount reply")
     }
 
+    suspend fun loadMountRegistry(): MountRegistryView = withContext(Dispatchers.IO) {
+        val api = remote ?: throw SecurityException("not connected")
+        val owned = sessionId
+        val obj = MountRegistryView.decode(api.readMountConfiguration(owned))
+        if (remote !== api || sessionId != owned) throw SecurityException("stale registry response")
+        obj
+    }
+    suspend fun previewConfig(action: String, original: String, draft: MountDraft?): PreparedConfigChange =
+        withContext(Dispatchers.IO) {
+            val api = remote ?: throw SecurityException("not connected")
+            val owned = sessionId
+            val reply = when (action) {
+                "create" -> api.previewCreateMount(owned, requireNotNull(draft).encode())
+                "edit" -> api.previewEditMount(owned, original, requireNotNull(draft).encode())
+                "delete" -> api.previewDeleteMount(owned, original)
+                else -> throw SecurityException("invalid config action")
+            }
+            val obj = JSONObject(reply)
+            if (obj.has("field_errors")) {
+                val errors = obj.getJSONArray("field_errors")
+                val fields = mutableMapOf<String, String>()
+                val allowed = setOf("name", "remote", "mountpoint", "vfs_profile", "cache_mode",
+                    "network_mode", "log_level", "cache_max_bytes", "min_cache_free_bytes",
+                    "cache_max_age_seconds", "dir_cache_seconds", "poll_seconds",
+                    "min_battery_percent", "boot_settle_seconds", "network_settle_seconds",
+                    "cache_low_percent", "cache_high_percent")
+                require(errors.length() in 1..17)
+                for (i in 0 until errors.length()) {
+                    val item = errors.getJSONObject(i)
+                    val field = item.getString("field")
+                    require(field in allowed && field !in fields)
+                    fields[field] = configErrorMessage(item.getString("code"))
+                }
+                throw ConfigFieldValidation(fields)
+            }
+            val name = if (action == "create") requireNotNull(draft).name else original
+            if (remote !== api || sessionId != owned || obj.getString("action") != action ||
+                obj.getString("name") != name) throw SecurityException("config preview identity mismatch")
+            val effects = obj.getJSONArray("effects")
+            PreparedConfigChange(obj.getString("id"), action, name, obj.getLong("base_revision"),
+                (0 until effects.length()).map { effects.getString(it) },
+                obj.getString("mountpoint"), obj.getString("remote"))
+        }
+    suspend fun applyConfig(preview: PreparedConfigChange): Long = withContext(Dispatchers.IO) {
+        val api = remote ?: throw SecurityException("not connected")
+        val owned = sessionId
+        val obj = JSONObject(api.applyMountConfiguration(owned, preview.id))
+        if (remote !== api || sessionId != owned || obj.getString("action") != preview.action ||
+            obj.getString("name") != preview.name || !obj.getBoolean("refresh_required") ||
+            obj.getLong("revision") != preview.baseRevision + 1)
+            throw SecurityException("config apply result identity mismatch")
+        obj.getLong("revision")
+    }
+
+    /** Rollback is explicitly reviewed as an ENTIRE-registry action. */
+    suspend fun previewRollback(): PreparedRegistryRollback = withContext(Dispatchers.IO) {
+        val api = remote ?: throw SecurityException("not connected")
+        val owned = sessionId
+        val obj = JSONObject(api.previewRollbackMountConfiguration(owned))
+        if (remote !== api || sessionId != owned || obj.getString("scope") != "ENTIRE_REGISTRY")
+            throw SecurityException("rollback preview identity mismatch")
+        val id = obj.getString("id")
+        require(Regex("[0-9a-fA-F-]{36}").matches(id))
+        val effects = obj.getJSONArray("effects")
+        require(effects.length() in 1..64)
+        PreparedRegistryRollback(id, obj.getLong("base_revision"),
+            (0 until effects.length()).map { effects.getString(it) })
+    }
+    suspend fun applyRollback(preview: PreparedRegistryRollback): Long = withContext(Dispatchers.IO) {
+        val api = remote ?: throw SecurityException("not connected")
+        val owned = sessionId
+        val obj = JSONObject(api.applyRollbackMountConfiguration(owned, preview.id))
+        if (remote !== api || sessionId != owned || obj.getString("scope") != "ENTIRE_REGISTRY" ||
+            !obj.getBoolean("refresh_required") || obj.getLong("revision") != preview.baseRevision + 1)
+            throw SecurityException("unverified rollback result")
+        obj.getLong("revision")
+    }
+
     /** The same app-owned failure transition used by real Binder disconnect callbacks.
      * Testing this path never terminates the privileged process or revokes grants.
      */
