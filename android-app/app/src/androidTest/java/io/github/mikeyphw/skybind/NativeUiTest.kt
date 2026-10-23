@@ -1,6 +1,7 @@
 package io.github.mikeyphw.skybind
 
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -10,6 +11,7 @@ import io.github.mikeyphw.skybind.model.*
 import io.github.mikeyphw.skybind.ui.SkybindApp
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 import org.junit.runner.RunWith
 
 /** Test-only fixtures never become a production backend or a broker. */
@@ -48,6 +50,35 @@ class NativeUiTest {
         compose.onNodeWithTag("screen-mounts").assertExists()
         compose.onNodeWithTag("mount-photos").assertExists()
         compose.onNodeWithTag("browser-write-disabled").assertDoesNotExist()
+    }
+
+    @Test fun mountActionsRequireUserGestureAndExplicitConsent() {
+        var requested: String? = null
+        compose.setContent { SkybindApp(fixture(), {},
+            onPreviewMount = { action, name -> requested = "$action:$name" }) }
+        compose.onNodeWithTag("nav-mounts").performClick()
+        compose.onNodeWithTag("mount-start-photos").assertIsNotEnabled()
+        compose.onNodeWithTag("mount-stop-photos").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals("stop:photos", requested) }
+    }
+
+    @Test fun mountConfirmationNeverRunsWithoutCheckboxConsent() {
+        var submitted = 0
+        compose.setContent { SkybindApp(fixture(), {},
+            mountPreview = PreparedMountAction("f7bf6776-6ee3-4520-bbfb-9f55e327c7c1", "stop", "photos", "RUNNING", true),
+            onConfirmMount = { submitted++ }) }
+        compose.onNodeWithTag("mount-action-dialog").assertExists()
+        compose.onNodeWithTag("mount-action-confirm").assertIsNotEnabled()
+        compose.onNodeWithTag("mount-action-consent").performClick()
+        compose.onNodeWithTag("mount-action-confirm").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(1, submitted) }
+    }
+
+    @Test fun unpairedMountActionsAreNotAvailable() {
+        compose.setContent { SkybindApp(fixture().copy(link = LinkState.NOT_AUTHORIZED), {}) }
+        compose.onNodeWithTag("nav-mounts").performClick()
+        compose.onNodeWithTag("mount-stop-photos").assertDoesNotExist()
+        compose.onNodeWithTag("mount-action-dialog").assertDoesNotExist()
     }
 
     @Test fun activityIsAJournalNotAnActionableJobQueue() {

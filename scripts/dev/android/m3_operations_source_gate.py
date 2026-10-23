@@ -64,7 +64,7 @@ def verify(root=ROOT):
             'UNREVIEWED_MUTATING_METHOD')
     for unsafe in ('Shell.cmd(', 'Runtime.getRuntime()', 'su -c', 'RootService.stop(',
                    '"remote.transfer.start"', '"jobs.apply"', '"config.apply"',
-                   '"mount.start"', '"sync" ||', '"sync", "copy"'):
+                   '"config.rollback"', '"sync" ||', '"sync", "copy"'):
         require(unsafe not in service, 'UNREVIEWED_PRIVILEGE:' + unsafe)
     tokens('SESSION_SCOPE', session, ('sessionId = UUID.randomUUID().toString()',
         'api.previewJob(current, name)', 'api.startPreparedJob(current, preview.id)',

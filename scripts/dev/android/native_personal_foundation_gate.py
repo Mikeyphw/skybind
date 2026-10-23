@@ -54,8 +54,18 @@ def verify(root=ROOT):
          'observed !in setOf("RUNNING", "STOPPED", "DEGRADED", "MOUNT_STALE")' in reader and
          'throw SnapshotStageException("mount.status")' in reader,
          'MOUNT_AUTHORITY_NOT_FAIL_CLOSED')
-    for forbidden in ('"mount.start"', '"mount.stop"', '"config.apply"', '"mount.restart"', '"mount.reconcile"'):
-        need(forbidden not in broker, 'MOUNT_WRITE_UNREVIEWED:'+forbidden)
+    # Native-02 mount actions are reviewed, while configuration writes and
+    # unconstrained broker RPCs remain forbidden until NATIVE-03.
+    for forbidden in ('"config.apply"', '"config.rollback"', '"remote.transfer.start"'):
+        need(forbidden not in broker, 'MOUNT_UNREVIEWED_WRITE:'+forbidden)
+    need('mountTickets.remove(previewId)' in broker and
+         'mountTicket.session != session' in broker and
+         'checkedMountState(mountTicket.name)' in broker and
+         '"mount.start.preview"' in broker and
+         '"mount.reconcile"' in broker and
+         'preparedMount' in viewmodel and 'confirmPreparedMount()' in viewmodel and
+         'mount-action-consent' in ui and 'mount-action-confirm' in ui,
+         'MOUNT_WRITE_BOUNDARY_NOT_REVIEWED')
     return {'state':'PASS_NATIVE_FOUNDATION_SOURCE_ONLY', 'android_built':False,
             'device_qualified':False, 'release_qualified':False,
             'historical_apk_evidence_compatible':False}

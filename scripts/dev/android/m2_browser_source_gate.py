@@ -42,9 +42,10 @@ def verify(root=ROOT):
          'rpc("job.run", "run", JSONObject()' in bridge and
          'if (op !in allowed || raw == null' in bridge,
          'BROWSE_ROOT_ALLOWLIST_UNSAFE')
-    for forbidden in ('"remote.transfer.start"', '"mount.start"', '"config.apply"'):
+    for forbidden in ('"remote.transfer.start"', '"config.apply"'):
         need(forbidden not in bridge, 'UNBOUNDED_ROOT_BRIDGE_'+forbidden)
-    # M3 adds a *separate* one-use proof path. It must not change browse RPC class.
+    # NATIVE-02 mount methods are separate typed preview/confirm calls, not an
+    # excuse to mutate provider.browse query class. M3 jobs remain separate.
     need('tickets.remove(previewId)' in bridge and
          'ticket.session != session' in bridge and
          'ownedRuns[runId] != session' in bridge, 'M3_MUTATION_NOT_SESSION_SCOPED')

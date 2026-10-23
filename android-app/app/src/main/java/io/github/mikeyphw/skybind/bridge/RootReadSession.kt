@@ -134,6 +134,35 @@ class RootReadSession(private val app: Application, private val disconnected: ()
             throw SecurityException("unverified cancellation")
     }
 
+    /** Mount actions are exact typed Binder calls; root-only proofs never reach Android UI. */
+    suspend fun previewMount(action: String, name: String): PreparedMountAction = withContext(Dispatchers.IO) {
+        val api = remote ?: throw SecurityException("not connected")
+        val current = sessionId
+        require(action in setOf("start", "stop", "restart", "reconcile"))
+        val raw = when (action) {
+            "start" -> api.previewStartMount(current, name)
+            "stop" -> api.previewStopMount(current, name)
+            "restart" -> api.previewRestartMount(current, name)
+            "reconcile" -> api.previewReconcileMount(current)
+            else -> throw SecurityException("unreviewed mount action")
+        }
+        val obj = JSONObject(raw)
+        if (remote !== api || sessionId != current || obj.getString("action") != action ||
+            obj.getString("name") != name) throw SecurityException("mount preview identity drift")
+        PreparedMountAction(obj.getString("id"), action, name,
+            obj.getString("observed"), obj.getBoolean("desired"),
+            obj.getString("mountpoint"), obj.getString("remote"), obj.getInt("configured_count"))
+    }
+
+    suspend fun confirmMount(preview: PreparedMountAction): Unit = withContext(Dispatchers.IO) {
+        val api = remote ?: throw SecurityException("not connected")
+        val current = sessionId
+        val obj = JSONObject(api.confirmMount(current, preview.id))
+        if (remote !== api || sessionId != current || obj.getString("action") != preview.action ||
+            obj.getString("name") != preview.name || !obj.getBoolean("accepted") ||
+            !obj.getBoolean("refresh_required")) throw SecurityException("unverified mount reply")
+    }
+
     /** The same app-owned failure transition used by real Binder disconnect callbacks.
      * Testing this path never terminates the privileged process or revokes grants.
      */

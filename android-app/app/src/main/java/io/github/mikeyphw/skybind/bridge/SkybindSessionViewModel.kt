@@ -26,6 +26,13 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var ownedRunIds by mutableStateOf<Set<String>>(emptySet())
         private set
+    var preparedMount by mutableStateOf<PreparedMountAction?>(null)
+        private set
+    var mountActionBusy by mutableStateOf(false)
+        private set
+    var mountActionError by mutableStateOf<String?>(null)
+        private set
+    private var mountOperation: Job? = null
     private var operationJob: Job? = null
     private var progressWatch: Job? = null
     private var browsing: Job? = null
@@ -58,6 +65,10 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
 
 
     private fun clearOperations() {
+        mountOperation?.cancel()
+        preparedMount = null
+        mountActionBusy = false
+        mountActionError = null
         operationJob?.cancel()
         progressWatch?.cancel()
         jobActionBusy = false
@@ -148,6 +159,51 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
                     "Root approval was denied or the service is unavailable. Retry when ready.")
             }
             if (token == generation) snapshot = result
+        }
+    }
+
+    /** A Mounts button, never foreground binding or refresh, starts this two-step flow. */
+    fun previewMount(action: String, name: String) {
+        if (!snapshot.online || mountActionBusy || preparedMount != null) return
+        if (action !in setOf("start", "stop", "restart", "reconcile")) return
+        if (action == "reconcile" && name.isNotEmpty()) return
+        if (action != "reconcile" && snapshot.mounts.none { it.id == name }) return
+        mountActionBusy = true
+        mountActionError = null
+        val token = generation
+        mountOperation = viewModelScope.launch {
+            try {
+                val plan = bridge.previewMount(action, name)
+                if (token == generation && snapshot.online) preparedMount = plan
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { if (token == generation) mountActionError =
+                "Mount preview unavailable. Refresh state before trying again." }
+            finally { if (token == generation) mountActionBusy = false }
+        }
+    }
+
+    fun dismissMountPreview() { preparedMount = null; mountActionError = null }
+
+    /** One explicit confirm -> one consumed root ticket -> one daemon attempt. */
+    fun confirmPreparedMount() {
+        val plan = preparedMount ?: return
+        if (!snapshot.online || mountActionBusy) return
+        preparedMount = null
+        mountActionBusy = true
+        mountActionError = null
+        val token = generation
+        mountOperation = viewModelScope.launch {
+            try {
+                bridge.confirmMount(plan)
+                if (token == generation && snapshot.online) {
+                    // Confirmed submission still requires fresh daemon-authoritative state.
+                    val value = coordinator.refresh()
+                    if (token == generation) snapshot = value
+                }
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { if (token == generation) mountActionError =
+                "Result uncertain or rejected. Refresh authoritative Mounts before a new preview; do not retry blindly." }
+            finally { if (token == generation) mountActionBusy = false }
         }
     }
 

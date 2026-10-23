@@ -38,7 +38,7 @@ class RootReadBridgeContract(unittest.TestCase):
 
     def test_cannot_add_mutating_rpc(self):
         self.run_negative(gate.MAIN/'bridge/RootReadBridgeService.kt',
-            '"operation.events"', '"mount.start"')
+            '"operation.events"', '"config.apply"')
 
     def test_cannot_remove_canonical_socket_identity(self):
         self.run_negative(gate.MAIN/'bridge/RootReadBridgeService.kt',

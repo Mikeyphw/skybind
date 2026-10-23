@@ -6,5 +6,10 @@ interface IRootReadBridge {
     String previewJob(String sessionId, String jobName);
     String startPreparedJob(String sessionId, String previewId);
     String cancelOwnedRun(String sessionId, String runId);
+    String previewStartMount(String sessionId, String mountName);
+    String previewStopMount(String sessionId, String mountName);
+    String previewRestartMount(String sessionId, String mountName);
+    String previewReconcileMount(String sessionId);
+    String confirmMount(String sessionId, String previewId);
     void forgetSession(String sessionId);
 }

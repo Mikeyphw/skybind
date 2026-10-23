@@ -30,6 +30,9 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     autoConnectEnabled: Boolean = true, onAutoConnectChanged: (Boolean) -> Unit = {},
     bkxAuthorityRunning: Boolean = false, onEnableBkx: () -> Unit = {},
     onDisableBkx: () -> Unit = {},
+    mountPreview: PreparedMountAction? = null, mountBusy: Boolean = false,
+    mountError: String? = null, onPreviewMount: (String, String) -> Unit = { _, _ -> },
+    onConfirmMount: () -> Unit = {}, onDismissMount: () -> Unit = {},
     browser: BrowserState = BrowserState(), onBrowseRemote: (String) -> Unit = {},
     onBrowseFolder: (String) -> Unit = {}, onBrowseUp: () -> Unit = {},
     onSwitchRemote: () -> Unit = {},
@@ -76,7 +79,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
         ) { inner ->
             when (tab) {
                 Tab.HOME -> HomePage(safe, Modifier.padding(inner), onConnect, onDisconnect) { selected = it.name }
-                Tab.MOUNTS -> MountsPage(safe, Modifier.padding(inner))
+                Tab.MOUNTS -> MountsPage(safe, Modifier.padding(inner), mountBusy, mountError, onPreviewMount)
                 Tab.BROWSER -> BrowserPage(safe, browser.forSnapshot(safe), Modifier.padding(inner),
                     onBrowseRemote, onBrowseFolder, onBrowseUp, onSwitchRemote)
                 Tab.JOBS -> JobsPage(safe, Modifier.padding(inner), ownedRunIds, jobBusy,
@@ -88,6 +91,45 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                         activityFromJobs = it
                     })
             }
+        }
+        if (mountPreview != null && safe.online) {
+            var acknowledged by remember(mountPreview.id) { mutableStateOf(false) }
+            val action = mountPreview.action
+            AlertDialog(
+                onDismissRequest = onDismissMount,
+                title = { Text("Confirm mount ${action.replaceFirstChar { it.uppercase() }}") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(if (action == "reconcile")
+                            "Reconcile all ${mountPreview.configuredCount} configured mounts"
+                            else "Mount: ${mountPreview.name}")
+                        if (action == "start") {
+                            Text("Remote: ${mountPreview.remote}", style = MaterialTheme.typography.bodySmall)
+                            Text("Destination: ${mountPreview.mountpoint}", style = MaterialTheme.typography.bodySmall)
+                            Text("Daemon validates a one-use, revision-bound start proof.")
+                        } else if (action == "reconcile") {
+                            Text("May start desired mounts and update recovery state across all mounts.")
+                        } else {
+                            Text("Observed: ${mountPreview.observed}; desired: ${mountPreview.desired}")
+                            Text("Stopping or restarting can disrupt open files. The daemon enforces FUSE ownership and safe-stop rules.")
+                        }
+                        Text("Confirmation expires in 60 seconds. Transport failure is ambiguous; never retry automatically.")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = acknowledged, onCheckedChange = { acknowledged = it },
+                                modifier = Modifier.testTag("mount-action-consent"))
+                            Text("I authorize this mount operation.")
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = onConfirmMount, enabled = !mountBusy && acknowledged,
+                        modifier = Modifier.testTag("mount-action-confirm")) { Text("Execute") }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissMount, modifier = Modifier.testTag("mount-action-dismiss")) { Text("Cancel") }
+                },
+                modifier = Modifier.testTag("mount-action-dialog"),
+            )
         }
         if (jobPreview != null && safe.online) {
             var confirmedCopy by remember(jobPreview.id) { mutableStateOf(false) }
@@ -196,7 +238,8 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     }
 }
 
-@Composable private fun MountsPage(s: SkybindReadSnapshot, modifier: Modifier) {
+@Composable private fun MountsPage(s: SkybindReadSnapshot, modifier: Modifier,
+    busy: Boolean, error: String?, preview: (String, String) -> Unit) {
     LazyColumn(modifier.fillMaxSize().testTag("screen-mounts"),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -207,12 +250,19 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
             }
         }
         item { ConnectionPanel(s) }
+        if (error != null) item { InfoPanel("Mount action not verified", error, Modifier.testTag("mount-action-error")) }
+        if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth().testTag("mount-action-busy")) }
         if (!s.online) {
             item { InfoPanel("Mount status unavailable", "Authorize Skybind to inspect configured mounts.") }
         } else if (s.mounts.isEmpty()) {
-            item { InfoPanel("No mounts configured", "Configure a mount in the WebUI. Native create and lifecycle operations will be added after proof-bound bridge review.") }
+            item { InfoPanel("No mounts configured", "Create a mount in the WebUI. Native configuration editing is planned separately.") }
         } else {
-            item { Text("${s.mounts.size} configured · ${s.mounts.count { it.state == "RUNNING" }} running") }
+            item { Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("${s.mounts.size} configured · ${s.mounts.count { it.state == "RUNNING" }} running")
+                OutlinedButton(onClick = { preview("reconcile", "") }, enabled = !busy,
+                    modifier = Modifier.testTag("mount-reconcile")) { Text("Reconcile") }
+            } }
             items(s.mounts, key = { it.id }) { mount ->
                 val status = when (mount.state) {
                     "RUNNING" -> "Running"
@@ -221,12 +271,26 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                     "MOUNT_STALE" -> "Stale or foreign mount"
                     else -> "Unknown"
                 }
-                InfoPanel(mount.displayName,
-                    "${if (mount.desired) "Desired: on" else "Desired: off"}" +
-                    mount.reason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
-                    Modifier.testTag("mount-${mount.id}"), status)
+                Column(Modifier.fillMaxWidth().testTag("mount-${mount.id}"),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    InfoPanel(mount.displayName,
+                        "${if (mount.desired) "Desired: on" else "Desired: off"}" +
+                        mount.reason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                        badge = status)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick = { preview("start", mount.id) },
+                            enabled = !busy && mount.state == "STOPPED",
+                            modifier = Modifier.testTag("mount-start-${mount.id}")) { Text("Start") }
+                        OutlinedButton(onClick = { preview("stop", mount.id) },
+                            enabled = !busy && mount.state == "RUNNING",
+                            modifier = Modifier.testTag("mount-stop-${mount.id}")) { Text("Stop") }
+                        OutlinedButton(onClick = { preview("restart", mount.id) },
+                            enabled = !busy && mount.state == "RUNNING",
+                            modifier = Modifier.testTag("mount-restart-${mount.id}")) { Text("Restart") }
+                    }
+                }
             }
-            item { Text("Mount changes are not available in this build; no unsafe root actions are exposed.",
+            item { Text("Every operation needs a fresh root-service preview and explicit confirmation. Mount configuration remains WebUI-only.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }

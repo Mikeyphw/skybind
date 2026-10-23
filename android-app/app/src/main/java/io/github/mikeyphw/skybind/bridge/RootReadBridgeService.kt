@@ -13,6 +13,7 @@ import android.system.Os
 import android.system.OsConstants
 import com.topjohnwu.superuser.ipc.RootService
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.UUID
@@ -22,6 +23,12 @@ class RootReadBridgeService : RootService() {
     private data class Ticket(val session: String, val name: String, val proof: String, val deadline: Long)
     private val gate = Any()
     private val tickets = mutableMapOf<String, Ticket>()
+    private data class MountTicket(
+        val session: String, val action: String, val name: String, val proof: String,
+        val revision: Long, val observed: String, val desired: Boolean, val pid: Int,
+        val deadline: Long,
+    )
+    private val mountTickets = mutableMapOf<String, MountTicket>()
     // Ownership is attached to an authenticated app session, NOT every daemon job.
     private val ownedRuns = mutableMapOf<String, String>()
     private val liveSessions = mutableSetOf<String>()
@@ -105,11 +112,123 @@ class RootReadBridgeService : RootService() {
             synchronized(gate) { ownedRuns.remove(runId, session) }
             return JSONObject().put("id", runId).put("state", result.optString("state")).toString()
         }
+        /** The app can request only four literal mount actions. No arbitrary RPC is forwarded. */
+        override fun previewStartMount(sessionId: String?, mountName: String?): String =
+            previewMountTicket(sessionId, "start", mountName)
+        override fun previewStopMount(sessionId: String?, mountName: String?): String =
+            previewMountTicket(sessionId, "stop", mountName)
+        override fun previewRestartMount(sessionId: String?, mountName: String?): String =
+            previewMountTicket(sessionId, "restart", mountName)
+        override fun previewReconcileMount(sessionId: String?): String =
+            previewMountTicket(sessionId, "reconcile", "")
+        private fun previewMountTicket(sessionId: String?, action: String, mountName: String?): String {
+            authenticatedCaller()
+            val session = checkedSession(sessionId)
+            val verb = action ?: throw SecurityException("missing mount action")
+            if (verb !in setOf("start", "stop", "restart", "reconcile"))
+                throw SecurityException("unsupported mount operation")
+            val name = mountName ?: throw SecurityException("missing mount name")
+            if ((verb == "reconcile" && name.isNotEmpty()) ||
+                (verb != "reconcile" && !jobName.matches(name)))
+                throw SecurityException("unsafe mount name")
+            val registry = requireResult(rpc("config.snapshot", "query", JSONObject()))
+            val revision = registry.optLong("revision", -1L)
+            val entries = registry.optJSONArray("mounts") ?: throw IOException("missing mount registry")
+            if (revision < 0 || entries.length() > 64) throw IOException("invalid mount registry")
+            val names = mutableSetOf<String>()
+            for (i in 0 until entries.length()) {
+                val configured = entries.optJSONObject(i)?.optString("name") ?: throw IOException("invalid mount")
+                if (!jobName.matches(configured) || !names.add(configured))
+                    throw IOException("invalid mount registry name")
+            }
+            if (verb != "reconcile" && name !in names) throw SecurityException("unconfigured mount")
+            val state = if (verb == "reconcile") null else checkedMountState(name)
+            if (verb == "stop" && state!!.optString("observed") != "RUNNING")
+                throw SecurityException("mount is not running")
+            if (verb == "restart" && state!!.optString("observed") != "RUNNING")
+                throw SecurityException("restart requires running mount")
+            val plan = if (verb == "start")
+                requireResult(rpc("mount.start.preview", "preview", JSONObject().put("name", name)))
+                else null
+            val proof = plan?.optString("proof", "") ?: ""
+            if (verb == "start" && (proof.length !in 16..2048 ||
+                    plan!!.optString("mount") != name ||
+                    plan.optString("mountpoint").isBlank() ||
+                    plan.optString("remote").isBlank())) throw IOException("invalid start preview")
+            val id = UUID.randomUUID().toString()
+            synchronized(gate) {
+                val now = SystemClock.elapsedRealtime()
+                mountTickets.entries.removeAll { it.value.deadline <= now || it.value.session == session }
+                if (session in forgottenSessions) throw SecurityException("closed app session")
+                if (session !in liveSessions && liveSessions.size >= 32)
+                    throw SecurityException("too many live app sessions")
+                if (mountTickets.size >= 16) throw SecurityException("too many mount previews")
+                liveSessions.add(session)
+                mountTickets[id] = MountTicket(session, verb, name, proof, revision,
+                    state?.getString("observed") ?: "", state?.getBoolean("desired") ?: false,
+                    state?.optInt("pid", 0) ?: 0, now + 60_000L)
+            }
+            // UI gets only the root-service ticket. The backend proof never leaves root.
+            return JSONObject().put("id", id).put("action", verb).put("name", name)
+                .put("observed", state?.getString("observed") ?: "")
+                .put("desired", state?.getBoolean("desired") ?: false)
+                .put("remote", plan?.optString("remote", "")?.take(768) ?: "")
+                .put("mountpoint", plan?.optString("mountpoint", "")?.take(768) ?: "")
+                .put("configured_count", entries.length()).toString()
+        }
+        override fun confirmMount(sessionId: String?, previewId: String?): String {
+            authenticatedCaller()
+            val session = checkedSession(sessionId)
+            if (previewId == null || !uuid.matches(previewId))
+                throw SecurityException("invalid mount ticket")
+            // Consume before I/O. Never retry an ambiguous mount mutation.
+            val mountTicket = synchronized(gate) { mountTickets.remove(previewId) }
+                ?: throw SecurityException("mount ticket absent or consumed")
+            if (mountTicket.session != session || mountTicket.deadline <= SystemClock.elapsedRealtime())
+                throw SecurityException("foreign or expired mount preview")
+            synchronized(gate) {
+                if (session !in liveSessions || session in forgottenSessions)
+                    throw SecurityException("session closed before mutation")
+            }
+            val registry = requireResult(rpc("config.snapshot", "query", JSONObject()))
+            if (registry.optLong("revision", -1) != mountTicket.revision)
+                throw SecurityException("mount config changed after preview")
+            if (mountTicket.action != "reconcile") {
+                val state = checkedMountState(mountTicket.name)
+                if (state.getString("observed") != mountTicket.observed ||
+                    state.getBoolean("desired") != mountTicket.desired ||
+                    state.optInt("pid", 0) != mountTicket.pid)
+                    throw SecurityException("mount status changed after preview")
+            }
+            val operation = "mount." + mountTicket.action
+            val args = when (mountTicket.action) {
+                "start" -> JSONObject().put("name", mountTicket.name).put("proof", mountTicket.proof)
+                "stop", "restart" -> JSONObject().put("name", mountTicket.name)
+                "reconcile" -> JSONObject()
+                else -> throw SecurityException("invalid mount ticket action")
+            }
+            val envelope = rpc(operation, if (mountTicket.action == "reconcile") "reconcile" else "run", args)
+            if (envelope.opt("ok") != true) throw IOException("daemon rejected mount action")
+            val result = envelope.opt("result")
+            if (mountTicket.action == "reconcile") {
+                val health = result as? JSONArray ?: throw IOException("invalid reconcile result")
+                if (health.length() > 64) throw IOException("oversized reconcile result")
+            } else {
+                val state = result as? JSONObject ?: throw IOException("invalid mount result")
+                if (state.optString("name") != mountTicket.name ||
+                    state.optString("observed") !in setOf("RUNNING", "STOPPED", "DEGRADED", "MOUNT_STALE") ||
+                    state.opt("desired") !is Boolean) throw IOException("unverified mount result")
+            }
+            // An OK response is not a guarantee of durable mount health.
+            return JSONObject().put("action", mountTicket.action).put("name", mountTicket.name)
+                .put("accepted", true).put("refresh_required", true).toString()
+        }
         override fun forgetSession(sessionId: String?) {
             authenticatedCaller()
             val session = checkedSession(sessionId)
             synchronized(gate) {
                 tickets.entries.removeAll { it.value.session == session }
+                mountTickets.entries.removeAll { it.value.session == session }
                 ownedRuns.entries.removeAll { it.value == session }
                 liveSessions.remove(session)
                 forgottenSessions.add(session)
@@ -179,6 +298,16 @@ class RootReadBridgeService : RootService() {
             .put("operation_id", "").put("wait_ms", 0)
     }
 
+    /** Read back the real owned mount identity immediately before issuing a mutation. */
+    private fun checkedMountState(name: String): JSONObject {
+        val state = requireResult(rpc("mount.status", "query", JSONObject().put("name", name)))
+        if (state.optString("name") != name ||
+            state.optString("observed") !in setOf("RUNNING", "STOPPED", "DEGRADED", "MOUNT_STALE") ||
+            state.opt("desired") !is Boolean || state.optInt("pid", 0) < 0)
+            throw IOException("invalid authoritative mount state")
+        return state
+    }
+
     private fun verifySocketLayout() {
         for (path in listOf("/data/adb/skybind", "/data/adb/skybind/run")) {
             val st = Os.lstat(path)
@@ -204,7 +333,8 @@ class RootReadBridgeService : RootService() {
         if (payload.size > 65536) throw SecurityException("oversized request")
         LocalSocket().use { socket ->
             socket.connect(LocalSocketAddress(SOCKET, LocalSocketAddress.Namespace.FILESYSTEM))
-            socket.soTimeout = if (op == "provider.browse") 35_000 else 8_000
+            socket.soTimeout = if (op == "provider.browse" ||
+                op in setOf("mount.start", "mount.stop", "mount.restart", "mount.reconcile")) 35_000 else 8_000
             if (socket.peerCredentials.uid != 0) throw SecurityException("non-root daemon peer")
             socket.outputStream.write(payload)
             socket.outputStream.flush()

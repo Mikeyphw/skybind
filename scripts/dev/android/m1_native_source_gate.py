@@ -61,12 +61,27 @@ def verify(root: Path = ROOT) -> dict:
          'RootService.bind' in session and
          'root service' in session.lower() and 'Shell.cmd(' not in bridge + session,
          'UNSAFE_ROOT_EXECUTION_PATH')
-    for forbidden in ('"mount.start"', '"config.apply"',
-                      '"provider.crypt.password.set"', '"mount.stop"', '"remote.transfer.start"'):
+    # NATIVE-02 replaces the M1 read-only mount prohibition with exact typed
+    # preview/confirm, authenticated root ownership and bounded daemon operations.
+    for forbidden in ('"config.apply"', '"provider.crypt.password.set"',
+                      '"remote.transfer.start"', '"remote.transfer.cancel"'):
         need(forbidden not in bridge, 'UNREVIEWED_BROKER_METHOD_' + forbidden)
+    need(all(('"mount.'+action+'"') in bridge for action in
+             ('start','stop','restart','reconcile')) and
+         'private fun previewMountTicket(' in bridge and
+         'override fun confirmMount(' in bridge and
+         'mountTickets.remove(previewId)' in bridge and
+         'mountTicket.session != session' in bridge and
+         'registry.optLong("revision", -1) != mountTicket.revision' in bridge and
+         'checkedMountState(mountTicket.name)' in bridge and
+         'socket.peerCredentials.uid != 0' in bridge and
+         'fun previewMount(' in session and 'fun confirmMount(' in session and
+         all('String preview'+action+'Mount(' in aidl for action in ('Start','Stop','Restart','Reconcile')) and
+         'String confirmMount(' in aidl,
+         'MOUNT_LIFECYCLE_TYPED_AUTHORITY_MISSING')
     # M3-specific run/cancel are distinct from M1's unchanged query endpoint.
     need('tickets.remove(previewId)' in bridge and
-         'ticket.session != session' in bridge and
+         'mountTicket.session != session' in bridge and
          'ownedRuns[runId] != session' in bridge and
          'rpc("job.run", "run", JSONObject()' in bridge and
          'rpc("operation.cancel", "cancel", JSONObject().put("id", runId))' in bridge,
