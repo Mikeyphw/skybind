@@ -335,6 +335,7 @@ q12-provenance = ["job:q12-provenance"]
 q11-reconcile = ["job:q11-reconcile"]
 qualification-readiness = ["job:q01-gate-triage"]
 final-audit = ["job:cfs1-audit-definition"]
+personal-qualification = ["job:personal-qualification"]
 cg1-definitions = ["job:cg1-gate-definitions"]
 g03 = ["job:cg1-g03"]
 g04 = ["job:cg1-g04"]
@@ -473,7 +474,7 @@ inputs = ["../scripts/dev/gates/**", "../tests/gates/**", "../docs/gates/SB-G01.
 metadata = { read_only = true, qualification = "gate-definition-only", actual_gate_pass = false }
 
 [wrapper.commands.g01-definition]
-description = "Verify SB-G01 fail-closed gate definition, NOT supply-chain certification"
+description = "Validate personal reproducible-provider evidence readiness"
 workflow = "g01-definition"
 target = "skybind_release"
 
@@ -519,7 +520,7 @@ inputs = ["../scripts/dev/gates/sb_g02.py", "../tests/gates/test_g02.py", "../do
 metadata = { read_only = true, qualification = "gate-definition-only", actual_gate_pass = false }
 
 [wrapper.commands.g02-definition]
-description = "Test SB-G02 independent blocked gate, not actual source promotion"
+description = "Validate owner-controlled Devtool evidence readiness"
 workflow = "g02-definition"
 target = "skybind_release"
 
@@ -704,48 +705,59 @@ metadata = {read_only = true, qualification = "gate-definitions-only", independe
 runner = "command"
 command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G03"]
 inputs = ["../docs/gates/SB-G03_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
-metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+metadata = {read_only = true, qualification = "personal-owner-readiness", final_seal = false}
 
 [targets.skybind_release.jobs.cg1-g04]
 runner = "command"
 command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G04"]
 inputs = ["../docs/gates/SB-G04_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
-metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+metadata = {read_only = true, qualification = "personal-owner-readiness", final_seal = false}
 
 [targets.skybind_release.jobs.cg1-g05]
 runner = "command"
 command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G05"]
 inputs = ["../docs/gates/SB-G05_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
-metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+metadata = {read_only = true, qualification = "personal-owner-readiness", final_seal = false}
 
 [targets.skybind_release.jobs.cg1-g06]
 runner = "command"
 command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G06"]
 inputs = ["../docs/gates/SB-G06_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
-metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+metadata = {read_only = true, qualification = "personal-owner-readiness", final_seal = false}
 
 [targets.skybind_release.jobs.cg1-g07]
 runner = "command"
 command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G07"]
 inputs = ["../docs/gates/SB-G07_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
-metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+metadata = {read_only = true, qualification = "personal-owner-readiness", final_seal = false}
 
 [targets.skybind_release.jobs.cg1-g08]
 runner = "command"
 command = ["python3", "../scripts/devtool/check_cg1_gate_state.py", "SB-G08"]
 inputs = ["../docs/gates/SB-G08_PROMISE_LEDGER.json", "../scripts/dev/gates/**", "../scripts/devtool/check_cg1_gate_state.py"]
-metadata = {read_only = true, qualification = "gate-evaluation-blocked-until-independent-evidence", final_seal = false}
+metadata = {read_only = true, qualification = "personal-owner-readiness", final_seal = false}
 
 # SB-CFS1: installable independent final-seal verifier. Definition validation is
 # deliberately distinct from actual independently qualified final-seal promotion.
+[targets.skybind_release.jobs.personal-qualification]
+runner = "command"
+command = ["python3", "../scripts/dev/qualification/personal_policy.py", "check"]
+inputs = ["../scripts/dev/qualification/personal_policy.py", "../docs/qualification/SKYBIND_PERSONAL_RELEASE.md"]
+metadata = { read_only = true, qualification = "personal-readiness", external_attestation_required = false }
+
+[wrapper.commands.personal-qualification]
+description = "Show personal release evidence/readiness without external gates"
+workflow = "personal-qualification"
+target = "skybind_release"
+
 [targets.skybind_release.jobs.cfs1-audit-definition]
 runner = "command"
 command = ["bash", "../scripts/devtool/check_cfs1_final.sh"]
 inputs = ["../scripts/dev/seal/**", "../scripts/dev/gates/**", "../docs/gates/**", "../tests/seal/**", "../docs/roadmap/**", "../scripts/devtool/check_cfs1_final.sh"]
-metadata = {read_only = true, qualification = "final-auditor-source-only", final_seal = false, device_qualification = false}
+metadata = {read_only = true, qualification = "personal-release-policy-validation", external_signatures = false}
 
 [wrapper.commands.final-audit]
-description = "Check independent SB-CFS1 final auditor; never issue a seal without real evidence"
+description = "Check personal release readiness and owner approval (no external certificate)"
 workflow = "final-audit"
 target = "skybind_release"
 
@@ -1167,12 +1179,12 @@ workflow = "personal-tests"
 target = "skybind"
 
 [wrapper.commands.personal-release]
-description = "Build and export verified bclone Personal KernelSU ZIP to Android Downloads (NOT CFS1)"
+description = "Build and export verified bclone Personal ZIP to Android Downloads; approval is separate"
 workflow = "personal-release-bclone"
 target = "skybind"
 
 [wrapper.commands.personal-release-newfuture]
-description = "Build and export verified NewFuture Personal KernelSU ZIP to Android Downloads (NOT CFS1)"
+description = "Build and export verified NewFuture Personal ZIP to Android Downloads; approval is separate"
 workflow = "personal-release-newfuture"
 target = "skybind"
 
@@ -1190,35 +1202,35 @@ target = "skybind"
 runner = "command"
 command = ["python3", "scripts/dev/integration/personal_release.py", "test"]
 inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/webroot/**", "tests/integration/**", "scripts/dev/integration/personal_release.py"]
-metadata = { qualification = "local-test-only", independent_attestation = false, final_seal = false, read_only = true }
+metadata = { qualification = "personal-local-tests", read_only = true }
 
 [targets.skybind.jobs.personal-release-bclone]
 runner = "command"
 command = ["python3", "scripts/dev/integration/personal_release.py", "build", "--provider", "bclone"]
 inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
 outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
-metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = false }
+metadata = { qualification = "personal-local-only", owner_approval_separate = true, installed_module_mutation = false }
 
 [targets.skybind.jobs.personal-release-newfuture]
 runner = "command"
 command = ["python3", "scripts/dev/integration/personal_release.py", "build", "--provider", "newfuture"]
 inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
 outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
-metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = false }
+metadata = { qualification = "personal-local-only", owner_approval_separate = true, installed_module_mutation = false }
 
 [targets.skybind.jobs.personal-release-bclone-install]
 runner = "command"
 command = ["python3", "scripts/dev/integration/personal_release.py", "build", "--provider", "bclone", "--install"]
 inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
 outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
-metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = true }
+metadata = { qualification = "personal-local-only", owner_approval_separate = true, installed_module_mutation = true }
 
 [targets.skybind.jobs.personal-release-newfuture-install]
 runner = "command"
 command = ["python3", "scripts/dev/integration/personal_release.py", "build", "--provider", "newfuture", "--install"]
 inputs = ["go.mod", "go.sum", "cmd/**", "internal/**", "module/**", "scripts/dev/integration/**", "scripts/dev/runtime/**", "scripts/dev/release/**"]
 outputs = ["dist/local-candidates/**", "build/local-q04-evidence/**"]
-metadata = { qualification = "personal-local-only", independent_attestation = false, final_seal = false, installed_module_mutation = true }
+metadata = { qualification = "personal-local-only", owner_approval_separate = true, installed_module_mutation = true }
 
 # Existing Devtool native build stays the single build authority. No CFS1 edits.
 

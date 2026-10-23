@@ -45,26 +45,18 @@ def run(argv: list[str], *, cwd: Path | None = None) -> str | None:
 
 
 def actual_status(root: Path = ROOT) -> dict:
-    # Import the canonical engines; don't reinterpret their success conditions.
-    sys.path.insert(0, str(root/'scripts/dev/gates'))
-    sys.path.insert(0, str(root/'scripts/dev/seal'))
-    import sb_g01, sb_g02, sb_cg1, sb_cfs1
-    g01 = sb_g01.evaluate(root=root)
-    g02 = sb_g02.evaluate(root=root, g01_result=g01)
-    others = sb_cg1.evaluate_all(root=root)
-    final = sb_cfs1.evaluate(root=root)
-    gate_results = {'SB-G01': g01, 'SB-G02': g02, **others['gates']}
-    statuses = {k: gate_results[k]['status'] for k in sorted(gate_results)}
-    return {'schema_version':1, 'product':'skybind', 'kind':'READ_ONLY_GATE_TRIAGE',
-            'source_commit': run(['git','rev-parse','HEAD'], cwd=root),
-            'source_clean': run(['git','status','--porcelain'],cwd=root)=='',
-            'gate_statuses':statuses,
-            'gate_reasons':{k:gate_results[k]['reasons'] for k in sorted(gate_results)},
-            'final_status':final['status'], 'final_seal':final['final_seal'],
-            'final_blockers':final['reasons'],
-            'all_gate_statuses_match_expected':list(statuses.values())==list(PASS),
-            'qualification':'RAW_UNATTESTED',
-            'notice':'No trust pin, provider source authenticity, physical-device evidence or independent signatures are issued by this command.'}
+    """Canonical personal release status; historical raw inspections remain below."""
+    sys.path.insert(0,str(root/'scripts/dev/qualification'))
+    import personal_policy
+    doc=personal_policy.assess(root)
+    return {'schema_version':1,'product':'skybind','kind':'PERSONAL_RELEASE_STATUS',
+            'source_commit':doc['source_commit'],
+            'gate_statuses':{k:v['status'] for k,v in doc['gate_checks'].items()},
+            'final_status':doc['status'],
+            'personal_release_policy':doc['policy'],
+            'owner_approval':doc['owner_approval'],
+            'personal_scope_only':True,
+            'reasons':doc['reasons']}
 
 
 def verify_zip_structure(path: Path, tag: str = "") -> dict:

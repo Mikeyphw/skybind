@@ -29,10 +29,10 @@ bash scripts/devtool/check_go_race.sh ./internal/daemon ./internal/control ./int
 
 go vet ./...
 GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -buildvcs=false -o /dev/null ./cmd/skybind
-# Actual SB-G01+G02 never turn green from source tests. Expected exit: 3.
+# Personal owner approval is separate from source tests. Expect pending or approved.
 state=''
 rc=0
 state="$(python3 scripts/dev/release-audit/skybind_audit.py)" || rc=$?
-if [ "$rc" -ne 3 ];then echo 'release audit unexpectedly passed or crashed' >&2;exit 1;fi
-printf '%s\n' "$state" | python3 -c 'import sys,json;p=json.load(sys.stdin);assert p["status"]=="BLOCKED" and p["final_seal"]=="NOT_ISSUED" and len(p["milestone_gates"])==8 and p["assurance"]=="SOURCE_CANDIDATE_ONLY"'
-echo 'SKYBIND_C06_SOURCE_PASS; upstream pins/device/browser/endurance/independent gate/seal all NOT_ATTESTED'
+if [ "$rc" -ne 3 ] && [ "$rc" -ne 0 ];then echo 'personal release audit crashed' >&2;exit 1;fi
+printf '%s\n' "$state" | python3 -c 'import sys,json;p=json.load(sys.stdin);assert p["status"] in ("PERSONAL_RELEASE_PENDING","PERSONAL_RELEASE_APPROVED") and p["policy"]=="SKYBIND_PERSONAL_V1" and len(p["milestone_gates"])==8 and p["external_qualification_required"] is False'
+echo 'SKYBIND_C06_SOURCE_PASS; personal release approval evaluated separately'

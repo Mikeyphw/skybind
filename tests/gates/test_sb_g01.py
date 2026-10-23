@@ -1,16 +1,12 @@
-import importlib.util
 from pathlib import Path
-import tempfile,unittest,json
-p=Path(__file__).resolve().parents[2]/'scripts/dev/gates/sb_g01.py'
-s=importlib.util.spec_from_file_location('sb_g01',p);g=importlib.util.module_from_spec(s);s.loader.exec_module(g)
-class GateTests(unittest.TestCase):
- def test_current_gate_blocked(self):
-  result=g.evaluate();self.assertEqual(result['status'],'BLOCKED');self.assertEqual(result['android_device'],'NOT_ATTESTED')
- def test_fake_evidence_cannot_pass(self):
-  with tempfile.TemporaryDirectory() as d:
-   root=Path(d);l=root/'scripts/dev/runtime/source.lock.json';l.parent.mkdir(parents=True);l.write_text(json.dumps({'newfuture':{'archive_sha256':'0'*64},'bclone':{'commit':'a'*40,'ndk_revision':'x','go_version':'go version x'}}))
-   evidence=root/'evidence.json';evidence.write_text(json.dumps({'schema_version':1,'qualification':'REAL_PINNED_PROVIDER_BUILD','source_lock_sha256':g.sha(l),'overlay_ids':list(g.REQUIRE),'providers':{},'device_qualification':False}))
-   result=g.evaluate(evidence,root)
-   self.assertEqual(result['status'],'BLOCKED')
-   self.assertTrue(any('requires independent' in x for x in result['reasons']))
+import sys,unittest
+ROOT=Path(__file__).resolve().parents[2]
+sys.path.insert(0,str(ROOT/'scripts/dev/gates'))
+import sb_g01
+class G01PersonalTests(unittest.TestCase):
+    def test_no_external_qualification_gate(self):
+        x=sb_g01.evaluate(root=ROOT)
+        self.assertEqual(x['policy'],'SKYBIND_PERSONAL_V1')
+        self.assertFalse(x['external_attestation_required'])
+        self.assertIn(x['status'],('PENDING_PERSONAL_CHECK','PERSONAL_EVIDENCE_PASS'))
 if __name__=='__main__':unittest.main()

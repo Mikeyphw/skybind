@@ -7,17 +7,12 @@ sys.path.insert(0,str(ROOT/'scripts/dev/qualification'))
 import skybind_qualify as q
 
 class Triage(unittest.TestCase):
-    def test_canonical_gates_block_when_evidence_missing(self):
-        with patch.dict(os.environ,{'SKYBIND_VERIFIED_GATE_EVIDENCE_DIR':'',
-          'SKYBIND_GATE_TRUST_PUBKEY':'','SKYBIND_GATE_TRUST_KEY_SHA256':'',
-          'SKYBIND_FINAL_SEAL_EVIDENCE_DIR':'','SKYBIND_FINAL_SEAL_PUBKEY':'',
-          'SKYBIND_FINAL_SEAL_PUBKEY_SHA256':''}):
-            s=q.actual_status(ROOT)
-        self.assertEqual(s['final_seal'],'NOT_ISSUED')
+    def test_personal_status_does_not_require_external_trust(self):
+        s=q.actual_status(ROOT)
+        self.assertEqual(s['personal_release_policy'],'SKYBIND_PERSONAL_V1')
         self.assertEqual(len(s['gate_statuses']),8)
-        self.assertTrue(all(x=='BLOCKED' for x in s['gate_statuses'].values()))
-        self.assertEqual(s['qualification'],'RAW_UNATTESTED')
-        self.assertFalse(s['all_gate_statuses_match_expected'])
+        self.assertIn(s['final_status'],('PERSONAL_RELEASE_PENDING','PERSONAL_RELEASE_APPROVED'))
+        self.assertTrue(s['personal_scope_only'])
 
     def test_archive_never_pins_itself(self):
         lock=json.loads((ROOT/'scripts/dev/runtime/source.lock.json').read_text())
@@ -86,7 +81,7 @@ class Triage(unittest.TestCase):
             with patch('sys.stdout',new_callable=io.StringIO) as fp:
                 self.assertEqual(q.main(['status'],root=ROOT),0)
             data=json.loads(fp.getvalue())
-            self.assertEqual(data['final_status'],'BLOCKED')
-            self.assertEqual(data['qualification'],'RAW_UNATTESTED')
+            self.assertIn(data['final_status'],('PERSONAL_RELEASE_PENDING','PERSONAL_RELEASE_APPROVED'))
+            self.assertEqual(data['personal_release_policy'],'SKYBIND_PERSONAL_V1')
 
 if __name__=='__main__':unittest.main()

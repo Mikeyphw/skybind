@@ -1,4 +1,4 @@
-"""Personal release: convenience never impersonates formal CFS1 qualification."""
+"""Personal build stays distinct from owner approval."""
 import hashlib
 import importlib.util
 import json
@@ -51,8 +51,8 @@ class PersonalReleaseTests(unittest.TestCase):
         self.assertEqual(archive.read_bytes(), self.candidate.read_bytes())
         meta = json.loads(Path(res['manifest']).read_text())
         self.assertEqual(meta['track'], 'PERSONAL')
-        self.assertEqual(meta['formal_cfs1_seal'], 'NOT_ISSUED')
-        self.assertFalse(meta['independent_attestation'])
+        self.assertEqual(meta['personal_release_policy'], 'SKYBIND_PERSONAL_V1')
+        self.assertFalse(meta['owner_approved'])
         self.assertFalse(meta['installed_on_device'])
         self.assertEqual((archive.parent/'SHA256SUMS').read_text().split()[0],self.digest)
     def test_reject_tampered_receipt(self):
@@ -106,7 +106,7 @@ class PersonalReleaseTests(unittest.TestCase):
             self.assertEqual(t['wrapper']['commands'][cmd]['workflow'],workflow)
             self.assertEqual(t['targets']['skybind']['workflows'][workflow],['job:'+workflow])
             job=t['targets']['skybind']['jobs'][workflow]
-            self.assertFalse(job['metadata']['final_seal'])
+            self.assertIn(job['metadata'].get('qualification'),('personal-local-tests','personal-local-only'))
             self.assertIn('personal_release.py',job['command'][1])
         for gate in ('scripts/dev/gates/sb_g01.py','scripts/dev/gates/sb_g02.py','scripts/dev/seal/sb_cfs1.py'):
             self.assertTrue((ROOT/gate).is_file())

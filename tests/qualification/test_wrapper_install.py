@@ -61,7 +61,7 @@ class WrapperInstallTests(unittest.TestCase):
             self.assertEqual(flows[flow], ['job:'+flow])
             self.assertIn('--install', jobs[flow]['command'])
             self.assertTrue(jobs[flow]['metadata']['installed_module_mutation'])
-            self.assertFalse(jobs[flow]['metadata']['final_seal'])
+            self.assertTrue(jobs[flow]['metadata'].get('owner_approval_separate') if flow.startswith('personal-') else not jobs[flow]['metadata'].get('final_seal', False))
 
     def test_install_uses_literal_su_and_streams_both_fds(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -109,7 +109,7 @@ class WrapperInstallTests(unittest.TestCase):
             newest = root/'Skybind-Personal-bclone-20261015T120000Z-abcdef123456'; newest.mkdir()
             old = root/'Skybind-Personal-newfuture-20261014T120000Z-abcdef123456'; old.mkdir()
             (old/'PERSONAL_BUILD.json').write_text(json.dumps({'track':'PERSONAL','product':'skybind',
-               'formal_cfs1_seal':'NOT_ISSUED','archive':'Skybind-newfuture-PERSONAL.zip'}))
+               'personal_release_policy':'SKYBIND_PERSONAL_V1','archive':'Skybind-newfuture-PERSONAL.zip'}))
             for n in ['Skybind-newfuture-PERSONAL.zip','SHA256SUMS','README.txt']:
                 (old/n).write_text('fixture')
             keep = root/'Skybind-Personal-bclone-20261012T120000Z-abcdef123456'; keep.mkdir()

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Skybind PERSONAL builds: keep strong local checks without external CFS1 gates.
+"""Build the verified Skybind Personal ZIP. Owner approval is a separate local step.
 
-The embedded module qualification is unchanged (CANDIDATE_ONLY_NOT_SEALED).
-This script ONLY packages a previously verified local candidate for personal use.
-It neither changes CFS1 nor signs, certifies, or installs a module.
+Build/publish never masquerades as UI testing or device installation.
+Use scripts/dev/qualification/personal_policy.py for owner approval.
 """
 from __future__ import annotations
 
@@ -79,7 +78,7 @@ def prune_personal_exports(dest: Path, *, keep: Path) -> int:
             meta = json.loads(receipt.read_bytes())
             archive = meta['archive']
             if (meta.get('track') != 'PERSONAL' or meta.get('product') != 'skybind'
-                    or meta.get('formal_cfs1_seal') != 'NOT_ISSUED'
+                    or meta.get('personal_release_policy') != 'SKYBIND_PERSONAL_V1'
                     or not re.fullmatch(r'Skybind-(?:bclone|newfuture)-PERSONAL\.zip', archive)):
                 continue
             names = {archive, 'PERSONAL_BUILD.json', 'SHA256SUMS', 'README.txt'}
@@ -150,7 +149,7 @@ def package(candidate: Path, receipt: Path, *, provider: str,
             'source': obj.get('q12_source_build'),
             'toolchain': obj.get('toolchain'),
             'source_receipt_assurance': 'LOCAL_SELF_REPORTED_ONLY',
-            'independent_attestation': False, 'formal_cfs1_seal': 'NOT_ISSUED',
+            'personal_release_policy': 'SKYBIND_PERSONAL_V1', 'owner_approved': False,
             'installed_on_device': False,
             'original_archive_qualification': 'CANDIDATE_ONLY_NOT_SEALED',
         }
@@ -159,7 +158,7 @@ def package(candidate: Path, receipt: Path, *, provider: str,
         (stage / 'README.txt').write_text(
             'Skybind PERSONAL build for KernelSU.\n'
             'Install the Skybind-*-PERSONAL.zip file using your root manager.\n'
-            'No formal CFS1 release attestation is implied or issued.\n'
+            'The personal release is pending explicit owner approval of this exact ZIP.\n'
             'Check SHA256SUMS if copying the ZIP to another device.\n'
             'Installing a module may restart mounts; back up configuration first.\n'
         )
@@ -170,7 +169,7 @@ def package(candidate: Path, receipt: Path, *, provider: str,
             shutil.rmtree(stage)
     return {'status': 'PERSONAL_BUILD_READY', 'zip': str(output / archive_name),
             'sha256': digest, 'manifest': str(output / 'PERSONAL_BUILD.json'),
-            'provider': provider, 'formal_cfs1_seal': 'NOT_ISSUED'}
+            'provider': provider, 'personal_release_policy': 'SKYBIND_PERSONAL_V1', 'owner_approved': False}
 
 
 def personal_build(provider: str = 'bclone', dest: Path = DEFAULT_DOWNLOAD, *, install: bool = False) -> dict:
