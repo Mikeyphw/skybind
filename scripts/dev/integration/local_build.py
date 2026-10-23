@@ -29,9 +29,11 @@ REPOSITORY = 'Mikeyphw/skybind'
 CACHE = ROOT / 'build/local-q04-evidence'
 OUTPUT_BASE = ROOT / 'dist/local-candidates'
 GO_VERSION = re.compile(r'^go version go(\d+\.\d+\.\d+)\s+(\S+)/(\S+)(?:\s|$)')
-# The only reviewed local compatibility exception. Never changes source.lock.json,
-# Q04 provider provenance, GitHub CI compiler selection or release qualification.
-LOCAL_COMPATIBILITY = {('1.27.2', '1.27.1')}
+# Explicitly reviewed local-only compiler exceptions. Keep the upstream
+# CI/source lock exact; never use these to assert equivalence, G01 or a seal.
+# Go 1.27.3 may be used for PERSONAL host compilation on Termux only;
+# record its true binary Go build metadata and NOT_ATTESTED status.
+LOCAL_COMPATIBILITY = {('1.27.2', '1.27.1'), ('1.27.2', '1.27.3')}
 
 class LocalBuildError(RuntimeError):
     pass
@@ -155,9 +157,11 @@ def selected_go(go_bin: str) -> tuple[str, dict[str, str]]:
     detected_version = match.group(1) if match else None
     if detected_version != selected and (selected, detected_version) not in LOCAL_COMPATIBILITY:
         found = ('go' + detected_version) if detected_version else 'unrecognized version output'
+        local_allowed = ', '.join('Go ' + version for pinned, version
+                                  in sorted(LOCAL_COMPATIBILITY) if pinned == selected)
         raise LocalBuildError(
-            f'Go {selected} (selected CI pin) or explicitly reviewed local Go 1.27.1 '
-            f'(only when CI pin is 1.27.2) required, found {found} ({go_bin}); '
+            f'Go {selected} (selected CI pin) or explicitly reviewed local-only '
+            f'compiler exceptions [{local_allowed}] required, found {found} ({go_bin}); '
             'set SKYBIND_LOCAL_GO_BIN=/absolute/path/to/go for a supported compiler. '
             'No provider download or compilation was attempted')
     if detected_version != selected:
