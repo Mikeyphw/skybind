@@ -4,6 +4,20 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Personal builds are separately invoked on GitHub, never inferred from a debug task.
+val personalFlag = providers.gradleProperty("skybindPersonal").orNull
+require(personalFlag == null || personalFlag == "true") { "UNRECOGNIZED_PERSONAL_CHANNEL" }
+val personalRequested = personalFlag == "true"
+val personalVersionArg = providers.gradleProperty("skybindPersonalVersionCode").orNull
+require(personalRequested || personalVersionArg == null) { "PERSONAL_VERSION_WITHOUT_PERSONAL_CHANNEL" }
+val personalVersion = if (personalRequested) {
+    val parsed = personalVersionArg?.toIntOrNull()
+    require(parsed != null && parsed in 2..2100000000 && personalVersionArg == parsed.toString()) {
+        "EXPLICIT_MONOTONIC_PERSONAL_VERSION_CODE_REQUIRED"
+    }
+    parsed
+} else 1
+
 // Never fall back to AGP's ephemeral hosted debug keystore. Production and
 // test APKs must share the pinned, persistent key provisioned outside Git.
 val stableKeyPath = providers.environmentVariable("SKYBIND_ANDROID_KEYSTORE_PATH").orNull
@@ -21,8 +35,8 @@ android {
         applicationId = "io.github.mikeyphw.skybind"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        versionCode = personalVersion
+        versionName = if (personalRequested) "0.2.0-personal.$personalVersion" else "0.1.0-dev"
         testApplicationId = "io.github.mikeyphw.skybind.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -37,8 +51,16 @@ android {
     }
     buildTypes {
         getByName("debug") { signingConfig = signingConfigs.getByName("skybindPersistentDebug") }
+        create("personal") {
+            initWith(getByName("debug"))
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("skybindPersistentDebug")
+            isMinifyEnabled = false
+        }
         getByName("release") { isMinifyEnabled = false }
     }
+    // Only one androidTest target build type is supported in a Gradle invocation.
+    testBuildType = if (personalRequested) "personal" else "debug"
     buildFeatures { compose = true; buildConfig = true; aidl = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

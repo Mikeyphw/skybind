@@ -60,7 +60,7 @@ class R1AuthorityService : Service() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             val note = Notification.Builder(this, CHANNEL)
-                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setSmallIcon(io.github.mikeyphw.skybind.R.drawable.ic_stat_skybind)
                 .setContentTitle("Skybind local authority active")
                 .setContentText("User-enabled local identity bridge · no automatic grants")
                 .setContentIntent(open)

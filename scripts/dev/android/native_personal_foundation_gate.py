@@ -26,8 +26,14 @@ def verify(root=ROOT):
     reader = read(MAIN/'bridge/LiveReadSnapshotReader.kt')
     manifest = ET.fromstring(read(Path('android-app/app/src/main/AndroidManifest.xml')))
     app = manifest.find('application')
-    need(app is not None and app.attrib.get(ANDROID+'label')=='Skybind' and
+    label = app.attrib.get(ANDROID+'label') if app is not None else None
+    need(label in ('Skybind', '@string/app_name') and
          app.attrib.get(ANDROID+'icon')=='@mipmap/ic_launcher', 'BRANDING_MANIFEST_MISSING')
+    if label == '@string/app_name':
+        strings = ET.fromstring(read(Path('android-app/app/src/main/res/values/strings.xml')))
+        need(any(node.tag == 'string' and node.attrib.get('name') == 'app_name' and
+                 (node.text or '').strip() == 'Skybind' for node in strings),
+             'BRANDING_STRING_RESOURCE_MISSING')
     adaptive = ET.fromstring(read(Path('android-app/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml')))
     need(adaptive.tag=='adaptive-icon' and set(x.tag for x in adaptive)==
          {'background','foreground','monochrome'}, 'ADAPTIVE_ICON_INCOMPLETE')

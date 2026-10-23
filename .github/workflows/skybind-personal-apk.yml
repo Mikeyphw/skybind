@@ -1,0 +1,93 @@
+name: Skybind Personal APK (candidate only)
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'Explicit strictly increasing versionCode (greater than installed APK)'
+        type: number
+        required: true
+permissions:
+  contents: read
+jobs:
+  personal-apk:
+    # Do not expose the persistent signer to PRs, other branches or tags.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact build source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Install hosted SDK tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+          log-accepted-android-sdk-licenses: 'false'
+      - name: Enforce hosted source and persistent signer
+        env:
+          GITHUB_ACTIONS: 'true'
+          SKYBIND_ANDROID_KEYSTORE_B64: ${{ secrets.SKYBIND_ANDROID_KEYSTORE_B64 }}
+          SKYBIND_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.SKYBIND_ANDROID_KEYSTORE_PASSWORD }}
+          SKYBIND_ANDROID_SIGNER_SHA256: ${{ secrets.SKYBIND_ANDROID_SIGNER_SHA256 }}
+        run: |
+          python3 -B scripts/dev/android/verify_cloud_build_only.py
+          python3 -B scripts/dev/android/stable_signing.py ci-prepare
+      - name: Build personal non-debuggable APK + matching androidTest APK
+        shell: bash
+        env:
+          SKYBIND_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/skybind-signing/skybind-dev.p12
+          SKYBIND_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.SKYBIND_ANDROID_KEYSTORE_PASSWORD }}
+          PERSONAL_VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          [[ "$PERSONAL_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
+          test "$PERSONAL_VERSION_CODE" -gt 1
+          test "$PERSONAL_VERSION_CODE" -le 2100000000
+          gradle --no-daemon --stacktrace -p android-app \
+            -PskybindPersonal=true -PskybindPersonalVersionCode="$PERSONAL_VERSION_CODE" \
+            :app:assemblePersonal :app:assemblePersonalAndroidTest
+      - name: Verify exact personal pair, package identity, signing and release metadata
+        shell: bash
+        env:
+          SKYBIND_ANDROID_SIGNER_SHA256: ${{ secrets.SKYBIND_ANDROID_SIGNER_SHA256 }}
+          PERSONAL_VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          mkdir -p personal-apk-evidence
+          python3 -B scripts/dev/android/personal_apk.py create \
+            --app android-app/app/build/outputs/apk/personal/app-personal.apk \
+            --test-apk android-app/app/build/outputs/apk/androidTest/personal/app-personal-androidTest.apk \
+            --version-code "$PERSONAL_VERSION_CODE" \
+            --output personal-apk-evidence/PERSONAL_APK_MANIFEST.json
+          python3 -B scripts/dev/android/personal_apk.py verify \
+            --folder android-app/app/build/outputs/apk/personal \
+            --manifest personal-apk-evidence/PERSONAL_APK_MANIFEST.json \
+            --app android-app/app/build/outputs/apk/personal/app-personal.apk \
+            --test-apk android-app/app/build/outputs/apk/androidTest/personal/app-personal-androidTest.apk \
+            --expected-sha "$GITHUB_SHA" --expected-run-id "$GITHUB_RUN_ID"
+          cp android-app/app/build/outputs/apk/personal/app-personal.apk personal-apk-evidence/
+          cp android-app/app/build/outputs/apk/androidTest/personal/app-personal-androidTest.apk personal-apk-evidence/
+      - name: Publish source-bound, unqualified personal candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skybind-personal-apk-candidate-unqualified
+          path: personal-apk-evidence/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove signer secret material
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="${RUNNER_TEMP}/skybind-signing/skybind-dev.p12"
+          if test -f "$f" && test ! -L "$f"; then rm -f -- "$f"; fi

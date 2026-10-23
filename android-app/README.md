@@ -1,26 +1,44 @@
-# Skybind native Android — read-only RootService M1
+# Skybind — native Android Filesystem Control
 
-This repo produces app and test APKs **only through GitHub Actions**, not local Gradle. The native app has five Compose screens (Home, Browser, Jobs, Activity, More) backed by a real read-only RPC client. It is not a privileged file manager or a generic rclone executor.
+Skybind is a rooted Android control client for the Skybind daemon. It provides Home, Mounts, Browser, Jobs and More (including Activity and diagnostics) using Jetpack Compose. It is not a generic root shell or a separate filesystem implementation.
 
-## Privilege and connection model
+## Connection and safety
 
-1. App launches **unpaired**; it does not auto-request root or access `/data/adb`.
-2. The user explicitly taps **Connect** and must approve the app through the device's supported root manager.
-3. libsu 6.0.0 starts an **app-owned RootService**; Binder checks the real UID, installed package ownership and signing information on every request. No exported Android broker component is registered. App process remains unprivileged.
-4. RootService only permits `system.capabilities`, `runtime.status`, `provider.remotes`, `mount.list`, `jobs.status`, and `operation.events`, all using RPC `class=query`. It requires a root-owned `0700` daemon socket directory, `0600` Unix socket, and root peer credentials. No endpoint override or arbitrary shell.
-5. Strict JSON and response limits; the app maps only non-secret fields. Disconnect, malformed responses, unsupported versions and root refusal leave UI unpaired/disconnected with stale data hidden. Jobs and Activity are different authoritative data sources; all controls that mutate remain disabled.
+- The app automatically attempts to bind its app-owned `libsu` RootService on foreground entry when auto-connect is enabled. Persistent root permission is controlled by KernelSU/Magisk/APatch, **not** silently granted by the app. Denial and transport loss fail closed with an explicit Retry/Disconnect option.
+- RootService verifies caller/package/signature and daemon peer identity; remote file browsing remains bounded and read-only. Jobs and mount operations use dedicated narrowly typed RPC and Binder interfaces.
+- Mounts are first-class: query live status, preview and confirm Start, Stop, Restart and Reconcile; create/edit/delete configuration with daemon validation/revision/one-use proof, field diagnostics and whole-registry rollback. All writes need explicit user consent. Nothing mutates mounts or starts jobs during app launch/reconnect/refresh.
+- BKX background PackageManager authority is a **separate** opt-in foreground service with its own controls. Automatic root binding never starts BKX in the background.
 
-**Security scope:** This app-owned root service is an opt-in RootService, not an independently credentialed cross-UID module broker. It does **not** establish authorization for BKX or chrootctl, nor does it qualify release security. Once the root manager grants root to an app, its privileged code is security-sensitive and must be audited as such.
+## App identity
 
-**Outstanding device gates:** hosted GitHub Kotlin/AIDL compilation, dependency resolution, exact APK/signature provenance, authorization refusal and acceptance under KernelSU, live daemon capabilities/status/remotes/mounts/jobs/events, rebind on Activity recreation, root-service death/disconnect, journal gap, no mutation and root rollback. Do not claim these from source tests.
+- Package ID: `io.github.mikeyphw.skybind` (preserved for in-place upgrades).
+- Launcher label: `Skybind` via `@string/app_name`.
+- Existing linked-S vector/adaptive launcher icon (including Android themed monochrome mask), platform splash icon, and dedicated white Skybind notification status icon.
+- Personal builds are **non-debuggable** and branded `0.2.0-personal.<versionCode>`, with an explicit version code greater than one. Debug builds retain `0.1.0-dev`/versionCode 1 and remain distinguishable as debug artifacts.
 
-**Signing transition:** The previous ephemeral hosted debug certificate cannot update already installed Skybind APKs. A source-bound persistent signing policy is now provided through `scripts/dev/android/stable_signing.py` and encrypted GitHub Actions secrets. First-time migration of both packages requires explicit uninstall, which erases their private app data. Subsequent successful builds use the same certificate, provided the signing key is retained. No APK build, install, uninstall, data clear or backup happens as part of the signing overlay.
+## GitHub-only APK builds
 
-**Provision once:** In Termux, run `python3 -B scripts/dev/android/stable_signing.py provision` after installing `keytool` (`pkg install openjdk-17` if needed) and authenticating `gh`. Choose a strong password. The key persists at `$HOME/.local/share/skybind/signing/skybind-dev.p12` (mode 0600), outside Git; keep a secure private copy of **this signing key** for future upgrades. This is unrelated to backups of previous app data. The command uploads only the encoded keystore, password, and public certificate pin as GitHub Actions secrets. It does not display or commit the password/key. Do not run `gh workflow run` until all three secrets are configured.
+The repository prohibits local Devtool APK compilation: both app and instrumentation APK are built by GitHub Actions. See `scripts/dev/android/verify_cloud_build_only.py`.
 
-**CI enforcement:** `ci-prepare` requires GitHub-hosted execution, three secrets, valid keystore bytes and the exact pinned certificate before Gradle can execute. `ci-finalize` requires BOTH app and AndroidTest APK signing identities to match that pin. The hosted manifest records `persistent-github-debug` and `signing_certificate_pin_sha256`. Missing credentials or signer rotation BLOCK the build; there is no ephemeral fallback. PR builds without access to secrets fail closed rather than using public credentials. This key is for development APKs, not a production release key.
+- `.github/workflows/skybind-android-apks.yml` retains the older **debug** lane. It uses a persistent GitHub signing keystore and fails closed on absent/rotated certificate pins.
+- `.github/workflows/skybind-personal-apk.yml` is the **personal candidate** lane. Dispatch manually from `main` with an explicit higher `version_code`. Its `personal` build type is non-debuggable; the AndroidTest APK is separately assembled for that same personal variant. The **same existing persistent signing certificate** is reused intentionally for in-place upgrade continuity. Never silently rotate it.
+- The personal workflow publishes exactly three files: `app-personal.apk`, `app-personal-androidTest.apk`, `PERSONAL_APK_MANIFEST.json`, in the `skybind-personal-apk-candidate-unqualified` artifact. The JSON binds exact byte digests, compiled package identities, signing cert, version, permissions, privileged AIDL/source inventory, GitHub SHA/run and toolchain. It always reports **`PERSONAL_APK_CANDIDATE_ONLY`**; no device or independent release qualification is claimed.
 
+## Safe download and device staging
 
-### M2-N1 folder browsing
+The owner should have `gh`, `aapt`, `apksigner`, `adb` and the existing local public signer pin (`~/.local/share/skybind/signing/signer-sha256.txt`). After GitHub builds the personal candidate:
 
-After explicitly connecting the read-only RootService, open Browser, select a configured remote and navigate directories with Up/Remotes. This uses daemon `provider.browse` (`lsjson --max-depth 1`) rather than Android root storage access. Folder and file names, path segments, and response size are bounded; stale replies are dropped when the remote changes or a connection is lost. Upload, download, overwrite and cancellation remain disabled pending separate proof-bound operations. Device/browser checks still require GitHub-hosted APKs and authentic fixtures.
+```bash
+python3 scripts/dev/android/personal_apk_device.py fetch --run-id <GITHUB_RUN_ID>
+python3 scripts/dev/android/personal_apk_device.py device \
+  --folder "$HOME/Downloads/Skybind-Personal-APK-<GITHUB_RUN_ID>" \
+  --serial <ADB_SERIAL> --source-sha <EXACT_GIT_SHA>
+```
+
+Both commands are **non-installing**. The first authenticates the GitHub run and validates the signed byte pair. The second inspects the currently installed app/test pair, compares the locally pinned signer and requires a strictly higher version code for upgrades. To authorize an in-place install, repeat the `device` command with an explicit `--install`. It never uninstalls, clears data, requests `-d` downgrade, executes root shell, or force-stops the app. If app/test installation partly fails, inspect the device state before attempting recovery.
+
+A different installed signer blocks an in-place update: a migration would require separate user review and must not be silently performed. **Do not confuse the personal APK with the separately approved personal module ZIP.**
+
+## Release qualification
+
+All new Android source from NATIVE-00/01 through NATIVE-05 requires fresh GitHub APK provenance and real-device positive/negative acceptance, including new Mounts/config/rollback and automatic root flows, and an API 36 test. Existing historical nine-lane APK receipts and the older personal module approval do not qualify new app bytes. `docs/qualification/NATIVE_05_PERSONAL_APK_ACCEPTANCE.md` lists every promise and gate; NATIVE-06 covers the final device checks and separate owner approval.

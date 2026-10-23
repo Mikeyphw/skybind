@@ -7,7 +7,7 @@
     <!-- Visibility is limited to the single approved BKX package. -->
     <queries><package android:name="com.mikeyphw.bkx.android" /></queries>
     <application android:allowBackup="false" android:fullBackupContent="false"
-        android:label="Skybind" android:icon="@mipmap/ic_launcher" android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
