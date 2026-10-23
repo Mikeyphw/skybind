@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Skybind app icon</title>
+  <desc id="desc">A violet and cyan linked S-shaped path inside a midnight rounded-square field, evoking an authenticated connection between a remote source and a mounted destination.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#211C42"/>
+      <stop offset="0.54" stop-color="#14192F"/>
+      <stop offset="1" stop-color="#0C1729"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="0.72" cy="0.24" r="0.85">
+      <stop offset="0" stop-color="#7959DB" stop-opacity="0.17"/>
+      <stop offset="1" stop-color="#7959DB" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="upper" x1="160" y1="160" x2="354" y2="287" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C8BAFF"/>
+      <stop offset="0.5" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#7C6CEB"/>
+    </linearGradient>
+    <linearGradient id="lower" x1="152" y1="370" x2="364" y2="228" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6CE9E0"/>
+      <stop offset="0.52" stop-color="#75C9FB"/>
+      <stop offset="1" stop-color="#88A7FF"/>
+    </linearGradient>
+    <clipPath id="shape"><rect x="16" y="16" width="480" height="480" rx="116"/></clipPath>
+  </defs>
+  <g clip-path="url(#shape)">
+    <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#background)"/>
+    <rect x="16" y="16" width="480" height="480" fill="url(#aura)"/>
+    <circle cx="256" cy="256" r="184" stroke="#D4D4FF" stroke-opacity="0.10" stroke-width="2" fill="none"/>
+    <circle cx="256" cy="256" r="145" stroke="#D4D4FF" stroke-opacity="0.05" stroke-width="2" fill="none"/>
+    <!-- Two interlocking paths form an abstract S, with endpoints representing source and mount. -->
+    <path d="M350 171 H246 C196 171 160 200 160 230 C160 269 193 275 240 275 H287" fill="none" stroke="url(#upper)" stroke-width="37" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M162 345 H266 C316 345 352 316 352 286 C352 247 319 241 272 241 H225" fill="none" stroke="url(#lower)" stroke-width="37" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="350" cy="171" r="9.5" fill="#F0E9FF"/>
+    <circle cx="162" cy="345" r="9.5" fill="#D8FEFA"/>
+  </g>
+</svg>

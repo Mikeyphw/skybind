@@ -36,7 +36,7 @@ class LiveReadSnapshotReader {
                 supported += op.optString("name")
             }
         }
-        if (!supported.containsAll(setOf("runtime.status", "provider.remotes", "jobs.status", "mount.list"))) {
+        if (!supported.containsAll(setOf("runtime.status", "provider.remotes", "jobs.status", "mount.list", "mount.status"))) {
             reset()
             return SkybindReadSnapshot(LinkState.UNSUPPORTED, "Daemon is missing required read-only capabilities")
         }
@@ -55,11 +55,26 @@ class LiveReadSnapshotReader {
             require(name.isNotBlank() && name.length <= 96)
             RemoteSummary(name, name, obj.optString("type", "unknown").take(48))
         }.take(128)
+        // mount.list enumerates configured names, not actual FUSE ownership.
+        // For each entry ask the daemon for its authoritative, bounded state;
+        // never publish a guessed "running" or a "Not queried" placeholder.
+        if (mounts.length() > 64) throw SnapshotStageException("mount.list")
         val mountItems = (0 until mounts.length()).map { i ->
             val name = mounts.getString(i)
-            require(name.isNotBlank() && name.length <= 96)
-            MountSummary(name, name, "Not queried")
-        }.take(128)
+            if (!Regex("[A-Za-z][A-Za-z0-9_-]{0,62}").matches(name))
+                throw SnapshotStageException("mount.list")
+            val value = read("mount.status", JSONObject().put("name", name)) as? JSONObject
+                ?: throw SnapshotStageException("mount.status")
+            val observed = value.optString("observed", "")
+            if (value.optString("name") != name ||
+                observed !in setOf("RUNNING", "STOPPED", "DEGRADED", "MOUNT_STALE") ||
+                !value.has("desired") || value.opt("desired") !is Boolean)
+                throw SnapshotStageException("mount.status")
+            MountSummary(name, name, observed, value.getBoolean("desired"),
+                value.optString("reason", "").take(96))
+        }
+        if (mountItems.map { it.id }.toSet().size != mountItems.size)
+            throw SnapshotStageException("mount.list")
         // Historical Go clone() serialized a zero-length registry as jobs:null.
         // Normalize ONLY explicit null with a valid schema and revision; absent,
         // malformed or oversized registries remain rejected, not silently empty.
@@ -138,7 +153,7 @@ class LiveReadSnapshotReader {
         val degraded = page.optBoolean("degraded") || page.optBoolean("gap") || page.optBoolean("cursor_reset")
         return SkybindReadSnapshot(
             link = LinkState.ONLINE,
-            detail = if (degraded) "Connected · event journal gap/degraded" else "Connected · read-only root service",
+            detail = if (degraded) "Connected · event journal gap/degraded" else "Connected · authenticated root service",
             serverVersion = "Skybind protocol 1 · ${runtime.optString("provider", "runtime")}",
             remotes = remoteItems, mounts = mountItems, jobs = runItems, events = history,
             cursor = cursor, hasEventGap = degraded, definitions = definitions,

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Skybind adaptive launcher foreground</title>
+  <desc id="desc">Violet and cyan interlocked paths in a letter S, without a background for Android adaptive icon masking.</desc>
+  <defs>
+    <linearGradient id="upper" x1="160" y1="160" x2="354" y2="287" gradientUnits="userSpaceOnUse"><stop stop-color="#C8BAFF"/><stop offset="0.5" stop-color="#A78BFA"/><stop offset="1" stop-color="#7C6CEB"/></linearGradient>
+    <linearGradient id="lower" x1="152" y1="370" x2="364" y2="228" gradientUnits="userSpaceOnUse"><stop stop-color="#6CE9E0"/><stop offset="0.52" stop-color="#75C9FB"/><stop offset="1" stop-color="#88A7FF"/></linearGradient>
+  </defs>
+  <path d="M350 171 H246 C196 171 160 200 160 230 C160 269 193 275 240 275 H287" fill="none" stroke="url(#upper)" stroke-width="37" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M162 345 H266 C316 345 352 316 352 286 C352 247 319 241 272 241 H225" fill="none" stroke="url(#lower)" stroke-width="37" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="350" cy="171" r="9.5" fill="#F0E9FF"/>
+  <circle cx="162" cy="345" r="9.5" fill="#D8FEFA"/>
+</svg>

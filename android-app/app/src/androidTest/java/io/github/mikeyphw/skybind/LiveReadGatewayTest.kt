@@ -11,7 +11,7 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class LiveReadGatewayTest {
-    private val required = listOf("runtime.status", "provider.remotes", "mount.list", "jobs.status")
+    private val required = listOf("runtime.status", "provider.remotes", "mount.list", "mount.status", "jobs.status")
     private fun envelope(value: Any): String = JSONObject().put("schema_version", 1)
         .put("request_id", "fixture").put("ok", true).put("result", value).toString()
     private fun capabilities(): JSONObject = JSONObject().put("protocol_version", 1).put("total", 57)
@@ -22,6 +22,8 @@ class LiveReadGatewayTest {
         "runtime.status" -> JSONObject().put("provider", "fixture")
         "provider.remotes" -> JSONArray().put(JSONObject().put("name", "photos").put("type", "drive"))
         "mount.list" -> JSONArray().put("photos")
+        "mount.status" -> JSONObject().put("name", JSONObject(args).getString("name"))
+            .put("observed", "RUNNING").put("desired", true).put("reason", "owned_fuse_mount")
         "jobs.status" -> JSONObject().put("registry", JSONObject()
             .put("schema_version", 1).put("revision", 1).put("jobs", JSONArray()))
             .put("runs", JSONArray().put(JSONObject()
@@ -39,9 +41,22 @@ class LiveReadGatewayTest {
         assertEquals(LinkState.ONLINE, result.link)
         assertEquals("photos", result.remotes.single().id)
         assertEquals("photos", result.mounts.single().id)
+        assertEquals("RUNNING", result.mounts.single().state)
+        assertTrue(result.mounts.single().desired)
         assertEquals(16L, result.activeJobs.single().transferredBytes)
         assertEquals(2L, result.cursor)
         assertEquals("job.progress", result.timeline.single().title)
+    }
+
+    @Test fun rejectsMountStatusIdentityDrift() {
+        val failure = runCatching {
+            LiveReadSnapshotReader().fetch { op, args ->
+                if (op == "mount.status") envelope(JSONObject().put("name", "different")
+                    .put("observed", "RUNNING").put("desired", true))
+                else fixture(op, args)
+            }
+        }.exceptionOrNull()
+        assertTrue(failure is io.github.mikeyphw.skybind.bridge.SnapshotStageException)
     }
 
     @Test fun legacyNullEmptyRegistryIsReadOnlyAndOnline() {

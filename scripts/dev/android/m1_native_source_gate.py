@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only M1 native Android source contract; never builds APKs locally."""
+"""Native foreground auto-root M1 source contract; never builds APKs locally."""
 from __future__ import annotations
 import json
 from pathlib import Path
@@ -31,7 +31,8 @@ def verify(root: Path = ROOT) -> dict:
     workflow = read(Path('.github/workflows/skybind-android-apks.yml'))
 
     need('SkybindSessionViewModel by viewModels()' in activity and
-         'onConnect = session::connect' in activity and 'onRefresh = session::refresh' in activity,
+         'onConnect = session::connect' in activity and 'onRefresh = session::refresh' in activity and
+         'session.onForeground()' in activity and 'session.onBackground()' in activity,
          'PRODUCTION_CONNECT_FLOW_MISSING')
     bridge = read(MAIN / 'bridge/RootReadBridgeService.kt')
     session = read(MAIN / 'bridge/RootReadSession.kt')
@@ -41,15 +42,19 @@ def verify(root: Path = ROOT) -> dict:
     settings = read(Path('android-app/settings.gradle.kts'))
     gateway_test = read(TEST / 'LiveReadGatewayTest.kt')
     need('RootReadSession(app)' in viewmodel and 'root service' in session.lower() and
-         'suspend fun connect()' in session and 'RootService.bind' in session,
-         'EXPLICIT_ROOT_CONNECT_FLOW_MISSING')
+         'suspend fun connect()' in session and 'RootService.bind' in session and
+         'fun onForeground()' in viewmodel and 'autoConnectEnabled' in viewmodel and
+         'private fun connectInternal()' in viewmodel and
+         'if (foreground && autoConnectEnabled && !explicitlyDisconnected && !reconnectUsed)' in viewmodel and
+         'reconnectUsed = true' in viewmodel and 'fun onBackground()' in viewmodel,
+         'AUTO_ROOT_CONNECT_FLOW_MISSING')
     need('Binder.getCallingUid()' in bridge and 'getPackagesForUid(caller)' in bridge and
          'GET_SIGNING_CERTIFICATES' in bridge and 'Process.myUid() != 0' in bridge,
          'BINDER_CALLER_VERIFICATION_MISSING')
     need('Os.lstat' in bridge and 'socket.peerCredentials.uid != 0' in bridge and
          'socket.shutdownOutput()' in bridge and '262144' in bridge and '65536' in bridge,
          'ROOT_SOCKET_BOUNDARY_UNVERIFIED')
-    read_methods = ('system.capabilities', 'runtime.status', 'provider.remotes', 'mount.list', 'jobs.status', 'operation.events')
+    read_methods = ('system.capabilities', 'runtime.status', 'provider.remotes', 'mount.list', 'mount.status', 'jobs.status', 'operation.events')
     need(all('"' + method + '"' in bridge and '"' + method + '"' in reader for method in read_methods),
          'READ_ONLY_METHOD_NOT_EXPLICIT')
     need('rpc(method, "query", checkedReadArguments(method, arguments))' in bridge and
@@ -83,7 +88,7 @@ def verify(root: Path = ROOT) -> dict:
          'STALE_BACKEND_DATA_NOT_CLEARED')
     need('val activeJobs' in model and 'val timeline' in model and 'events.distinctBy' in model,
          'JOB_JOURNAL_BOUNDARIES_NOT_EXPLICIT')
-    for key in ('screen-home', 'screen-browser', 'screen-jobs', 'screen-activity', 'screen-more'):
+    for key in ('screen-home', 'screen-mounts', 'screen-browser', 'screen-jobs', 'screen-more'):
         # Dynamic screen tag construction must match exact tab display names.
         need(key.split('-')[1].capitalize() in ui and '"screen-" + title.lowercase()' in ui,
              'SCREEN_TAG_MISSING_' + key)
@@ -91,7 +96,10 @@ def verify(root: Path = ROOT) -> dict:
                 '"activity-filter-warnings"', '"cancel-${job.id}"', '"browser-write-disabled"'):
         need(key in ui, 'UI_SEMANTIC_TAG_MISSING_' + key)
     need('enabled = false' in ui and 'val safe = snapshot.failClosed()' in ui and
-         'connect-readonly' in ui and 'onConnect: () -> Unit' in ui,
+         'connect-readonly' in ui and 'onConnect: () -> Unit' in ui and
+         'onAutoConnectChanged' in ui and 'MountsPage(safe' in ui and
+         'items(s.mounts, key = { it.id })' in ui and
+         'itemsIndexed(browse.entries.take(200)' in ui,
          'UNAUTHORIZED_OPERATION_NOT_DISABLED')
     need('fun realNavigationHasFiveDistinctPages' in test and
          'fun activityIsAJournalNotAnActionableJobQueue' in test and
@@ -110,8 +118,8 @@ def verify(root: Path = ROOT) -> dict:
     need('ui-test-manifest' in gradle and 'ui-test-junit4' in gradle and
          ':app:assembleDebug :app:assembleDebugAndroidTest' in workflow,
          'ANDROID_TEST_BUILD_CONTRACT_DRIFT')
-    return {'state': 'PASS_M1_READONLY_BRIDGE_SOURCE_ONLY', 'screens': 5,
-            'instrumentation_source_tests': 11, 'read_only_gateway': 'ROOT_SERVICE_EXPLICIT_OPT_IN',
+    return {'state': 'PASS_M1_FOREGROUND_AUTO_BRIDGE_SOURCE_ONLY', 'screens': 5,
+            'instrumentation_source_tests': 11, 'read_only_gateway': 'ROOT_SERVICE_FOREGROUND_AUTO_APPROVAL',
             'broker_authenticated': False, 'device_tests_executed': False,
             'github_apks_built': False, 'release_qualified': False}
 

@@ -54,13 +54,17 @@ class LiveUiAcceptanceTest {
         if (requested != null && !Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,63}").matches(requested))
             throw AssertionError("SKYBIND_UI_FAILED_REMOTE_SELECTION")
 
-        step("SKYBIND_UI_FAILED_INITIAL_UNPAIRED") {
-            awaitTag("screen-home")
-            compose.onNodeWithTag("connect-readonly").assertExists()
-            compose.onNodeWithTag("disconnect-readonly").assertDoesNotExist()
-        }
         step("SKYBIND_UI_BLOCKED_CONNECT") {
-            compose.onNodeWithTag("connect-readonly").performClick()
+            awaitTag("screen-home")
+            // New native contract: foreground automatically requests root.
+            // If the root manager denied it, an explicit user Retry remains.
+            compose.waitUntil(70_000L) {
+                "connect-readonly" in tags("connect-readonly") ||
+                    "disconnect-readonly" in tags("disconnect-readonly")
+            }
+            if ("connect-readonly" in tags("connect-readonly")) {
+                compose.onNodeWithTag("connect-readonly").performClick()
+            }
             awaitTag("disconnect-readonly")
         }
         step("SKYBIND_UI_FAILED_BROWSER_NAVIGATION") {
@@ -143,7 +147,8 @@ class LiveUiAcceptanceTest {
             assertTrue("SKYBIND_UI_FAILED_DISCONNECT_CLEANUP", tags("remote-").isEmpty())
             compose.onNodeWithTag("nav-jobs").performClick()
             assertTrue("SKYBIND_UI_FAILED_DISCONNECT_CLEANUP", tags("job-").isEmpty())
-            compose.onNodeWithTag("nav-activity").performClick()
+            compose.onNodeWithTag("nav-more").performClick()
+            compose.onNodeWithTag("more-view-activity").performClick()
             assertTrue("SKYBIND_UI_FAILED_DISCONNECT_CLEANUP", tags("event-").isEmpty())
         }
         step("SKYBIND_UI_FAILED_RECONNECT") {

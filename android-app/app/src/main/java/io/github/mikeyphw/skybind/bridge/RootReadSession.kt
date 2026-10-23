@@ -18,7 +18,7 @@ import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** Only an explicit UI gesture binds the root service. No automatic su/loopback fallback. */
+/** Foreground auto-bind via the system root manager; no unapproved su/loopback fallback. */
 class RootReadSession(private val app: Application, private val disconnected: () -> Unit) : SkybindReadOnlyGateway {
     @Volatile private var remote: IRootReadBridge? = null
     private var connection: ServiceConnection? = null
@@ -63,14 +63,14 @@ class RootReadSession(private val app: Application, private val disconnected: ()
 
     override suspend fun snapshot(): SkybindReadSnapshot = withContext(Dispatchers.IO) {
         val api = remote ?: return@withContext SkybindReadSnapshot(LinkState.NOT_AUTHORIZED,
-            "Tap Connect and approve Skybind in your root manager to begin read-only access.")
+            "Root authorization pending; approve Skybind in your root manager when prompted.")
         // A read started before a disconnect must never publish a result into a
         // replacement session or leave its cursor in the current reader.
         val ownedReader = reader
         try {
             val value = ownedReader.fetch { method, args -> api.query(method, args) }
             if (remote !== api || reader !== ownedReader) {
-                SkybindReadSnapshot(LinkState.DISCONNECTED, "Read-only session expired; reconnect explicitly.")
+                SkybindReadSnapshot(LinkState.DISCONNECTED, "Authenticated session expired; reconnect required.")
             } else value
         } catch (cancel: CancellationException) {
             throw cancel
@@ -82,7 +82,7 @@ class RootReadSession(private val app: Application, private val disconnected: ()
             SkybindReadSnapshot(LinkState.DISCONNECTED, "Snapshot rejected at ${e.operation}. Reconnect after checking daemon compatibility.")
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { transportLost() }
-            SkybindReadSnapshot(LinkState.DISCONNECTED, "Skybind daemon unavailable. Tap Connect to reconnect.")
+            SkybindReadSnapshot(LinkState.DISCONNECTED, "Skybind daemon unavailable. Retry the connection.")
         }
     }
 

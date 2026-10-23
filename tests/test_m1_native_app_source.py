@@ -13,7 +13,7 @@ spec.loader.exec_module(mod)
 
 class NativeM1SourceTests(unittest.TestCase):
     def test_real_source_contract(self):
-        self.assertEqual(mod.verify(ROOT)['state'], 'PASS_M1_READONLY_BRIDGE_SOURCE_ONLY')
+        self.assertEqual(mod.verify(ROOT)['state'], 'PASS_M1_FOREGROUND_AUTO_BRIDGE_SOURCE_ONLY')
 
     def copy_fixture(self, files):
         d = tempfile.TemporaryDirectory()

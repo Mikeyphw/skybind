@@ -179,12 +179,28 @@ def product_compatible(root:Path,s:dict,docs:dict)->bool:
         return False
     if s['commit']==a:return True
     try:
-        # Frozen original evidence may be reused across qualification-tooling edits,
-        # but never after shipped module, daemon, Android or WebUI changes.
-        p=subprocess.run(['git','-C',str(root),'diff','--quiet',a,s['commit'],'--',
-             'cmd','internal','module','android','apps','docs/contracts',
-             'scripts/dev/runtime','scripts/dev/android'],capture_output=True,timeout=20,check=False)
-        return p.returncode==0
+        # The old directory-only negative check omitted android-app (the real APK).
+        # Reuse cross-source evidence ONLY for explicitly enumerated tooling/docs
+        # edits; every unknown path and Android/CI product delta fails closed.
+        p=subprocess.run(['git','-C',str(root),'diff','--name-status','--no-renames',
+             a,s['commit']],capture_output=True,text=True,timeout=20,check=False)
+        if p.returncode != 0: return False
+        permitted_roots=('docs/','tests/','scripts/devtool/',
+                         'scripts/dev/gates/','scripts/dev/qualification/',
+                         'scripts/dev/seal/','scripts/dev/release-audit/')
+        permitted_files={'.devtool.toml',
+                         'scripts/dev/integration/personal_release.py',
+                         'scripts/dev/integration/local_build.py'}
+        for line in p.stdout.splitlines():
+            parts=line.split('\t')
+            if len(parts)!=2 or parts[0] not in ('A','M','D'):
+                return False
+            path=parts[1]
+            if path.startswith("docs/contracts/"):
+                return False
+            if path not in permitted_files and not path.startswith(permitted_roots):
+                return False
+        return True
     except (OSError,subprocess.TimeoutExpired):return False
 
 def candidate_info(path:Path)->dict:

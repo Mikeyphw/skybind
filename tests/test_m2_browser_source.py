@@ -66,7 +66,7 @@ class BrowserSafetyRegression(unittest.TestCase):
 
     def test_reject_online_gate_inversion_in_browser(self):
         self.negative(check.MAIN/'ui/SkybindApp.kt',
-                      'if (!s.online) {\n            InfoPanel("Remote browser unavailable"',
+                      'if (!s.online) {\n            item { InfoPanel("Remote browser unavailable"',
                       'if (s.online) {\n            InfoPanel("Remote browser unavailable"')
 
     def test_reject_browse_as_a_mutation(self):

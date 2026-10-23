@@ -13,7 +13,7 @@ spec.loader.exec_module(gate)
 
 class RootReadBridgeContract(unittest.TestCase):
     def test_complete_source_contract(self):
-        self.assertEqual(gate.verify(ROOT)['read_only_gateway'], 'ROOT_SERVICE_EXPLICIT_OPT_IN')
+        self.assertEqual(gate.verify(ROOT)['read_only_gateway'], 'ROOT_SERVICE_FOREGROUND_AUTO_APPROVAL')
 
     def run_negative(self, rel, before, after):
         with tempfile.TemporaryDirectory(prefix='skybind-m1-negative-') as name:
@@ -44,7 +44,7 @@ class RootReadBridgeContract(unittest.TestCase):
         self.run_negative(gate.MAIN/'bridge/RootReadBridgeService.kt',
             'socket.peerCredentials.uid != 0', 'false')
 
-    def test_cannot_silently_bind_root_on_activity_start(self):
+    def test_cannot_remove_auto_root_wiring(self):
         self.run_negative(gate.MAIN/'MainActivity.kt',
             'onConnect = session::connect', 'onConnect = session::refresh')
 

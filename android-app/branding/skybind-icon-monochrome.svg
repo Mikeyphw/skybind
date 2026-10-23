@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Skybind monochrome adaptive launcher icon</title>
+  <desc id="desc">White S-shaped connection paths for Android themed icons.</desc>
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="37">
+    <path d="M350 171 H246 C196 171 160 200 160 230 C160 269 193 275 240 275 H287"/>
+    <path d="M162 345 H266 C316 345 352 316 352 286 C352 247 319 241 272 241 H225"/>
+  </g>
+</svg>

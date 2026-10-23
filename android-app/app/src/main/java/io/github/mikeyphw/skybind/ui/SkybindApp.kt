@@ -5,6 +5,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,13 +20,16 @@ import androidx.compose.ui.unit.dp
 import io.github.mikeyphw.skybind.model.*
 
 private enum class Tab(val label: String, val symbol: String) {
-    HOME("Home", "⌂"), BROWSER("Browser", "⌕"), JOBS("Jobs", "▤"),
-    ACTIVITY("Activity", "◷"), MORE("More", "☰"),
+    HOME("Home", "⌂"), MOUNTS("Mounts", "▥"), BROWSER("Browser", "⌕"),
+    JOBS("Jobs", "▤"), MORE("More", "☰"),
 }
 
 @Composable
 fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: () -> Unit = {},
     onDisconnect: () -> Unit = {},
+    autoConnectEnabled: Boolean = true, onAutoConnectChanged: (Boolean) -> Unit = {},
+    bkxAuthorityRunning: Boolean = false, onEnableBkx: () -> Unit = {},
+    onDisableBkx: () -> Unit = {},
     browser: BrowserState = BrowserState(), onBrowseRemote: (String) -> Unit = {},
     onBrowseFolder: (String) -> Unit = {}, onBrowseUp: () -> Unit = {},
     onSwitchRemote: () -> Unit = {},
@@ -34,6 +38,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     onPreviewJob: (String) -> Unit = {}, onConfirmJob: () -> Unit = {},
     onDismissJob: () -> Unit = {}, onCancelOwnedRun: (String) -> Unit = {}) {
     var selected by rememberSaveable { mutableStateOf(Tab.HOME.name) }
+    var activityFromJobs by rememberSaveable { mutableStateOf(false) }
     val tab = Tab.entries.firstOrNull { it.name == selected } ?: Tab.HOME
     val safe = snapshot.failClosed()
     val dark = isSystemInDarkTheme()
@@ -49,7 +54,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
                             Text("Skybind", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text("Android control center", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Filesystem Control", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TextButton(onClick = onRefresh, modifier = Modifier.testTag("action-refresh")) { Text("Refresh") }
                     }
@@ -71,12 +76,17 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
         ) { inner ->
             when (tab) {
                 Tab.HOME -> HomePage(safe, Modifier.padding(inner), onConnect, onDisconnect) { selected = it.name }
+                Tab.MOUNTS -> MountsPage(safe, Modifier.padding(inner))
                 Tab.BROWSER -> BrowserPage(safe, browser.forSnapshot(safe), Modifier.padding(inner),
                     onBrowseRemote, onBrowseFolder, onBrowseUp, onSwitchRemote)
                 Tab.JOBS -> JobsPage(safe, Modifier.padding(inner), ownedRunIds, jobBusy,
-                    jobError, onPreviewJob, onCancelOwnedRun) { selected = Tab.ACTIVITY.name }
-                Tab.ACTIVITY -> ActivityPage(safe, Modifier.padding(inner)) { selected = Tab.JOBS.name }
-                Tab.MORE -> MorePage(safe, Modifier.padding(inner))
+                    jobError, onPreviewJob, onCancelOwnedRun) { activityFromJobs = true; selected = Tab.MORE.name }
+                Tab.MORE -> MorePage(safe, Modifier.padding(inner), onConnect, onDisconnect,
+                    autoConnectEnabled, onAutoConnectChanged, bkxAuthorityRunning,
+                    onEnableBkx, onDisableBkx, activityFromJobs, {
+                        if (!it && activityFromJobs) selected = Tab.JOBS.name
+                        activityFromJobs = it
+                    })
             }
         }
         if (jobPreview != null && safe.online) {
@@ -162,7 +172,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
         ConnectionPanel(s)
         if (s.link == LinkState.NOT_AUTHORIZED || s.link == LinkState.DISCONNECTED) {
             Button(onClick = onConnect, modifier = Modifier.testTag("connect-readonly")) {
-                Text("Connect · root approval required")
+                Text("Retry root connection")
             }
         } else if (s.link == LinkState.ONLINE || s.link == LinkState.DEGRADED) {
             // Unbind only this app-owned session; do NOT revoke the root grant or stop the daemon.
@@ -174,59 +184,111 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
             InfoPanel("Remotes", if (s.online) "${s.remotes.size} configured" else "Unavailable", Modifier.weight(1f))
             InfoPanel("Jobs", if (s.online) "${s.activeJobs.size} active" else "Unavailable", Modifier.weight(1f))
         }
-        InfoPanel("Mounts", if (s.online) "${s.mounts.size} known" else "No authenticated mount status")
+        InfoPanel("Mounts", if (s.online) "${s.mounts.size} configured · ${s.mounts.count { it.state == "RUNNING" }} running"
+            else "Mount status unavailable until connected")
         Text("Quick access", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { select(Tab.MOUNTS) }, modifier = Modifier.testTag("home-open-mounts")) { Text("Mounts") }
             OutlinedButton(onClick = { select(Tab.BROWSER) }, modifier = Modifier.testTag("home-open-browser")) { Text("Browse") }
             OutlinedButton(onClick = { select(Tab.JOBS) }, modifier = Modifier.testTag("home-open-jobs")) { Text("Jobs") }
         }
-        if (!s.online) InfoPanel("Protected by default", "No root approval is requested until Connect is tapped. The app never receives Skybind credentials or write capabilities.")
+        if (!s.online) InfoPanel("Root access", "Skybind connects automatically in the foreground. Approval is controlled by your root manager; no mount or job action starts automatically.")
+    }
+}
+
+@Composable private fun MountsPage(s: SkybindReadSnapshot, modifier: Modifier) {
+    LazyColumn(modifier.fillMaxSize().testTag("screen-mounts"),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Mounts", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+                Text("Authoritative daemon mount status", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        item { ConnectionPanel(s) }
+        if (!s.online) {
+            item { InfoPanel("Mount status unavailable", "Authorize Skybind to inspect configured mounts.") }
+        } else if (s.mounts.isEmpty()) {
+            item { InfoPanel("No mounts configured", "Configure a mount in the WebUI. Native create and lifecycle operations will be added after proof-bound bridge review.") }
+        } else {
+            item { Text("${s.mounts.size} configured · ${s.mounts.count { it.state == "RUNNING" }} running") }
+            items(s.mounts, key = { it.id }) { mount ->
+                val status = when (mount.state) {
+                    "RUNNING" -> "Running"
+                    "STOPPED" -> "Stopped"
+                    "DEGRADED" -> "Degraded"
+                    "MOUNT_STALE" -> "Stale or foreign mount"
+                    else -> "Unknown"
+                }
+                InfoPanel(mount.displayName,
+                    "${if (mount.desired) "Desired: on" else "Desired: off"}" +
+                    mount.reason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                    Modifier.testTag("mount-${mount.id}"), status)
+            }
+            item { Text("Mount changes are not available in this build; no unsafe root actions are exposed.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
     }
 }
 
 @Composable private fun BrowserPage(s: SkybindReadSnapshot, browse: BrowserState, modifier: Modifier,
     onRemote: (String) -> Unit, onFolder: (String) -> Unit, onUp: () -> Unit, onSwitch: () -> Unit) {
     var search by rememberSaveable { mutableStateOf("") }
-    Page("Browser", "Live remote contents · never mounts or transfers files", modifier) {
-        ConnectionPanel(s)
+    LazyColumn(modifier.fillMaxSize().testTag("screen-browser"),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Browser", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+                Text("Live remote contents · no transfers", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        item { ConnectionPanel(s) }
         if (!s.online) {
-            InfoPanel("Remote browser unavailable", "Connect to Skybind for read-only listing. No remote credentials enter the app.")
+            item { InfoPanel("Remote browser unavailable", "Connect to Skybind; credentials stay in the daemon.") }
         } else if (browse.remote == null) {
-            OutlinedTextField(value = search, onValueChange = { search = it }, label = { Text("Search remotes") },
-                singleLine = true, modifier = Modifier.fillMaxWidth().testTag("browser-search"))
-            val found = s.remotes.filter { it.displayName.contains(search.trim(), ignoreCase = true) }
-            if (found.isEmpty()) InfoPanel("No matching remotes", "Try another search term.")
-            found.take(64).forEach { remote ->
+            item { OutlinedTextField(value = search, onValueChange = { search = it },
+                label = { Text("Search remotes") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("browser-search")) }
+            val found = s.remotes.filter { it.displayName.contains(search.trim(), ignoreCase = true) }.take(64)
+            if (found.isEmpty()) item { InfoPanel("No matching remotes", "Try another search term.") }
+            items(found, key = { it.id }) { remote ->
                 OutlinedButton(onClick = { onRemote(remote.id) },
                     modifier = Modifier.fillMaxWidth().testTag("remote-${remote.id}")) {
-                    Text("${remote.displayName} · ${remote.kind}  →")
+                    Text("${remote.displayName} · ${remote.kind}  →", maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
         } else {
-            InfoPanel("Current folder", "${browse.remote}:${browse.path.ifBlank { "/" }}", Modifier.testTag("browser-path"))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { InfoPanel("Current folder", "${browse.remote}:${browse.path.ifBlank { "/" }}", Modifier.testTag("browser-path")) }
+            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onUp, modifier = Modifier.testTag("browser-up")) { Text("Up") }
                 TextButton(onClick = onSwitch, modifier = Modifier.testTag("browser-switch-remote")) { Text("Remotes") }
-            }
+            } }
             when {
-                browse.loading -> LinearProgressIndicator(Modifier.fillMaxWidth().testTag("browser-loading"))
-                browse.error != null -> InfoPanel("Listing unavailable", browse.error, Modifier.testTag("browser-error"))
-                browse.entries.isEmpty() -> InfoPanel("Empty folder", "Nothing to list here.")
-                else -> browse.entries.take(200).forEach { entry ->
-                    if (entry.directory) {
-                        OutlinedButton(onClick = { onFolder(entry.name) },
-                            modifier = Modifier.fillMaxWidth().testTag("folder-${entry.name}")) {
-                            Text("📁  ${entry.name}  →")
+                browse.loading -> item { LinearProgressIndicator(Modifier.fillMaxWidth().testTag("browser-loading")) }
+                browse.error != null -> item { InfoPanel("Listing unavailable", browse.error, Modifier.testTag("browser-error")) }
+                browse.entries.isEmpty() -> item { InfoPanel("Empty folder", "Nothing to list here.") }
+                else -> {
+                    itemsIndexed(browse.entries.take(200), key = { index, entry -> "$index:${entry.name}" }) { _, entry ->
+                        if (entry.directory) {
+                            OutlinedButton(onClick = { onFolder(entry.name) },
+                                modifier = Modifier.fillMaxWidth().testTag("folder-${entry.name}")) {
+                                Text("📁  ${entry.name}  →", maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        } else {
+                            ListItem(headlineContent = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                                supportingContent = { Text("File · ${entry.sizeBytes} bytes") },
+                                modifier = Modifier.testTag("file-${entry.name}"))
                         }
-                    } else {
-                        InfoPanel(entry.name, "File · ${entry.sizeBytes} bytes", Modifier.testTag("file-${entry.name}"))
                     }
+                    if (browse.entries.size > 200) item { Text("Showing first 200 results. Refine the folder to inspect more.") }
                 }
             }
         }
-        Button(onClick = {}, enabled = false, modifier = Modifier.testTag("browser-write-disabled")) {
+        item { Button(onClick = {}, enabled = false, modifier = Modifier.testTag("browser-write-disabled")) {
             Text("Transfer · requires authorized preview")
-        }
+        } }
     }
 }
 
@@ -332,16 +394,36 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     }
 }
 
-@Composable private fun MorePage(s: SkybindReadSnapshot, modifier: Modifier) {
-    Page("More", "Preferences and available capabilities", modifier) {
+@Composable private fun MorePage(s: SkybindReadSnapshot, modifier: Modifier,
+    onConnect: () -> Unit, onDisconnect: () -> Unit,
+    autoConnectEnabled: Boolean, onAutoConnectChanged: (Boolean) -> Unit,
+    bkxAuthorityRunning: Boolean, onEnableBkx: () -> Unit, onDisableBkx: () -> Unit,
+    showActivity: Boolean, setShowActivity: (Boolean) -> Unit) {
+    if (showActivity) {
+        ActivityPage(s, modifier) { setShowActivity(false) }
+        return
+    }
+    Page("More", "Settings and diagnostics", modifier) {
         ConnectionPanel(s)
-        InfoPanel("Skybind backend", s.serverVersion ?: "Version unavailable until authenticated")
-        InfoPanel("Mount control", if (s.online) "${s.mounts.size} mounts discovered; management remains disabled" else "Waiting for a secure read-only connection")
-        if (s.online) s.mounts.take(20).forEach { mount ->
-            InfoPanel(mount.displayName, "Status: ${mount.state}", Modifier.testTag("mount-${mount.id}"))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Auto-connect root", fontWeight = FontWeight.SemiBold)
+                Text("Connect when opened; root manager still authorizes access.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = autoConnectEnabled, onCheckedChange = onAutoConnectChanged,
+                modifier = Modifier.testTag("auto-connect-switch"))
         }
-        InfoPanel("Permissions", "Root approval is optional and requested only by Connect. No storage-wide, exported broker, or general command permission is granted.")
-        InfoPanel("Native app", "Development build · Android API ${Build.VERSION.SDK_INT}")
-        Button(onClick = {}, enabled = false, modifier = Modifier.testTag("more-mount-control-disabled")) { Text("Manage mounts · unavailable") }
+        if (!s.online) TextButton(onClick = onConnect, modifier = Modifier.testTag("more-retry-root")) { Text("Retry connection") }
+        else TextButton(onClick = onDisconnect, modifier = Modifier.testTag("more-disconnect-root")) { Text("Disconnect root session") }
+        InfoPanel("BKX background authority", if (bkxAuthorityRunning) "Active · separate opt-in" else "Off · foreground connection is independent",
+            Modifier.testTag("bkx-authority-status"))
+        if (bkxAuthorityRunning) OutlinedButton(onClick = onDisableBkx, modifier = Modifier.testTag("bkx-disable")) { Text("Stop BKX bridge") }
+        else OutlinedButton(onClick = onEnableBkx, modifier = Modifier.testTag("bkx-enable")) { Text("Enable BKX bridge") }
+        InfoPanel("Skybind backend", s.serverVersion ?: "Unavailable until authenticated")
+        InfoPanel("Mounts", if (s.online) "${s.mounts.size} configured; see Mounts tab for authoritative status" else "Not connected")
+        InfoPanel("Permissions", "Root manager approval controls the app connection. No general command, external broker, or storage-wide permission is granted.")
+        InfoPanel("Native app", "Skybind · Android API ${Build.VERSION.SDK_INT}")
+        TextButton(onClick = { setShowActivity(true) }, modifier = Modifier.testTag("more-view-activity")) { Text("Activity journal →") }
     }
 }

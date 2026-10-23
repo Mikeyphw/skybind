@@ -6,7 +6,8 @@ enum class JobState { QUEUED, RUNNING, INTERRUPTED, COMPLETED, FAILED, CANCELLED
 enum class ActivitySeverity { INFO, WARNING, ERROR }
 
 data class RemoteSummary(val id: String, val displayName: String, val kind: String)
-data class MountSummary(val id: String, val displayName: String, val state: String)
+data class MountSummary(val id: String, val displayName: String, val state: String,
+    val desired: Boolean = false, val reason: String = "")
 data class JobSummary(
     val id: String, val title: String, val state: JobState,
     val transferredBytes: Long = 0, val totalBytes: Long? = null,

@@ -20,6 +20,7 @@ class NativeUiTest {
     private fun fixture() = SkybindReadSnapshot(
         link = LinkState.ONLINE, detail = "Fixture-only authenticated session", serverVersion = "fixture-v1",
         remotes = listOf(RemoteSummary("photos", "Photos", "drive"), RemoteSummary("archive", "Archive", "crypt")),
+        mounts = listOf(MountSummary("photos", "Photos mount", "RUNNING", true, "owned_fuse_mount")),
         jobs = listOf(
             JobSummary("live-fixture", "Photo copy", JobState.RUNNING, 12L, 24L),
             JobSummary("done-fixture", "Older check", JobState.COMPLETED),
@@ -34,11 +35,19 @@ class NativeUiTest {
     @Test fun realNavigationHasFiveDistinctPages() {
         compose.setContent { SkybindApp(SkybindReadSnapshot(LinkState.NOT_AUTHORIZED, "Not paired"), {}) }
         compose.onNodeWithTag("screen-home").assertExists()
-        for (page in listOf("browser", "jobs", "activity", "more")) {
+        for (page in listOf("mounts", "browser", "jobs", "more")) {
             compose.onNodeWithTag("nav-$page").performClick()
             compose.onNodeWithTag("screen-$page").assertExists()
         }
-        compose.onNodeWithTag("more-mount-control-disabled").assertIsNotEnabled()
+        compose.onNodeWithTag("auto-connect-switch").assertExists()
+    }
+
+    @Test fun mountsHaveDedicatedNavigationAndAuthoritativeStatus() {
+        compose.setContent { SkybindApp(fixture(), {}) }
+        compose.onNodeWithTag("nav-mounts").performClick()
+        compose.onNodeWithTag("screen-mounts").assertExists()
+        compose.onNodeWithTag("mount-photos").assertExists()
+        compose.onNodeWithTag("browser-write-disabled").assertDoesNotExist()
     }
 
     @Test fun activityIsAJournalNotAnActionableJobQueue() {
@@ -74,7 +83,8 @@ class NativeUiTest {
         compose.setContent { SkybindApp(stale, {}) }
         compose.onNodeWithTag("nav-jobs").performClick()
         compose.onNodeWithTag("job-live-fixture").assertDoesNotExist()
-        compose.onNodeWithTag("nav-activity").performClick()
+        compose.onNodeWithTag("nav-more").performClick()
+        compose.onNodeWithTag("more-view-activity").performClick()
         compose.onNodeWithTag("event-3").assertDoesNotExist()
         compose.onNodeWithTag("nav-browser").performClick()
         compose.onNodeWithTag("remote-photos").assertDoesNotExist()

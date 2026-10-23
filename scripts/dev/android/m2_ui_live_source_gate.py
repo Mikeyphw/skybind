@@ -25,6 +25,8 @@ def verify(root=ROOT):
     required_ui=(
         'createAndroidComposeRule<MainActivity>()',
         'assumeTrue("SKYBIND_UI_NOT_REQUESTED", options.getString("skybind.ui.live") == "true")',
+        'compose.waitUntil(70_000L)',
+        'if ("connect-readonly" in tags("connect-readonly"))',
         'compose.onNodeWithTag("connect-readonly").performClick()',
         'compose.onNodeWithTag("disconnect-readonly").performClick()',
         'compose.onNodeWithTag("browser-up").performClick()',
@@ -62,7 +64,7 @@ def verify(root=ROOT):
         if forbidden in ui: raise Violation('LIVE_UI_UNSAFE:'+forbidden)
     for token in ('fun disconnect()', 'active?.cancel()', 'generation++',
                   'clearBrowser()', 'bridge.close()',
-                  'snapshot = SkybindReadSnapshot(LinkState.NOT_AUTHORIZED,'):
+                  'snapshot = SkybindReadSnapshot(LinkState.DISCONNECTED,'):
         if token not in vm: raise Violation('VM_DISCONNECT_MISSING:'+token)
     if 'session::disconnect' not in main or 'onDisconnect = session::disconnect' not in main:
         raise Violation('DISCONNECT_NOT_WIRED')

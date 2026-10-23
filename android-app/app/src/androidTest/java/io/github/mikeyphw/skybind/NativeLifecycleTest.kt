@@ -14,7 +14,8 @@ class NativeLifecycleTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test fun selectedTabSurvivesActivityRecreation() {
-        compose.onNodeWithTag("nav-activity").performClick()
+        compose.onNodeWithTag("nav-more").performClick()
+        compose.onNodeWithTag("more-view-activity").performClick()
         compose.onNodeWithTag("screen-activity").assertExists()
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()

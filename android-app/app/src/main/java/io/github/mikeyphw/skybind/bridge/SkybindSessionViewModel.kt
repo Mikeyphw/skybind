@@ -11,10 +11,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Retained across Activity recreation; clears stale results and never self-enables root. */
+/** Retained across rotation; foreground-only automatic root-manager approval. */
 class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     var snapshot by mutableStateOf(SkybindReadSnapshot(LinkState.NOT_AUTHORIZED,
-        "Tap Connect to request read-only Skybind access."))
+        "Connecting automatically when Skybind opens."))
         private set
     var browser by mutableStateOf(BrowserState())
         private set
@@ -30,6 +30,32 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     private var progressWatch: Job? = null
     private var browsing: Job? = null
     private var browseGeneration = 0L
+    var autoConnectEnabled by mutableStateOf(app.getSharedPreferences("skybind_native", 0)
+        .getBoolean("auto_connect", true))
+        private set
+    private var foreground = false
+    private var initialAttempted = false
+    private var reconnectUsed = false
+    private var explicitlyDisconnected = false
+
+    fun setAutoConnectEnabled(enabled: Boolean) {
+        autoConnectEnabled = enabled
+        getApplication<Application>().getSharedPreferences("skybind_native", 0).edit()
+            .putBoolean("auto_connect", enabled).apply()
+        if (enabled && foreground && !snapshot.online) connect()
+    }
+
+    /** Called only by Activity foreground lifecycle, once per ViewModel lifetime. */
+    fun onForeground() {
+        foreground = true
+        if (autoConnectEnabled && !explicitlyDisconnected && !initialAttempted) {
+            initialAttempted = true
+            connectInternal()
+        }
+    }
+
+    fun onBackground() { foreground = false }
+
 
     private fun clearOperations() {
         operationJob?.cancel()
@@ -53,6 +79,15 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
             clearOperations()
             generation++
             snapshot = SkybindReadSnapshot(LinkState.DISCONNECTED, "Broker connection lost")
+            if (foreground && autoConnectEnabled && !explicitlyDisconnected && !reconnectUsed) {
+                reconnectUsed = true
+                val lostGeneration = generation
+                viewModelScope.launch {
+                    delay(1_500L)
+                    if (foreground && generation == lostGeneration &&
+                        snapshot.link == LinkState.DISCONNECTED) connectInternal()
+                }
+            }
         }
     }
     private val coordinator = ReadOnlyCoordinator(bridge)
@@ -61,30 +96,46 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Explicit app-local disconnect; no root-manager revocation or daemon mutation. */
     fun disconnect() {
+        explicitlyDisconnected = true
         active?.cancel()
         generation++
         clearBrowser()
         clearOperations()
         bridge.close()
-        snapshot = SkybindReadSnapshot(LinkState.NOT_AUTHORIZED,
-            "Read-only session disconnected. Tap Connect to reconnect.")
+        snapshot = SkybindReadSnapshot(LinkState.DISCONNECTED,
+            "Disconnected by you. Select Retry to reconnect.")
     }
 
     fun refresh() {
-        clearBrowser()
+        if (!snapshot.online) { connect(); return }
         active?.cancel()
         val token = ++generation
+        val oldRemote = browser.remote
+        val oldPath = browser.path
         active = viewModelScope.launch {
             val value = coordinator.refresh()
-            if (token == generation) snapshot = value
+            if (token == generation) {
+                snapshot = value
+                if (!value.online || oldRemote != null && value.remotes.none { it.id == oldRemote })
+                    clearBrowser()
+                else if (oldRemote != null) browseAt(oldRemote, oldPath)
+            }
         }
     }
 
     fun connect() {
+        explicitlyDisconnected = false
+        initialAttempted = true
+        reconnectUsed = true // manual Retry is never followed by automatic prompt loops
+        connectInternal()
+    }
+
+    private fun connectInternal() {
+        if (snapshot.link == LinkState.CONNECTING || snapshot.online) return
         clearBrowser()
         active?.cancel()
         val token = ++generation
-        snapshot = SkybindReadSnapshot(LinkState.CONNECTING, "Requesting read-only root service access")
+        snapshot = SkybindReadSnapshot(LinkState.CONNECTING, "Connecting through your root manager")
         clearOperations()
         active = viewModelScope.launch {
             val result = try {
@@ -94,7 +145,7 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
                 throw cancel
             } catch (_: Exception) {
                 SkybindReadSnapshot(LinkState.NOT_AUTHORIZED,
-                    "Connection not approved or root service unavailable")
+                    "Root approval was denied or the service is unavailable. Retry when ready.")
             }
             if (token == generation) snapshot = result
         }
