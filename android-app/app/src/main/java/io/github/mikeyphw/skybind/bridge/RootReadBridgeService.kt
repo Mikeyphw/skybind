@@ -467,7 +467,7 @@ class RootReadBridgeService : RootService() {
 
     private fun checkedReadArguments(op: String?, raw: String?): JSONObject {
         val allowed = setOf("system.capabilities", "runtime.status", "provider.remotes",
-            "mount.list", "mount.status", "jobs.status", "operation.events", "provider.browse")
+            "mount.list", "mount.status", "mount.health", "jobs.status", "operation.events", "provider.browse")
         if (op !in allowed || raw == null || raw.length > 1024)
             throw SecurityException("unknown read method")
         val input = JSONObject(raw)
@@ -485,6 +485,13 @@ class RootReadBridgeService : RootService() {
         if (op == "mount.status") {
             if (input.length() != 1 || !input.has("name"))
                 throw SecurityException("mount status requires an exact name")
+            val name = input.optString("name", "")
+            if (!jobName.matches(name)) throw SecurityException("invalid mount name")
+            return JSONObject().put("name", name)
+        }
+        if (op == "mount.health") {
+            if (input.length() != 1 || !input.has("name"))
+                throw SecurityException("mount health requires an exact name")
             val name = input.optString("name", "")
             if (!jobName.matches(name)) throw SecurityException("invalid mount name")
             return JSONObject().put("name", name)

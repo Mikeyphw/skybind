@@ -3,6 +3,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Visibility is limited to the single approved BKX package. -->
     <queries><package android:name="com.mikeyphw.bkx.android" /></queries>
     <application android:allowBackup="false" android:fullBackupContent="false"

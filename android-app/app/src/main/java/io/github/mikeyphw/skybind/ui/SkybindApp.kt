@@ -2,18 +2,23 @@ package io.github.mikeyphw.skybind.ui
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -30,7 +35,10 @@ private enum class Tab(val label: String, val symbol: String) {
 fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: () -> Unit = {},
     onDisconnect: () -> Unit = {},
     autoConnectEnabled: Boolean = true, onAutoConnectChanged: (Boolean) -> Unit = {},
-    bkxAuthorityRunning: Boolean = false, onEnableBkx: () -> Unit = {},
+    bkxAuthorityRunning: Boolean = false, bkxPeerConnected: Boolean = false,
+    bkxStarting: Boolean = false, bkxStartFailed: Boolean = false,
+    bkxKeepBackground: Boolean = true, onBkxKeepBackgroundChanged: (Boolean) -> Unit = {},
+    onEnableBkx: () -> Unit = {},
     onDisableBkx: () -> Unit = {},
     mountConfigMode: String? = null, mountConfigDraft: MountDraft? = null,
     mountConfigPreview: PreparedConfigChange? = null, mountConfigBusy: Boolean = false,
@@ -57,6 +65,9 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     onPreviewJob: (String) -> Unit = {}, onConfirmJob: () -> Unit = {},
     onDismissJob: () -> Unit = {}, onCancelOwnedRun: (String) -> Unit = {}) {
     var selected by rememberSaveable { mutableStateOf(Tab.HOME.name) }
+    var remoteSearch by rememberSaveable { mutableStateOf("") }
+    // Hoisted across tab changes/recreation; folder identity resets scroll explicitly.
+    val browserScroll = rememberLazyListState()
     var activityFromJobs by rememberSaveable { mutableStateOf(false) }
     val tab = Tab.entries.firstOrNull { it.name == selected } ?: Tab.HOME
     val safe = snapshot.failClosed()
@@ -87,7 +98,9 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                             onClick = { selected = entry.name },
                             icon = { Text(entry.symbol, style = MaterialTheme.typography.titleLarge) },
                             label = { Text(entry.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            modifier = Modifier.testTag("nav-" + entry.label.lowercase()),
+                            modifier = Modifier.testTag("nav-" + entry.label.lowercase()).semantics {
+                                contentDescription = "${entry.label} tab"
+                            },
                         )
                     }
                 }
@@ -98,12 +111,14 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                 Tab.MOUNTS -> MountsPage(safe, Modifier.padding(inner), mountBusy || mountConfigBusy || rollbackBusy,
                     mountError ?: mountConfigError ?: rollbackError, onPreviewMount, onOpenMountConfig, onPreviewRollback)
                 Tab.BROWSER -> BrowserPage(safe, browser.forSnapshot(safe), Modifier.padding(inner),
-                    onBrowseRemote, onBrowseFolder, onBrowseUp, onSwitchRemote)
+                    onBrowseRemote, onBrowseFolder, onBrowseUp, onSwitchRemote,
+                    browserScroll, remoteSearch, { remoteSearch = it })
                 Tab.JOBS -> JobsPage(safe, Modifier.padding(inner), ownedRunIds, jobBusy,
                     jobError, onPreviewJob, onCancelOwnedRun) { activityFromJobs = true; selected = Tab.MORE.name }
                 Tab.MORE -> MorePage(safe, Modifier.padding(inner), onConnect, onDisconnect,
                     autoConnectEnabled, onAutoConnectChanged, bkxAuthorityRunning,
-                    onEnableBkx, onDisableBkx, activityFromJobs, {
+                    bkxPeerConnected, bkxStarting, bkxStartFailed, bkxKeepBackground,
+                    onBkxKeepBackgroundChanged, onEnableBkx, onDisableBkx, activityFromJobs, {
                         if (!it && activityFromJobs) selected = Tab.JOBS.name
                         activityFromJobs = it
                     })
@@ -274,10 +289,21 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
             InfoPanel("Remotes", if (s.online) "${s.remotes.size} configured" else "Unavailable", Modifier.weight(1f))
             InfoPanel("Jobs", if (s.online) "${s.activeJobs.size} active" else "Unavailable", Modifier.weight(1f))
         }
-        InfoPanel("Mounts", if (s.online) "${s.mounts.size} configured · ${s.mounts.count { it.state == "RUNNING" }} running"
-            else "Mount status unavailable until connected")
+        InfoPanel("Runtime integrity", if (s.online) {
+            when {
+                s.runtime == null -> "Unverified · no runtime evidence"
+                s.runtime.ready && s.runtime.provenanceValid ->
+                    "On-disk runtime verified · ${s.runtime.provider}; FUSE availability not implied"
+                else -> "Runtime not verified · check daemon/module diagnostics"
+            }
+        } else "Unavailable while disconnected", Modifier.testTag("home-runtime-health"))
+        InfoPanel("Mounts", if (s.online) "${s.mounts.size} configured · ${s.mounts.count { it.state == "RUNNING" }} running" +
+            (if (s.mounts.any { it.state == "DEGRADED" || it.state == "MOUNT_STALE" }) " · attention needed" else "")
+            else "Mount status unavailable until connected", Modifier.testTag("home-mount-summary"))
+        InfoPanel("Network (Android)", NativePresentation.androidNetwork(LocalContext.current) +
+            " · does not prove daemon/provider connectivity", Modifier.testTag("home-network"))
         Text("Quick access", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { select(Tab.MOUNTS) }, modifier = Modifier.testTag("home-open-mounts")) { Text("Mounts") }
             OutlinedButton(onClick = { select(Tab.BROWSER) }, modifier = Modifier.testTag("home-open-browser")) { Text("Browse") }
             OutlinedButton(onClick = { select(Tab.JOBS) }, modifier = Modifier.testTag("home-open-jobs")) { Text("Jobs") }
@@ -332,15 +358,16 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     InfoPanel(mount.displayName,
                         "${if (mount.desired) "Desired: on" else "Desired: off"}" +
-                        mount.reason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                        (mount.recoveryAttempts?.let { " · recovery attempts: $it" } ?: "") +
+                        (mount.recoveryClass?.let { " · $it" } ?: ""),
                         badge = status)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutlinedButton(onClick = { editConfig("edit", mount.id) },
                             enabled = !busy, modifier = Modifier.testTag("mount-edit-${mount.id}")) { Text("Edit") }
                         TextButton(onClick = { editConfig("delete", mount.id) },
                             enabled = !busy, modifier = Modifier.testTag("mount-delete-${mount.id}")) { Text("Delete") }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutlinedButton(onClick = { preview("start", mount.id) },
                             enabled = !busy && mount.state == "STOPPED",
                             modifier = Modifier.testTag("mount-start-${mount.id}")) { Text("Start") }
@@ -360,9 +387,10 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
 }
 
 @Composable private fun BrowserPage(s: SkybindReadSnapshot, browse: BrowserState, modifier: Modifier,
-    onRemote: (String) -> Unit, onFolder: (String) -> Unit, onUp: () -> Unit, onSwitch: () -> Unit) {
-    var search by rememberSaveable { mutableStateOf("") }
-    LazyColumn(modifier.fillMaxSize().testTag("screen-browser"),
+    onRemote: (String) -> Unit, onFolder: (String) -> Unit, onUp: () -> Unit, onSwitch: () -> Unit,
+    scroll: LazyListState, search: String, onSearch: (String) -> Unit) {
+    LaunchedEffect(browse.remote, browse.path) { scroll.scrollToItem(0) }
+    LazyColumn(modifier.fillMaxSize().testTag("screen-browser"), state = scroll,
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
@@ -375,7 +403,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
         if (!s.online) {
             item { InfoPanel("Remote browser unavailable", "Connect to Skybind; credentials stay in the daemon.") }
         } else if (browse.remote == null) {
-            item { OutlinedTextField(value = search, onValueChange = { search = it },
+            item { OutlinedTextField(value = search, onValueChange = onSearch,
                 label = { Text("Search remotes") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("browser-search")) }
             val found = s.remotes.filter { it.displayName.contains(search.trim(), ignoreCase = true) }.take(64)
@@ -397,7 +425,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                 browse.error != null -> item { InfoPanel("Listing unavailable", browse.error, Modifier.testTag("browser-error")) }
                 browse.entries.isEmpty() -> item { InfoPanel("Empty folder", "Nothing to list here.") }
                 else -> {
-                    itemsIndexed(browse.entries.take(200), key = { index, entry -> "$index:${entry.name}" }) { _, entry ->
+                    itemsIndexed(browse.entries.take(200), key = { _, entry -> "${browse.remote}:${browse.path}:${entry.directory}:${entry.name}" }) { _, entry ->
                         if (entry.directory) {
                             OutlinedButton(onClick = { onFolder(entry.name) },
                                 modifier = Modifier.fillMaxWidth().testTag("folder-${entry.name}")) {
@@ -405,7 +433,7 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                             }
                         } else {
                             ListItem(headlineContent = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                                supportingContent = { Text("File · ${entry.sizeBytes} bytes") },
+                                supportingContent = { Text("File · ${NativePresentation.bytes(entry.sizeBytes)}") },
                                 modifier = Modifier.testTag("file-${entry.name}"))
                         }
                     }
@@ -422,41 +450,45 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
 @Composable private fun JobsPage(s: SkybindReadSnapshot, modifier: Modifier,
     ownedRunIds: Set<String>, busy: Boolean, error: String?,
     onPreview: (String) -> Unit, onCancel: (String) -> Unit, openActivity: () -> Unit) {
-    Page("Jobs", "Daemon-owned scheduled jobs and live progress", modifier) {
-        ConnectionPanel(s)
-        if (error != null) InfoPanel("Operation not confirmed", error, Modifier.testTag("job-action-error"))
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().testTag("job-operation-busy"))
-        Text("Configured jobs", style = MaterialTheme.typography.titleMedium)
-        if (!s.online) InfoPanel("Job queue unavailable", "Connect explicitly; no privileged job starts automatically.")
-        else if (s.definitions.isEmpty()) InfoPanel("No configured jobs", "Create jobs in the supported Skybind management interface first.")
-        s.definitions.take(64).forEach { definition ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+    LazyColumn(modifier.fillMaxSize().testTag("screen-jobs"),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("Jobs", style = MaterialTheme.typography.headlineMedium) }
+        item { Text("Daemon-owned scheduled jobs and verified progress", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { ConnectionPanel(s) }
+        if (error != null) item { InfoPanel("Operation not confirmed", error, Modifier.testTag("job-action-error")) }
+        if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth().testTag("job-operation-busy")) }
+        item { Text("Configured jobs · ${if (s.online) s.definitions.size else 0}", style = MaterialTheme.typography.titleMedium) }
+        if (!s.online) item { InfoPanel("Job queue unavailable", "Authenticate root first; no privileged job starts automatically.") }
+        else if (s.definitions.isEmpty()) item { InfoPanel("No configured jobs", "Configure jobs in the management interface.") }
+        if (s.online) items(s.definitions.take(64), key = { "def-${it.name}" }) { definition ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(definition.name, style = MaterialTheme.typography.titleSmall)
+                    Text(definition.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text("${definition.kind.uppercase()} · ${if (definition.enabled) "enabled" else "disabled"}",
                         style = MaterialTheme.typography.bodySmall)
                 }
-                OutlinedButton(onClick = { onPreview(definition.name) },
-                    enabled = !busy && definition.kind in setOf("check", "copy"),
-                    modifier = Modifier.testTag("job-preview-${definition.name}")) {
+                OutlinedButton(onClick = { onPreview(definition.name) }, enabled = !busy &&
+                    definition.kind in setOf("check", "copy"),
+                    modifier = Modifier.testTag("job-preview-${definition.name}").heightIn(min = 48.dp)) {
                     Text(if (definition.kind == "sync") "Sync locked" else "Preview")
                 }
             }
         }
-        Text("Current operations", style = MaterialTheme.typography.titleMedium)
-        if (s.online && s.activeJobs.isEmpty()) InfoPanel("Nothing running", "Queued, running and interrupted work appears here.")
-        s.activeJobs.take(32).forEach { job ->
+        item { Text("Current operations", style = MaterialTheme.typography.titleMedium) }
+        if (s.online && s.activeJobs.isEmpty()) item { InfoPanel("Nothing running", "No queued, running or interrupted work.") }
+        if (s.online) items(s.activeJobs.take(64), key = { "active-${it.id}" }) { job ->
             JobCard(job, finished = false, owned = job.id in ownedRunIds, busy = busy, onCancel = onCancel)
         }
-        Text("Recent completed", style = MaterialTheme.typography.titleMedium)
-        if (s.online && s.recentJobs.isEmpty()) Text("No recently finished jobs", style = MaterialTheme.typography.bodyMedium)
-        s.recentJobs.take(10).forEach { job ->
+        item { Text("Recent completed", style = MaterialTheme.typography.titleMedium) }
+        if (s.online && s.recentJobs.isEmpty()) item { Text("No recently finished jobs") }
+        if (s.online) items(s.recentJobs.take(64), key = { "recent-${it.id}" }) { job ->
             JobCard(job, finished = true, owned = false, busy = busy, onCancel = onCancel)
         }
-        TextButton(onClick = openActivity, modifier = Modifier.testTag("jobs-view-activity")) {
+        item { TextButton(onClick = openActivity, modifier = Modifier.testTag("jobs-view-activity").heightIn(min = 48.dp)) {
             Text("View chronological activity →")
-        }
+        } }
     }
 }
 
@@ -476,14 +508,20 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                 LinearProgressIndicator(progress = { (job.percent / 100.0).toFloat() },
                     modifier = Modifier.fillMaxWidth())
             } else if (!finished) Text("Progress total unknown", style = MaterialTheme.typography.bodySmall)
-            Text("${job.transferredBytes} bytes transferred" +
-                (job.totalBytes?.let { " / $it bytes" } ?: ""), style = MaterialTheme.typography.bodySmall)
-            if (job.speedBytesPerSecond != null) Text("${job.speedBytesPerSecond.toLong()} B/s",
+            Text("${NativePresentation.bytes(job.transferredBytes)} transferred" +
+                (job.totalBytes?.let { " / ${NativePresentation.bytes(it)}" } ?: ""),
+                style = MaterialTheme.typography.bodySmall)
+            if (job.speedBytesPerSecond != null) Text("${NativePresentation.bytes(job.speedBytesPerSecond.toLong())}/s",
                 style = MaterialTheme.typography.bodySmall)
             if (job.etaSeconds != null) Text("ETA ${job.etaSeconds}s", style = MaterialTheme.typography.bodySmall)
             if (job.filesDone != null) Text("Files: ${job.filesDone}" +
                 (job.filesTotal?.let { " / $it" } ?: ""), style = MaterialTheme.typography.bodySmall)
-            Text("ID: ${job.id}", style = MaterialTheme.typography.labelSmall,
+            var showId by remember(job.id) { mutableStateOf(false) }
+            TextButton(onClick = { showId = !showId },
+                modifier = Modifier.testTag("job-receipt-${job.id}").heightIn(min = 48.dp)) {
+                Text(if (showId) "Hide receipt ID" else "Show receipt ID")
+            }
+            if (showId) Text("Run receipt: ${job.id}", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!finished) {
                 TextButton(onClick = { if (owned) onCancel(job.id) },
@@ -498,33 +536,60 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
 
 @Composable private fun ActivityPage(s: SkybindReadSnapshot, modifier: Modifier, openJobs: () -> Unit) {
     var onlyWarnings by rememberSaveable { mutableStateOf(false) }
-    Page("Activity", "Read-only chronological journal · not the job queue", modifier) {
-        ConnectionPanel(s)
-        if (s.hasEventGap) InfoPanel("Journal gap", "Some events could not be replayed. Reload from the authoritative daemon snapshot.")
-        FilterChip(selected = onlyWarnings, onClick = { onlyWarnings = !onlyWarnings },
-            label = { Text("Warnings and errors") }, modifier = Modifier.testTag("activity-filter-warnings"))
-        if (!s.online) InfoPanel("No authenticated journal", "Connection is required for event cursor/replay. No historical records are invented.")
-        else {
-            val filtered = s.timeline.filter { !onlyWarnings || it.severity != ActivitySeverity.INFO }
-            if (filtered.isEmpty()) InfoPanel("No events", "The selected activity filter has no entries.")
-            filtered.take(100).forEach { event ->
-                ElevatedCard(Modifier.fillMaxWidth().testTag("event-${event.sequence}")) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(event.title, style = MaterialTheme.typography.titleSmall)
-                        Text("${event.occurredAt} · ${event.severity.name} · #${event.sequence}", style = MaterialTheme.typography.labelSmall)
-                        if (event.operationId != null) Text("Job ID: ${event.operationId}", style = MaterialTheme.typography.labelSmall)
+    var onlyErrors by rememberSaveable { mutableStateOf(false) }
+    val filtered = s.timeline.filter { if (onlyErrors) it.severity == ActivitySeverity.ERROR
+        else !onlyWarnings || it.severity != ActivitySeverity.INFO }.take(100)
+    LazyColumn(modifier.fillMaxSize().testTag("screen-activity"),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("Activity", style = MaterialTheme.typography.headlineMedium) }
+        item { Text("Daemon journal · newest first · last 100 verified events", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { ConnectionPanel(s) }
+        if (s.hasEventGap) item { InfoPanel("Journal gap / replay reset",
+            "Some events were unavailable. Refresh the authoritative daemon snapshot; history is not reconstructed.",
+            Modifier.testTag("activity-journal-gap")) }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = onlyWarnings && !onlyErrors, onClick = { onlyWarnings = !onlyWarnings; onlyErrors = false },
+                    label = { Text("Warnings + errors") }, modifier = Modifier.testTag("activity-filter-warnings").heightIn(min = 48.dp))
+                FilterChip(selected = onlyErrors, onClick = { onlyErrors = !onlyErrors; if (onlyErrors) onlyWarnings = false },
+                    label = { Text("Errors") }, modifier = Modifier.testTag("activity-filter-errors").heightIn(min = 48.dp))
+            }
+        }
+        if (!s.online) item { InfoPanel("No authenticated journal", "Reconnect to read current event history.") }
+        else if (filtered.isEmpty()) item { InfoPanel("No events", "No journal entries match this filter.") }
+        if (s.online) items(filtered, key = { it.sequence }) { event ->
+            var expanded by remember(event.sequence) { mutableStateOf(false) }
+            ElevatedCard(Modifier.fillMaxWidth().testTag("event-${event.sequence}")) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(NativePresentation.label(event.title), style = MaterialTheme.typography.titleSmall)
+                    Text("${NativePresentation.time(event.occurredAt)} · ${event.severity.name}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+                    TextButton(onClick = { expanded = !expanded },
+                        modifier = Modifier.testTag("activity-details-${event.sequence}").heightIn(min = 48.dp)) {
+                        Text(if (expanded) "Hide technical details" else "Technical details")
+                    }
+                    if (expanded) {
+                        Text("Event #${event.sequence} · ${event.title}", style = MaterialTheme.typography.bodySmall)
+                        if (event.operationId != null) Text("Operation receipt: ${event.operationId}",
+                            style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
         }
-        TextButton(onClick = openJobs, modifier = Modifier.testTag("activity-view-jobs")) { Text("Open actionable Jobs →") }
+        item { TextButton(onClick = openJobs, modifier = Modifier.testTag("activity-view-jobs").heightIn(min = 48.dp)) {
+            Text("Open actionable Jobs →")
+        } }
     }
 }
 
 @Composable private fun MorePage(s: SkybindReadSnapshot, modifier: Modifier,
     onConnect: () -> Unit, onDisconnect: () -> Unit,
     autoConnectEnabled: Boolean, onAutoConnectChanged: (Boolean) -> Unit,
-    bkxAuthorityRunning: Boolean, onEnableBkx: () -> Unit, onDisableBkx: () -> Unit,
+    bkxAuthorityRunning: Boolean, bkxPeerConnected: Boolean, bkxStarting: Boolean,
+    bkxStartFailed: Boolean, bkxKeepBackground: Boolean,
+    onBkxKeepBackgroundChanged: (Boolean) -> Unit,
+    onEnableBkx: () -> Unit, onDisableBkx: () -> Unit,
     showActivity: Boolean, setShowActivity: (Boolean) -> Unit) {
     if (showActivity) {
         ActivityPage(s, modifier) { setShowActivity(false) }
@@ -539,18 +604,60 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
                     style = MaterialTheme.typography.bodySmall)
             }
             Switch(checked = autoConnectEnabled, onCheckedChange = onAutoConnectChanged,
-                modifier = Modifier.testTag("auto-connect-switch"))
+                modifier = Modifier.testTag("auto-connect-switch").sizeIn(minWidth = 48.dp, minHeight = 48.dp))
         }
         if (!s.online) TextButton(onClick = onConnect, modifier = Modifier.testTag("more-retry-root")) { Text("Retry connection") }
         else TextButton(onClick = onDisconnect, modifier = Modifier.testTag("more-disconnect-root")) { Text("Disconnect root session") }
-        InfoPanel("BKX background authority", if (bkxAuthorityRunning) "Active · separate opt-in" else "Off · foreground connection is independent",
-            Modifier.testTag("bkx-authority-status"))
+        InfoPanel("BKX background authority", when {
+            bkxAuthorityRunning && bkxPeerConnected -> "Service active · local authority peer connected (not proof of BKX authorization)"
+            bkxAuthorityRunning -> "Service active · waiting for verified authority peer"
+            bkxStarting -> "Starting foreground service · not yet active"
+            bkxStartFailed -> "Failed to start · check Android foreground-service restrictions"
+            else -> "Off · foreground root connection is independent"
+        }, Modifier.testTag("bkx-authority-status"))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                Text("Keep BKX bridge active in background", fontWeight = FontWeight.SemiBold)
+                Text("If off, Skybind stops the BKX foreground service when this app leaves the screen.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = bkxKeepBackground, onCheckedChange = onBkxKeepBackgroundChanged,
+                modifier = Modifier.testTag("bkx-background-lifetime").sizeIn(minWidth = 48.dp, minHeight = 48.dp))
+        }
+        InfoPanel("Notification visibility", NativePresentation.notificationStatus(LocalContext.current) +
+            " · BKX may still have an Android foreground-service indicator", Modifier.testTag("bkx-notification-status"))
         if (bkxAuthorityRunning) OutlinedButton(onClick = onDisableBkx, modifier = Modifier.testTag("bkx-disable")) { Text("Stop BKX bridge") }
         else OutlinedButton(onClick = onEnableBkx, modifier = Modifier.testTag("bkx-enable")) { Text("Enable BKX bridge") }
         InfoPanel("Skybind backend", s.serverVersion ?: "Unavailable until authenticated")
         InfoPanel("Mounts", if (s.online) "${s.mounts.size} configured; see Mounts tab for authoritative status" else "Not connected")
         InfoPanel("Permissions", "Root manager approval controls the app connection. No general command, external broker, or storage-wide permission is granted.")
-        InfoPanel("Native app", "Skybind · Android API ${Build.VERSION.SDK_INT}")
+        InfoPanel("Runtime integrity", when {
+            !s.online -> "Unavailable without an authenticated root session"
+            s.runtime == null -> "Not reported"
+            s.runtime.ready && s.runtime.provenanceValid -> "Verified on disk · ${s.runtime.provider}; FUSE availability not implied"
+            else -> "Module runtime integrity could not be verified"
+        }, Modifier.testTag("diagnostics-runtime"))
+        InfoPanel("FUSE/mount health", if (s.online) {
+            "${s.mounts.count { it.state == "RUNNING" }} observed running · ${s.mounts.count { it.state == "DEGRADED" || it.state == "MOUNT_STALE" }} needing attention" +
+                " · overall FUSE device health not reported"
+        } else "Unavailable while disconnected", Modifier.testTag("diagnostics-fuse"))
+        InfoPanel("Network", NativePresentation.androidNetwork(LocalContext.current) +
+            " · provider access requires separate daemon confirmation", Modifier.testTag("diagnostics-network"))
+        InfoPanel("Module version", "Not reported by the current runtime API; the provider is shown above only after authentication")
+        val context = LocalContext.current
+        var showSigner by rememberSaveable { mutableStateOf(false) }
+        InfoPanel("Native app", "Skybind ${NativePresentation.version()} · Android API ${Build.VERSION.SDK_INT}",
+            Modifier.testTag("about-app-version"))
+        TextButton(onClick = { showSigner = !showSigner },
+            modifier = Modifier.testTag("about-show-signer").heightIn(min = 48.dp)) {
+            Text(if (showSigner) "Hide APK signing fingerprint" else "View APK signing fingerprint")
+        }
+        if (showSigner) InfoPanel("Installed APK certificate · SHA-256",
+            NativePresentation.signer(context), Modifier.testTag("about-signer-sha256"))
+        InfoPanel("Security and privacy", "Root permission is controlled by your root manager; privileged write actions require explicit previews. No remote secrets are displayed. BKX authority is optional and separate.")
+        InfoPanel("Snapshot freshness", if (s.online && s.sampledAtMillis != null)
+            "Last daemon read: ${NativePresentation.time(s.sampledAtMillis.toString())}. Refresh to re-check."
+            else "No current authenticated snapshot", Modifier.testTag("diagnostics-freshness"))
         TextButton(onClick = { setShowActivity(true) }, modifier = Modifier.testTag("more-view-activity")) { Text("Activity journal →") }
     }
 }

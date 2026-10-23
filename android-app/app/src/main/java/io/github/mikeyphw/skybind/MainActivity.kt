@@ -22,10 +22,16 @@ import io.github.mikeyphw.skybind.ui.SkybindApp
 class MainActivity : ComponentActivity() {
     private val session: SkybindSessionViewModel by viewModels()
     private var bkxObserved by mutableStateOf(false)
+    private var bkxPeerConnected by mutableStateOf(false)
+    private var bkxStartFailed by mutableStateOf(false)
+    private var bkxKeepBackground by mutableStateOf(true)
+    private var bkxStartingSince by mutableStateOf(0L)
 
     override fun onStart() {
         super.onStart()
         bkxObserved = R1AuthorityService.isRunning
+        bkxKeepBackground = getSharedPreferences("skybind_native", 0)
+            .getBoolean("bkx_keep_background", true)
         session.onForeground()
         // Preserve the original seven-case PM bridge test behavior while UI
         // is foreground, but don't shut down a user-enabled FGS on app switch.
@@ -34,17 +40,34 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         session.onBackground()
+        if (!bkxKeepBackground && R1AuthorityService.isRunning) disableAuthority()
         if (!R1AuthorityService.isRunning) R1PMBridgeAgent.stop()
         super.onStop()
     }
 
+    private fun setBkxKeepBackground(keep: Boolean) {
+        bkxKeepBackground = keep
+        getSharedPreferences("skybind_native", 0).edit()
+            .putBoolean("bkx_keep_background", keep).apply()
+    }
+
     private fun enableAuthority() {
+        // User gesture only. Neither root binding nor refresh may start BKX authority.
+        bkxStartFailed = false
+        bkxStartingSince = android.os.SystemClock.elapsedRealtime()
         val intent = Intent(this, R1AuthorityService::class.java).setAction(R1AuthorityService.ACTION_START)
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
+        } catch (_: RuntimeException) {
+            bkxStartFailed = true
+            bkxStartingSince = 0L
+        }
     }
 
     private fun disableAuthority() {
-        startService(Intent(this, R1AuthorityService::class.java).setAction(R1AuthorityService.ACTION_STOP))
+        bkxStartingSince = 0L
+        try { startService(Intent(this, R1AuthorityService::class.java).setAction(R1AuthorityService.ACTION_STOP)) }
+        catch (_: RuntimeException) { bkxStartFailed = true }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,6 +84,13 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 while (true) {
                     bkxObserved = R1AuthorityService.isRunning
+                    bkxPeerConnected = R1PMBridgeAgent.peerConnected
+                    if (bkxObserved) bkxStartingSince = 0L
+                    if (!bkxObserved && bkxStartingSince > 0L &&
+                        android.os.SystemClock.elapsedRealtime() - bkxStartingSince > 7_000L) {
+                        bkxStartFailed = true
+                        bkxStartingSince = 0L
+                    }
                     delay(1_000L)
                 }
             }
@@ -71,6 +101,11 @@ class MainActivity : ComponentActivity() {
                 autoConnectEnabled = session.autoConnectEnabled,
                 onAutoConnectChanged = session::setAutoConnectEnabled,
                 bkxAuthorityRunning = bkxObserved,
+                bkxPeerConnected = bkxPeerConnected,
+                bkxStarting = bkxStartingSince > 0L,
+                bkxStartFailed = bkxStartFailed,
+                bkxKeepBackground = bkxKeepBackground,
+                onBkxKeepBackgroundChanged = ::setBkxKeepBackground,
                 onEnableBkx = ::enableAuthority,
                 onDisableBkx = ::disableAuthority,
                 mountConfigMode = session.mountConfigMode,

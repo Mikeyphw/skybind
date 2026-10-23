@@ -32,6 +32,9 @@ object R1PMBridgeAgent {
     private var active: LocalSocket? = null
     private var starting = false
 
+    /** An observed socket, not a BKX permission grant or proof of successful lookup. */
+    val peerConnected: Boolean get() = synchronized(lock) { active != null }
+
     fun start(context: Context) {
         synchronized(lock) {
             if (active != null || starting) return

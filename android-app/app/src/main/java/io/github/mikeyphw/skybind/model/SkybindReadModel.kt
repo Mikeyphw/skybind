@@ -5,9 +5,13 @@ enum class LinkState { DISCONNECTED, CONNECTING, NOT_AUTHORIZED, ONLINE, DEGRADE
 enum class JobState { QUEUED, RUNNING, INTERRUPTED, COMPLETED, FAILED, CANCELLED }
 enum class ActivitySeverity { INFO, WARNING, ERROR }
 
+/** On-disk runtime integrity is not proof that the FUSE device or network works. */
+data class RuntimeIntegrity(val ready: Boolean, val provenanceValid: Boolean, val provider: String)
+
 data class RemoteSummary(val id: String, val displayName: String, val kind: String)
 data class MountSummary(val id: String, val displayName: String, val state: String,
-    val desired: Boolean = false, val reason: String = "")
+    val desired: Boolean = false, val reason: String = "",
+    val recoveryAttempts: Int? = null, val recoveryClass: String? = null)
 data class JobSummary(
     val id: String, val title: String, val state: JobState,
     val transferredBytes: Long = 0, val totalBytes: Long? = null,
@@ -32,6 +36,8 @@ data class SkybindReadSnapshot(
     val cursor: Long? = null,
     val hasEventGap: Boolean = false,
     val definitions: List<JobDefinition> = emptyList(),
+    val runtime: RuntimeIntegrity? = null,
+    val sampledAtMillis: Long? = null,
 ) {
     val online: Boolean get() = link == LinkState.ONLINE
     val activeJobs: List<JobSummary> get() = if (online) jobs.filter { it.actionable } else emptyList()
@@ -42,7 +48,7 @@ data class SkybindReadSnapshot(
     fun failClosed(): SkybindReadSnapshot = if (online) this else copy(
         serverVersion = null, remotes = emptyList(), mounts = emptyList(),
         jobs = emptyList(), events = emptyList(), cursor = null, hasEventGap = false,
-        definitions = emptyList(),
+        definitions = emptyList(), runtime = null, sampledAtMillis = null,
     )
 }
 

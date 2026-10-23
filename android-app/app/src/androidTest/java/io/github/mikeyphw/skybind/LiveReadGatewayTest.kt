@@ -20,6 +20,7 @@ class LiveReadGatewayTest {
     private fun fixture(op: String, args: String = "{}") = envelope(when (op) {
         "system.capabilities" -> capabilities()
         "runtime.status" -> JSONObject().put("provider", "fixture")
+            .put("ready", true).put("provenance_valid", true)
         "provider.remotes" -> JSONArray().put(JSONObject().put("name", "photos").put("type", "drive"))
         "mount.list" -> JSONArray().put("photos")
         "mount.status" -> JSONObject().put("name", JSONObject(args).getString("name"))
@@ -46,6 +47,69 @@ class LiveReadGatewayTest {
         assertEquals(16L, result.activeJobs.single().transferredBytes)
         assertEquals(2L, result.cursor)
         assertEquals("job.progress", result.timeline.single().title)
+    }
+
+    @Test fun verifiedRuntimeIsNotAnAssertionOfFUSEHealth() {
+        val result = LiveReadSnapshotReader().fetch(::fixture)
+        assertTrue(result.runtime?.ready == true)
+        assertEquals(null, result.mounts.single().recoveryAttempts)
+        assertTrue(result.sampledAtMillis != null)
+    }
+
+    @Test fun rejectsMissingRuntimeEvidenceInsteadOfInferringHealthy() {
+        val exception = runCatching {
+            LiveReadSnapshotReader().fetch { op, args ->
+                if (op == "runtime.status") envelope(JSONObject().put("provider", "fixture"))
+                else fixture(op, args)
+            }
+        }.exceptionOrNull()
+        assertTrue(exception is io.github.mikeyphw.skybind.bridge.SnapshotStageException)
+        assertEquals("runtime.status", (exception as io.github.mikeyphw.skybind.bridge.SnapshotStageException).operation)
+    }
+
+    @Test fun supervisorHealthCannotIdentifyAnotherMount() {
+        val exception = runCatching {
+            LiveReadSnapshotReader().fetch { op, args ->
+                if (op == "system.capabilities") envelope(capabilities().apply {
+                    getJSONArray("operations").put(JSONObject()
+                        .put("name", "mount.health").put("operation_class", "query").put("implemented", true))
+                })
+                else if (op == "mount.health") envelope(JSONObject().put("name", "foreign")
+                    .put("state", "RUNNING").put("attempts", 0))
+                else fixture(op, args)
+            }
+        }.exceptionOrNull()
+        assertTrue(exception is io.github.mikeyphw.skybind.bridge.SnapshotStageException)
+        assertEquals("mount.health", (exception as io.github.mikeyphw.skybind.bridge.SnapshotStageException).operation)
+    }
+
+    @Test fun healthRecoveryEvidenceIsBounded() {
+        val result = LiveReadSnapshotReader().fetch { op, args ->
+            if (op == "system.capabilities") envelope(capabilities().apply {
+                getJSONArray("operations").put(JSONObject()
+                    .put("name", "mount.health").put("operation_class", "query").put("implemented", true))
+            })
+            else if (op == "mount.health") envelope(JSONObject().put("name", "photos")
+                .put("state", "RUNNING").put("attempts", 2).put("failure_class", "provider_retry"))
+            else fixture(op, args)
+        }
+        assertEquals(2, result.mounts.single().recoveryAttempts)
+        assertEquals("provider_retry", result.mounts.single().recoveryClass)
+    }
+
+    @Test fun rejectsNonnumericHealthRetryEvidence() {
+        val exception = runCatching {
+            LiveReadSnapshotReader().fetch { op, args ->
+                if (op == "system.capabilities") envelope(capabilities().apply {
+                    getJSONArray("operations").put(JSONObject()
+                        .put("name", "mount.health").put("operation_class", "query").put("implemented", true))
+                })
+                else if (op == "mount.health") envelope(JSONObject().put("name", "photos")
+                    .put("attempts", "2"))
+                else fixture(op, args)
+            }
+        }.exceptionOrNull()
+        assertTrue(exception is io.github.mikeyphw.skybind.bridge.SnapshotStageException)
     }
 
     @Test fun rejectsMountStatusIdentityDrift() {

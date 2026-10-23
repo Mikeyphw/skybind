@@ -46,6 +46,7 @@ class R1AuthorityService : Service() {
             return START_NOT_STICKY
         }
         if (!isRunning) {
+            try {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel(
                 CHANNEL, "Skybind local authority", NotificationManager.IMPORTANCE_LOW
@@ -61,7 +62,7 @@ class R1AuthorityService : Service() {
             val note = Notification.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_lock_lock)
                 .setContentTitle("Skybind local authority active")
-                .setContentText("Authenticated read-only consumer bridge · no grants by default")
+                .setContentText("User-enabled local identity bridge · no automatic grants")
                 .setContentIntent(open)
                 .setOngoing(true)
                 .addAction(Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "Stop bridge", stop).build())
@@ -69,6 +70,13 @@ class R1AuthorityService : Service() {
             startForeground(NOTIFICATION, note)
             isRunning = true
             handler.post(reconnect)
+            } catch (_: RuntimeException) {
+                // Missing FGS authorization/notification restrictions: never report active.
+                isRunning = false
+                handler.removeCallbacks(reconnect)
+                stopSelf()
+                return START_NOT_STICKY
+            }
         }
         return START_NOT_STICKY
     }

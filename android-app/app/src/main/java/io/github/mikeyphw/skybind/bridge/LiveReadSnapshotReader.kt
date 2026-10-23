@@ -43,6 +43,12 @@ class LiveReadSnapshotReader {
         // operation.events is an additive extension and does not appear in the frozen
         // 57-operation catalog; query it independently, fail closed on absence.
         val runtime = read("runtime.status") as? JSONObject ?: error("invalid runtime response")
+        if (runtime.opt("ready") !is Boolean || runtime.opt("provenance_valid") !is Boolean)
+            throw SnapshotStageException("runtime.status")
+        val runtimeProvider = runtime.optString("provider", "")
+            .takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,40}")) } ?: "unavailable"
+        val runtimeIntegrity = RuntimeIntegrity(runtime.getBoolean("ready"),
+            runtime.getBoolean("provenance_valid"), runtimeProvider)
         val remotes = read("provider.remotes") as? JSONArray ?: error("invalid remotes response")
         val mounts = read("mount.list") as? JSONArray ?: error("invalid mounts response")
         val jobs = read("jobs.status") as? JSONObject ?: error("invalid jobs response")
@@ -70,8 +76,20 @@ class LiveReadSnapshotReader {
                 observed !in setOf("RUNNING", "STOPPED", "DEGRADED", "MOUNT_STALE") ||
                 !value.has("desired") || value.opt("desired") !is Boolean)
                 throw SnapshotStageException("mount.status")
+            // Optional supervisor health adds retry evidence; it never replaces mount.status.
+            // If the daemon does not implement health, explicitly report unavailable.
+            val health = if ("mount.health" in supported) {
+                read("mount.health", JSONObject().put("name", name)) as? JSONObject
+                    ?: throw SnapshotStageException("mount.health")
+            } else null
+            if (health != null && (health.optString("name") != name ||
+                    health.opt("attempts") !is Number || health.optInt("attempts", -1) !in 0..100))
+                throw SnapshotStageException("mount.health")
+            val failureClass = health?.optString("failure_class", "")
+                ?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,48}")) }
             MountSummary(name, name, observed, value.getBoolean("desired"),
-                value.optString("reason", "").take(96))
+                value.optString("reason", "").take(96),
+                health?.getInt("attempts"), failureClass)
         }
         if (mountItems.map { it.id }.toSet().size != mountItems.size)
             throw SnapshotStageException("mount.list")
@@ -144,7 +162,7 @@ class LiveReadSnapshotReader {
                 else -> ActivitySeverity.INFO
             }
             collected += ActivityRecord(seq, e.optString("operation_id").takeIf { it.isNotBlank() },
-                typ.take(90), e.optLong("unix_millis").toString(), severity)
+                typ.take(90), e.optLong("unix_millis", -1L).toString(), severity)
         }
         if (events.length() > 0 && prev > newCursor) throw IllegalStateException("invalid event continuation")
         cursor = newCursor
@@ -157,6 +175,7 @@ class LiveReadSnapshotReader {
             serverVersion = "Skybind protocol 1 · ${runtime.optString("provider", "runtime")}",
             remotes = remoteItems, mounts = mountItems, jobs = runItems, events = history,
             cursor = cursor, hasEventGap = degraded, definitions = definitions,
+            runtime = runtimeIntegrity, sampledAtMillis = System.currentTimeMillis(),
         )
     }
 }
