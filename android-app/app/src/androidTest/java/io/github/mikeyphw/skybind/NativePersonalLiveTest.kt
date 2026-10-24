@@ -3,7 +3,6 @@ package io.github.mikeyphw.skybind
 import android.app.Application
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.assertExists
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.mikeyphw.skybind.bridge.RootReadSession

@@ -16,6 +16,16 @@ METHODS = re.compile(r'\bfun\s+(get[A-Z][A-Za-z_0-9]*|set[A-Z][A-Za-z_0-9]*)\s*\
 
 class Collision(Exception): pass
 
+# In androidx.compose.ui.test, these are SemanticsNodeInteraction member methods,
+# not package-level declarations. Importing them causes AndroidTest Kotlin
+# compilation to fail even though ordinary calls like node.assertExists() work.
+INVALID_ANDROIDTEST_IMPORTS = re.compile(
+    r'(?m)^\s*import\s+androidx\.compose\.ui\.test\.(assertExists|assertDoesNotExist)\s*$'
+)
+
+def invalid_androidtest_imports(source: str) -> list[str]:
+    return INVALID_ANDROIDTEST_IMPORTS.findall(source)
+
 def find_collisions(source: str) -> list[str]:
     # Simple source guard deliberately errs on denying potential collisions;
     # Android Kotlin compiler remains the ultimate authority.
@@ -36,6 +46,14 @@ def verify(root: Path=ROOT) -> dict:
         if not path.is_file() or path.is_symlink(): raise Collision('SOURCE_NOT_REGULAR')
         clashes = find_collisions(path.read_text(encoding='utf-8'))
         if clashes: raise Collision('KOTLIN_JVM_ACCESSOR_COLLISION:' + str(path.relative_to(root)) + ':' + ','.join(clashes))
+    test_sources = sorted((root / 'android-app/app/src/androidTest').rglob('*.kt'))
+    if not test_sources: raise Collision('ANDROIDTEST_KOTLIN_SOURCES_MISSING')
+    for path in test_sources:
+        if not path.is_file() or path.is_symlink(): raise Collision('ANDROIDTEST_SOURCE_NOT_REGULAR')
+        bad = invalid_androidtest_imports(path.read_text(encoding='utf-8'))
+        if bad:
+            raise Collision('ANDROIDTEST_COMPOSE_IMPORT_UNRESOLVED:' +
+                            str(path.relative_to(root)) + ':' + ','.join(bad))
     activity = (root / MAIN / 'io/github/mikeyphw/skybind/MainActivity.kt').read_text()
     viewmodel = (root / MAIN / 'io/github/mikeyphw/skybind/bridge/SkybindSessionViewModel.kt').read_text()
     if not ('private fun updateBkxBackgroundPreference(keep: Boolean)' in activity and
@@ -44,7 +62,8 @@ def verify(root: Path=ROOT) -> dict:
             'fun updateAutoConnectPreference(enabled: Boolean)' in viewmodel):
         raise Collision('NATIVE_PERSONAL_PREFERENCE_HANDLER_WIRING_DRIFT')
     return {'status': 'PASS_NATIVE_KOTLIN_SETTER_SOURCE_GUARD_ONLY', 'files_checked': len(sources),
-            'android_compiled': False, 'device_qualified': False}
+            'android_test_files_checked': len(test_sources),
+            'android_compiled': False, 'android_test_compiled': False, 'device_qualified': False}
 
 if __name__ == '__main__':
     try: print(json.dumps(verify(),sort_keys=True))
