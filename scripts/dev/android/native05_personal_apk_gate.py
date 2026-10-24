@@ -62,6 +62,8 @@ def verify(root=ROOT):
     need('RECEIVER_PERMISSION = APP +' in impl and
          "'permission': {'android:name', 'android:protectionLevel'}" in impl and
          'SIGNATURE_PERMISSION_PROTECTION_LEVEL = 2' in impl and
+         'XML_PROTECTION_FLAGS.match(value)' in impl and
+         "name == 'android:protectionLevel'" in impl and
          "compiled['receiver_permission_signature_protected'] is True" in impl and
          'COMPILED_RECEIVER_PERMISSION_SIGNATURE_REQUIRED' in impl and
          'listed - ALLOWED_PERMISSIONS' in impl,

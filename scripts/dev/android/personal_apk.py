@@ -57,6 +57,10 @@ XML_ELEMENT = re.compile(r'^([ ]*)E: ([A-Za-z_][A-Za-z0-9_.-]*)\b')
 XML_ATTRIBUTE = re.compile(r'^([ ]*)A: ([A-Za-z_][A-Za-z0-9_:-]*)(?:\(0x[0-9a-fA-F]+\))?=(.*)$')
 XML_QUOTED = re.compile(r'^"([^"\r\n]*)"(?:\s|$)')
 XML_INT = re.compile(r'^\(type 0x10\)0x([0-9a-fA-F]+)(?:\s|$)')
+# aapt emits Android's protectionLevel flag mask as TYPE_INT_HEX (0x11).
+# Accept that additional typed representation only for this exact attribute;
+# the signature-only policy below still requires the *whole* numeric mask == 2.
+XML_PROTECTION_FLAGS = re.compile(r'^\(type 0x11\)0x([0-9a-fA-F]{1,8})(?:\s|$)')
 
 class CandidateError(Exception):
     pass
@@ -169,6 +173,10 @@ def parse_compiled_manifest_tree(tree: str, *, android_test=False) -> dict:
         if name not in wanted[section]:
             continue
         quoted, numeric = XML_QUOTED.match(value), XML_INT.match(value)
+        if name == 'android:protectionLevel' and numeric is None:
+            # Android aapt types this integer enum/flag as (type 0x11), not
+            # necessarily the decimal integer encoding (type 0x10).
+            numeric = XML_PROTECTION_FLAGS.match(value)
         demand(quoted is not None or numeric is not None,
                'COMPILED_MANIFEST_ATTRIBUTE_TYPE_INVALID:' + name)
         parsed = quoted.group(1) if quoted else int(numeric.group(1), 16)

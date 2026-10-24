@@ -572,6 +572,55 @@ class PersonalApkTests(unittest.TestCase):
             with self.assertRaisesRegex(p.CandidateError,'COMPILED_RECEIVER_PERMISSION_SIGNATURE_REQUIRED'):
                 p.assert_pair(app,test,version=8)
 
+    def test_ci_40120472501_androidx_protection_level_aapt_int_hex_encoding(self):
+        """TYPE_INT_HEX 0x11 is valid for protectionLevel, not an exemption."""
+        def tree(protection_type='0x11', protection_value='0x00000002',
+                 sdk_type='0x10'):
+            uses = ''.join('  E: uses-permission (line=4)\n'
+                           '    A: android:name="'+permission+'"\n'
+                           for permission in sorted(p.ALLOWED_PERMISSIONS))
+            return ('E: manifest (line=1)\n'
+                    '  A: package="'+p.APP+'"\n'
+                    '  A: android:versionCode(0x0101021b)=(type 0x10)0x8\n'
+                    '  A: android:versionName="0.2.0-personal.8"\n'
+                    '  E: uses-sdk (line=2)\n'
+                    '    A: android:minSdkVersion(0x0101020c)=(type '+sdk_type+')0x1a\n'
+                    '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n'
+                    '  E: permission (line=3)\n'
+                    '    A: android:name="'+p.RECEIVER_PERMISSION+'"\n'
+                    '    A: android:protectionLevel(0x01010009)=(type '+protection_type+')'
+                    +protection_value+'\n'+uses)
+        report = ''.join("uses-permission: name='"+name+"'\n"
+                         for name in sorted(p.ALLOWED_PERMISSIONS))
+        badging = ("package: name='"+p.APP+"' versionCode='8' "
+                   "versionName='0.2.0-personal.8'\nsdkVersion:'26'\ntargetSdkVersion:'35'")
+        with tempfile.TemporaryDirectory() as tmp:
+            apk=pathlib.Path(tmp)/p.APP_FILE
+            apk.write_bytes(b'fictional test fixture not an APK')
+            def verify(xml):
+                def fake_aapt(argv, **kwargs):
+                    return {'badging':badging,'xmltree':xml,'permissions':report}[argv[2]]
+                with patch.object(p,'aapt_bin',return_value='/sdk/aapt'), \
+                     patch.object(p,'run_checked',side_effect=fake_aapt):
+                    return p.package_identity(apk)
+            observed=verify(tree())
+            self.assertTrue(observed['receiver_permission_signature_protected'])
+            self.assertEqual(observed['permissions'],sorted(p.ALLOWED_PERMISSIONS))
+            self.assertEqual(observed['version_code'],8)
+            for type_,mask in [('0x10','0x2'), ('0x11','0x2'), ('0x11','0x00000002')]:
+                with self.subTest(accepted=(type_,mask)):
+                    self.assertTrue(verify(tree(type_,mask))['receiver_permission_signature_protected'])
+            for type_,mask in [('0x11','0x0'),('0x11','0x1'),('0x11','0x3'),
+                               ('0x11','0x12'),('0x11','0x00010002'),
+                               ('0x12','0x2'),('0x03','0x2'),('0x11','0xZZ'),
+                               ('0x11','0x100000000')]:
+                with self.subTest(rejected=(type_,mask)):
+                    with self.assertRaises(p.CandidateError):
+                        verify(tree(type_,mask))
+            # The new flag encoding must not widen other identity fields.
+            with self.assertRaises(p.CandidateError):
+                verify(tree(sdk_type='0x11'))
+
     def test_public_permission_diagnostics_retains_bounded_names_only(self):
         import personal_apk_diagnostics as diag
         with tempfile.TemporaryDirectory() as tmp:
