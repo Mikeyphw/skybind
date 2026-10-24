@@ -47,8 +47,15 @@ def verify(root=ROOT):
          'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE' in impl and
          'def parse_compiled_manifest_tree(' in impl and
          "'dump', 'xmltree'" in impl and
-         'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT' in impl,
+         'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT' in impl and
+         'def parse_compiled_manifest_tree(tree: str, *, android_test=False)' in impl and
+         "'COMPILED_MANIFEST_VERSION_CODE_INVALID'" in impl,
          'HOSTED_AAPT_ANDROIDTEST_METADATA_PARSER_MISSING')
+    diagnostics=source('scripts/dev/android/personal_apk_diagnostics.py')
+    need('tool = aapt_bin()' in diagnostics and
+         'DIAGNOSTIC_ONLY_NOT_RELEASE_QUALIFIED' in diagnostics and
+         'personal_apk_diagnostics.py' in hosted,
+         'HOSTED_APK_METADATA_DIAGNOSTIC_MUST_USE_VERIFIER_AAPT')
     for code in ('COMPILED_PERMISSION_DRIFT', 'DEBUGGABLE_PERSONAL_APP_REFUSED',
                  'APK_TEST_SIGNER_DRIFT', 'ANDROIDTEST_TARGET_ID_MISMATCH',
                  'GITHUB_IDENTITY_INVALID', 'MANIFEST_OVERCLAIMS_QUALIFICATION',

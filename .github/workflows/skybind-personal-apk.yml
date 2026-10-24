@@ -81,21 +81,11 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          # Public package/SDK/target identity only. No keystore, signing
-          # credentials, private app data, or entire manifest is printed.
-          for path in \
-            android-app/app/build/outputs/apk/personal/app-personal.apk \
-            android-app/app/build/outputs/apk/androidTest/personal/app-personal-androidTest.apk; do
-            if test -f "$path"; then
-              echo "Metadata for $(basename "$path")"
-              aapt dump badging "$path" 2>&1 | \
-                grep -E "^(package:|sdkVersion:|targetSdkVersion:|instrumentation:)" | \
-                head -n 12 || true
-              aapt dump xmltree "$path" AndroidManifest.xml 2>&1 | \
-                grep -E '^[[:space:]]*(E: (manifest|uses-sdk|instrumentation)\b|A: (package|android:(versionCode|minSdkVersion|targetSdkVersion|targetPackage))\b)' | \
-                head -n 24 || true
-            fi
-          done
+          # Resolve the same pinned Android SDK aapt binary as the verifier.
+          # Output is bounded field/element presence, never raw APK XML or keys.
+          python3 -B scripts/dev/android/personal_apk_diagnostics.py \
+            --app android-app/app/build/outputs/apk/personal/app-personal.apk \
+            --test-apk android-app/app/build/outputs/apk/androidTest/personal/app-personal-androidTest.apk
       - name: Publish source-bound, unqualified personal candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

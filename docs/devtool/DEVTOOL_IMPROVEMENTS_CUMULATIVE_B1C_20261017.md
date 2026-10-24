@@ -1280,3 +1280,11 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Affected:** `scripts/dev/android/personal_apk.py`, GitHub personal APK workflow, source gate/tests; Devtool actor source-bound verification.
 - **Recommendation / applied source change:** Decode manifest identity via strict alternate `aapt dump xmltree` on failed badging, accept explicit AndroidTest versionCode=0 without touching personal app version policy, reject identity drift, record public bounded metadata on verifier failure. Preserve strict signing, source, permission and instrumentation target gates.
 - **Status:** IMPLEMENTED_SOURCE_TESTED; LIVE_HOSTED_REBUILD_OPEN, APK_PUBLISH_OPEN, DEVICE_ACCEPTANCE_OPEN. Reference `docs/qualification/NATIVE_05_BINARY_MANIFEST_IDENTITY_HOTFIX_20261024.md`.
+
+
+### NATIVE-05 hosted AndroidTest package identity (2026-10-24; run 40103583694)
+
+- **Evidence:** <https://github.com/Mikeyphw/skybind/actions/runs/40103583694>, SHA `19cfccf812a2afc3afcc169d4cb3d6b6263d03f9`. App and AndroidTest APK compile and signing tasks PASS, verifier exits `COMPILED_MANIFEST_PACKAGE_IDENTITY_INVALID:app-personal-androidTest.apk`; candidate upload skipped. Failure diagnostics printed only filenames while invoking bare `aapt` through a grep filter; unlike the verifier, this diagnostic did not resolve the SDK tool explicitly.
+- **Root cause candidate:** strict compiled-manifest reader demands `android:versionCode` on generated instrumentation package. Test APK version fields may legitimately be absent; accepting absence *only for AndroidTest* preserves genuine signer, bytes, package, SDK, instrumentation-target validation. Confirm actual compiled fields from repaired bounded diagnostics on next hosted run.
+- **Repair:** explicit nullable test version code, strict production version, reject malformed/contradictory present metadata, and use same SDK-resolved `aapt` for diagnostic field presence.
+- **Devtool improvement status:** SOURCE IMPLEMENTED; HOSTED RE-QUALIFICATION PENDING; do not treat source or compilation as evidence of artifact publication or device authorization.

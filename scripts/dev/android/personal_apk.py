@@ -77,11 +77,12 @@ def aapt_bin():
     demand(selected is not None, 'AAPT_REQUIRED_FOR_PACKAGE_AND_PERMISSION_VERIFICATION')
     return selected
 
-def parse_compiled_package_line(badging: str):
-    """Return required package identity plus optional AndroidTest versionName.
+def parse_compiled_package_line(badging: str, *, android_test=False):
+    """Parse the actual aapt package line, without inventing test metadata.
 
-    Never infer a package or versionCode. Reject ambiguous repeated attributes;
-    AndroidTest versionName may be absent/empty, unlike the personal app version.
+    AndroidTest may omit versionCode and versionName. A missing code is
+    represented as None *only* for the test APK; malformed or duplicated
+    values always fail. The installed app must have an explicit numeric code.
     """
     lines = BADGING_PACKAGE_LINE.findall(badging)
     demand(len(lines) == 1, 'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE')
@@ -90,14 +91,18 @@ def parse_compiled_package_line(badging: str):
            'COMPILED_PACKAGE_ATTRIBUTES_AMBIGUOUS')
     fields = dict(pairs)
     package = fields.get('name', '')
-    version_code = fields.get('versionCode', '')
-    demand(bool(re.fullmatch(r'[A-Za-z0-9_.]+', package)) and
-           bool(re.fullmatch(r'[0-9]+', version_code)),
+    value = fields.get('versionCode')
+    demand(re.fullmatch(r'[A-Za-z0-9_.]+', package) is not None and
+           ((android_test and value is None) or
+            (isinstance(value, str) and re.fullmatch(r'[0-9]+', value) is not None)),
            'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE')
-    return package, int(version_code), fields.get('versionName', '')
+    code = None if value is None else int(value)
+    demand(code is None or 0 <= code <= 2100000000,
+           'COMPILED_PACKAGE_VERSION_CODE_INVALID')
+    return package, code, fields.get('versionName', '')
 
 
-def parse_compiled_manifest_tree(tree: str) -> dict:
+def parse_compiled_manifest_tree(tree: str, *, android_test=False) -> dict:
     """Strictly extract identity from aapt's compiled XML tree, not source XML.
 
     The root manifest and direct children are tracked by indentation so an
@@ -158,9 +163,14 @@ def parse_compiled_manifest_tree(tree: str) -> dict:
     minimum = found.get('uses-sdk/android:minSdkVersion')
     target = found.get('uses-sdk/android:targetSdkVersion')
     demand(isinstance(package, str) and
-           re.fullmatch(r'[A-Za-z0-9_.]+', package) is not None and
-           type(code) is int and 0 <= code <= 2100000000,
+           re.fullmatch(r'[A-Za-z0-9_.]+', package) is not None,
            'COMPILED_MANIFEST_PACKAGE_IDENTITY_INVALID')
+    # The generated AndroidTest manifest can legitimately have no versionCode;
+    # its identity is established by package, target, signer and exact bytes.
+    # Never interpret a missing app version as valid, or manufacture a code.
+    demand((android_test and code is None) or
+           (type(code) is int and 0 <= code <= 2100000000),
+           'COMPILED_MANIFEST_VERSION_CODE_INVALID')
     demand(type(minimum) is int and type(target) is int and
            1 <= minimum <= target <= 100,
            'COMPILED_MANIFEST_SDK_IDENTITY_INVALID')
@@ -183,8 +193,11 @@ def package_identity(apk: Path):
     badging = run_checked([tool, 'dump', 'badging', str(apk)])
     parsed = None
     badging_id = None
-    try:
-        package, code, version_name = parse_compiled_package_line(badging)
+    is_test = apk.name == TEST_FILE
+    # Missing package lines are common in generated instrumentation packages.
+    # Malformed or ambiguous *present* package lines must never be ignored.
+    if BADGING_PACKAGE_LINE.findall(badging):
+        package, code, version_name = parse_compiled_package_line(badging, android_test=is_test)
         badging_id = (package, code, version_name)
         minimum, target = MIN_SDK.search(badging), TARGET_SDK.search(badging)
         if minimum is not None and target is not None:
@@ -193,14 +206,12 @@ def package_identity(apk: Path):
                       'target_sdk': int(target.group(1)),
                       'instrumentation_for_app': "targetPackage='" + APP + "'" in badging,
                       'debuggable': bool(re.search(r'^application-debuggable\s*$', badging, re.M))}
-    except CandidateError:
-        pass
     # Fall back to authoritative compiled AndroidManifest.xml when badging has
     # no usable identity, SDK, or instrumentation metadata. Never fabricate any
     # missing fields from the source package name or Gradle settings.
     if parsed is None or (apk.name == TEST_FILE and not parsed['instrumentation_for_app']):
         tree = run_checked([tool, 'dump', 'xmltree', str(apk), 'AndroidManifest.xml'])
-        xml = parse_compiled_manifest_tree(tree)
+        xml = parse_compiled_manifest_tree(tree, android_test=is_test)
         if badging_id is not None:
             demand(badging_id == (xml['package'], xml['version_code'], xml['version_name']),
                    'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
@@ -240,8 +251,9 @@ def file_record(path):
 def assert_pair(app, test, *, version):
     demand(app['package'] == APP and test['package'] == TEST, 'PACKAGE_NAME_MISMATCH')
     demand(app['certificate_sha256'] == test['certificate_sha256'], 'APK_TEST_SIGNER_DRIFT')
-    demand(app['version_code'] == version and
-           type(test['version_code']) is int and 0 <= test['version_code'] <= 2100000000,
+    demand(type(app['version_code']) is int and app['version_code'] == version and
+           (test['version_code'] is None or
+            (type(test['version_code']) is int and 0 <= test['version_code'] <= 2100000000)),
            'PERSONAL_VERSION_CODE_MISMATCH')
     # AGP may give the generated AndroidTest package its own versionCode/name.
     # Bind the test to this EXACT hosted app with signer, target ID, source and bytes,

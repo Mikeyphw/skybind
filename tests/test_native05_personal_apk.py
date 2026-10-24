@@ -159,6 +159,88 @@ class PersonalApkTests(unittest.TestCase):
                 with self.assertRaises(p.CandidateError):
                     p.parse_compiled_manifest_tree(malformed)
 
+    def test_androidtest_manifest_without_version_code_uses_explicit_null(self):
+        tree = ('E: manifest (line=1)\n'
+                '  A: package="io.github.mikeyphw.skybind.test" (Raw: "io.github.mikeyphw.skybind.test")\n'
+                '  E: uses-sdk (line=2)\n'
+                '    A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a\n'
+                '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n'
+                '  E: instrumentation (line=3)\n'
+                '    A: android:targetPackage(0x01010021)="io.github.mikeyphw.skybind"\n')
+        doc = p.parse_compiled_manifest_tree(tree, android_test=True)
+        self.assertIsNone(doc['version_code'])
+        self.assertEqual(doc['package'], p.TEST)
+        self.assertTrue(doc['instrumentation_for_app'])
+        app,test = pair()
+        test['version_code'] = doc['version_code']
+        test['version_name'] = doc['version_name']
+        p.assert_pair(app,test,version=8)
+        with self.assertRaisesRegex(p.CandidateError,'COMPILED_MANIFEST_VERSION_CODE_INVALID'):
+            p.parse_compiled_manifest_tree(tree, android_test=False)
+        for malformed in [
+            tree.replace('A: package=', 'A: omittedPackage='),
+            tree.replace('io.github.mikeyphw.skybind"', 'evil.target"'),
+        ]:
+            with self.subTest(malformed=malformed[:60]):
+                try:
+                    obj=p.parse_compiled_manifest_tree(malformed,android_test=True)
+                except p.CandidateError:
+                    continue
+                test.update(package=obj['package'],instrumentation_for_app=obj['instrumentation_for_app'])
+                with self.assertRaises(p.CandidateError):
+                    p.assert_pair(app,test,version=8)
+
+    def test_androidtest_badging_optional_code_parses_but_malformed_does_not(self):
+        sample="package: name='io.github.mikeyphw.skybind.test' versionName=''"
+        with self.assertRaises(p.CandidateError):
+            p.parse_compiled_package_line(sample)
+        self.assertEqual(p.parse_compiled_package_line(sample,android_test=True), (p.TEST,None,''))
+        for bad in [sample+" versionCode='abc'", sample+" name='other'",sample+" versionCode='-1'"]:
+            with self.subTest(bad=bad):
+                with self.assertRaises(p.CandidateError):
+                    p.parse_compiled_package_line(bad,android_test=True)
+
+    def test_generated_test_manifest_missing_version_code_still_full_package_check(self):
+        tree = ('E: manifest (line=1)\n'
+                '  A: package="io.github.mikeyphw.skybind.test"\n'
+                '  E: uses-sdk (line=2)\n'
+                '    A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a\n'
+                '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n'
+                '  E: instrumentation (line=3)\n'
+                '    A: android:targetPackage(0x01010021)="io.github.mikeyphw.skybind"\n')
+        with tempfile.TemporaryDirectory() as dname:
+            apk = pathlib.Path(dname) / p.TEST_FILE
+            apk.write_bytes(b'compiled-fixture')
+            def fake_aapt(args,**kw):
+                if args[2]=='badging': return 'application: label=AndroidJUnitRunner\n'
+                if args[2]=='xmltree': return tree
+                if args[2]=='permissions': return ''
+                self.fail('unexpected invocation')
+            with patch.object(p,'aapt_bin',return_value='/sdk/build-tools/35.0.0/aapt'), \
+                 patch.object(p,'run_checked',side_effect=fake_aapt):
+                meta=p.package_identity(apk)
+            self.assertEqual(meta['package'],p.TEST)
+            self.assertIsNone(meta['version_code'])
+            self.assertTrue(meta['instrumentation_for_app'])
+
+    def test_safe_diagnostics_resolves_same_aapt_as_verifier(self):
+        import personal_apk_diagnostics as diag
+        with tempfile.TemporaryDirectory() as dname:
+            apk=pathlib.Path(dname)/p.TEST_FILE
+            apk.write_bytes(b'test')
+            ran=[]
+            def fake_process(argv,**kw):
+                ran.append(argv)
+                return type('Proc',(),{'returncode':0,'stdout':(
+                    'E: manifest (line=1)\n  A: package="io.github.mikeyphw.skybind.test"\n'
+                    '  E: instrumentation (line=2)\n    A: android:targetPackage="io.github.mikeyphw.skybind"\n'),
+                    'stderr':'private-hypothetical-content'})()
+            with patch.object(diag.subprocess,'run',side_effect=fake_process):
+                result=diag.examine(apk,'/sdk/build-tools/35.0.0/aapt')
+            self.assertTrue(all(argv[0]=='/sdk/build-tools/35.0.0/aapt' for argv in ran))
+            self.assertIn('package',result['xmltree']['fields'])
+            self.assertNotIn('private-hypothetical-content',json.dumps(result))
+
     def test_badging_xmltree_disagreement_is_rejected(self):
         tree = ('E: manifest (line=1)\n'
                 '  A: package="evil.app" (Raw: "evil.app")\n'
@@ -277,8 +359,9 @@ class PersonalApkTests(unittest.TestCase):
         workflow=(ROOT/'.github/workflows/skybind-personal-apk.yml').read_text()
         self.assertIn('Bounded compiled APK metadata diagnostics on verifier failure', workflow)
         self.assertIn('if: failure()', workflow)
-        self.assertIn('aapt dump xmltree "$path" AndroidManifest.xml', workflow)
-        self.assertIn('aapt dump badging "$path"', workflow)
+        self.assertIn('scripts/dev/android/personal_apk_diagnostics.py', workflow)
+        self.assertIn('DIAGNOSTIC_ONLY_NOT_RELEASE_QUALIFIED',
+                      (ROOT/'scripts/dev/android/personal_apk_diagnostics.py').read_text())
         self.assertNotIn('cat personal-apk-evidence', workflow)
 
     def test_known_workflow_and_gradle_surface(self):
