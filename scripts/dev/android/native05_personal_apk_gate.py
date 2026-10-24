@@ -48,6 +48,9 @@ def verify(root=ROOT):
          'def parse_compiled_manifest_tree(' in impl and
          "'dump', 'xmltree'" in impl and
          'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT' in impl and
+         'if is_test or parsed is None:' in impl and
+         "value in (None, '')" in impl and
+         "code == 0 and xml['version_code'] is None" in impl and
          'def parse_compiled_manifest_tree(tree: str, *, android_test=False)' in impl and
          "'COMPILED_MANIFEST_VERSION_CODE_INVALID'" in impl,
          'HOSTED_AAPT_ANDROIDTEST_METADATA_PARSER_MISSING')

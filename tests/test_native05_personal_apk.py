@@ -98,6 +98,15 @@ class PersonalApkTests(unittest.TestCase):
             def fake_aapt(args, **kw):
                 if args[2]=='badging':
                     return appbadging if args[-1]==str(apppath) else testbadging
+                if args[2]=='xmltree':
+                    return ("E: manifest (line=1)\n"
+                            '  A: package="io.github.mikeyphw.skybind.test"\n'
+                            '  A: android:versionCode(0x0101021b)=(type 0x10)0x1\n'
+                            '  E: uses-sdk (line=2)\n'
+                            '    A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a\n'
+                            '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n'
+                            '  E: instrumentation (line=3)\n'
+                            '    A: android:targetPackage="io.github.mikeyphw.skybind"\n')
                 if args[2]=='permissions':
                     if args[-1]==str(apppath):
                         return '\n'.join("uses-permission: name='"+v+"'" for v in sorted(p.ALLOWED_PERMISSIONS))
@@ -200,6 +209,71 @@ class PersonalApkTests(unittest.TestCase):
                 with self.assertRaises(p.CandidateError):
                     p.parse_compiled_package_line(bad,android_test=True)
 
+    def test_real_hosted_shape_blank_versioncode_badging_and_versionless_binary(self):
+        """The 40109002928 diagnostics showed binary versionCode absent."""
+        badging = ("package: name='io.github.mikeyphw.skybind.test' "
+                   "versionCode='' versionName=''\n"
+                   "sdkVersion:'26'\ntargetSdkVersion:'35'\n"
+                   "instrumentation: name='androidx.test.runner.AndroidJUnitRunner' "
+                   "targetPackage='io.github.mikeyphw.skybind'")
+        tree = ('E: manifest (line=1)\n'
+                '  A: package="io.github.mikeyphw.skybind.test"\n'
+                '  E: uses-sdk (line=2)\n'
+                '    A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a\n'
+                '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n'
+                '  E: instrumentation (line=3)\n'
+                '    A: android:targetPackage="io.github.mikeyphw.skybind"\n')
+        self.assertEqual(p.parse_compiled_package_line(badging,android_test=True),
+                         (p.TEST,None,''))
+        with self.assertRaisesRegex(p.CandidateError, 'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE'):
+            p.parse_compiled_package_line(badging,android_test=False)
+        with tempfile.TemporaryDirectory() as dname:
+            apk = pathlib.Path(dname)/p.TEST_FILE
+            apk.write_bytes(b'bounded compiled fixture')
+            def fake_aapt(args, **kw):
+                if args[2] == 'badging': return badging
+                if args[2] == 'xmltree': return tree
+                if args[2] == 'permissions': return ''
+                self.fail('unexpected SDK command')
+            with patch.object(p,'aapt_bin',return_value='/sdk/build-tools/35.0.0/aapt'), \
+                 patch.object(p,'run_checked',side_effect=fake_aapt):
+                test = p.package_identity(apk)
+            self.assertEqual(test['package'], p.TEST)
+            self.assertEqual(test['min_sdk'],26)
+            self.assertIsNone(test['version_code'])
+            self.assertEqual(test['version_name'],'')
+            self.assertTrue(test['instrumentation_for_app'])
+            app,_=pair()
+            test['certificate_sha256']=app['certificate_sha256']
+            p.assert_pair(app,test,version=8)
+            # The same binary rejects contradictory badging without treating
+            # it as a missing optional version or silently skipping xmltree.
+            for fragment in ("versionCode='3'", "name='evil.test' versionCode=''",
+                             "versionCode='bogus'","versionCode='' versionCode='0'"):
+                changed=badging.replace("versionCode=''", fragment, 1)
+                with self.subTest(fragment=fragment):
+                    with patch.object(p,'aapt_bin',return_value='/sdk/aapt'), \
+                         patch.object(p,'run_checked',side_effect=lambda args,**kw:
+                           changed if args[2]=='badging' else tree if args[2]=='xmltree' else ''):
+                        with self.assertRaises(p.CandidateError):
+                            p.package_identity(apk)
+            # Synthetic badging 0 is reconciled only with an absent XML code;
+            # the metadata receipt remains explicit null, never invented 0.
+            with patch.object(p,'aapt_bin',return_value='/sdk/aapt'), \
+                 patch.object(p,'run_checked',side_effect=lambda args,**kw:
+                   badging.replace("versionCode=''", "versionCode='0'")
+                   if args[2]=='badging' else tree if args[2]=='xmltree' else ''):
+                self.assertIsNone(p.package_identity(apk)['version_code'])
+
+    def test_blank_version_for_app_and_malformed_present_test_are_rejected(self):
+        for line in ("package: name='io.github.mikeyphw.skybind' versionCode='' versionName='0.2.0-personal.2'",
+                     "package: name='io.github.mikeyphw.skybind.test' versionCode='broken'",
+                     "package: name='io.github.mikeyphw.skybind.test' versionCode=-1",
+                     "package: name='io.github.mikeyphw.skybind.test' versionCode='' name='evil'"):
+            with self.subTest(line=line):
+                with self.assertRaises(p.CandidateError):
+                    p.parse_compiled_package_line(line,android_test=line.find('.test')>=0)
+
     def test_generated_test_manifest_missing_version_code_still_full_package_check(self):
         tree = ('E: manifest (line=1)\n'
                 '  A: package="io.github.mikeyphw.skybind.test"\n'
@@ -222,6 +296,22 @@ class PersonalApkTests(unittest.TestCase):
             self.assertEqual(meta['package'],p.TEST)
             self.assertIsNone(meta['version_code'])
             self.assertTrue(meta['instrumentation_for_app'])
+
+    def test_public_diagnostics_classifies_blank_test_version_without_values(self):
+        import personal_apk_diagnostics as diag
+        with tempfile.TemporaryDirectory() as tmp:
+            apk = pathlib.Path(tmp)/p.TEST_FILE
+            apk.write_bytes(b'fixture')
+            def fake_run(argv,**kw):
+                stdout = ("package: name='io.github.mikeyphw.skybind.test' versionCode='' versionName=''\n"
+                          if argv[2] == 'badging' else '')
+                return type('P',(),{'stdout':stdout,'stderr':'', 'returncode':0})()
+            with patch.object(diag.subprocess,'run',side_effect=fake_run):
+                result=diag.examine(apk, '/sdk/aapt')
+            self.assertEqual(result['badging']['package_line_count'],1)
+            self.assertEqual(result['badging']['package_attribute_state'],
+                             {'name':'present','versionCode':'empty','versionName':'empty'})
+            self.assertNotIn(p.TEST,json.dumps(result))
 
     def test_safe_diagnostics_resolves_same_aapt_as_verifier(self):
         import personal_apk_diagnostics as diag

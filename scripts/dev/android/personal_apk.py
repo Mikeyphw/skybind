@@ -80,9 +80,10 @@ def aapt_bin():
 def parse_compiled_package_line(badging: str, *, android_test=False):
     """Parse the actual aapt package line, without inventing test metadata.
 
-    AndroidTest may omit versionCode and versionName. A missing code is
-    represented as None *only* for the test APK; malformed or duplicated
-    values always fail. The installed app must have an explicit numeric code.
+    AndroidTest may omit versionCode, or aapt may show versionCode='' for
+    that absent field. Only the AndroidTest role normalizes empty to None;
+    malformed nonempty and duplicated values always fail. The app must have
+    a nonempty decimal versionCode. Compiled XML remains authoritative.
     """
     lines = BADGING_PACKAGE_LINE.findall(badging)
     demand(len(lines) == 1, 'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE')
@@ -92,11 +93,17 @@ def parse_compiled_package_line(badging: str, *, android_test=False):
     fields = dict(pairs)
     package = fields.get('name', '')
     value = fields.get('versionCode')
+    # aapt badging can materialize a blank test versionCode even though the
+    # binary manifest has no versionCode attribute. A nonempty malformed value
+    # is never treated as missing, and the production APK remains strict.
     demand(re.fullmatch(r'[A-Za-z0-9_.]+', package) is not None and
-           ((android_test and value is None) or
+           ((android_test and value in (None, '')) or
             (isinstance(value, str) and re.fullmatch(r'[0-9]+', value) is not None)),
            'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE')
-    code = None if value is None else int(value)
+    for key in ('name', 'versionCode', 'versionName'):
+        if re.search(r'\b' + key + r'\s*=', lines[0]):
+            demand(key in fields, 'COMPILED_PACKAGE_ATTRIBUTE_MALFORMED:' + key)
+    code = None if value in (None, '') else int(value)
     demand(code is None or 0 <= code <= 2100000000,
            'COMPILED_PACKAGE_VERSION_CODE_INVALID')
     return package, code, fields.get('versionName', '')
@@ -206,14 +213,25 @@ def package_identity(apk: Path):
                       'target_sdk': int(target.group(1)),
                       'instrumentation_for_app': "targetPackage='" + APP + "'" in badging,
                       'debuggable': bool(re.search(r'^application-debuggable\s*$', badging, re.M))}
-    # Fall back to authoritative compiled AndroidManifest.xml when badging has
-    # no usable identity, SDK, or instrumentation metadata. Never fabricate any
-    # missing fields from the source package name or Gradle settings.
-    if parsed is None or (apk.name == TEST_FILE and not parsed['instrumentation_for_app']):
+    # The binary manifest is authoritative for instrumentation identity.
+    # Always check AndroidTest, including when badging has a package line:
+    # generated test badging can add an empty/synthetic version that is absent
+    # from the compiled manifest. Missing fields are not invented or accepted
+    # as evidence of a source/byte match.
+    if is_test or parsed is None:
         tree = run_checked([tool, 'dump', 'xmltree', str(apk), 'AndroidManifest.xml'])
         xml = parse_compiled_manifest_tree(tree, android_test=is_test)
         if badging_id is not None:
-            demand(badging_id == (xml['package'], xml['version_code'], xml['version_name']),
+            package, code, version_name = badging_id
+            demand(package == xml['package'],
+                   'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
+            # For AndroidTest, aapt can render a synthetic 0 for a binary
+            # versionCode that is actually absent. Only that exact case may
+            # normalize to null; any other concrete disagreement is a denial.
+            demand(code is None or code == xml['version_code'] or
+                   (is_test and code == 0 and xml['version_code'] is None),
+                   'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
+            demand(not version_name or version_name == xml['version_name'],
                    'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
         if parsed is not None:
             demand(all(parsed[field] == xml[field] for field in ('min_sdk', 'target_sdk')),

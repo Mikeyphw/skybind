@@ -1288,3 +1288,12 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Root cause candidate:** strict compiled-manifest reader demands `android:versionCode` on generated instrumentation package. Test APK version fields may legitimately be absent; accepting absence *only for AndroidTest* preserves genuine signer, bytes, package, SDK, instrumentation-target validation. Confirm actual compiled fields from repaired bounded diagnostics on next hosted run.
 - **Repair:** explicit nullable test version code, strict production version, reject malformed/contradictory present metadata, and use same SDK-resolved `aapt` for diagnostic field presence.
 - **Devtool improvement status:** SOURCE IMPLEMENTED; HOSTED RE-QUALIFICATION PENDING; do not treat source or compilation as evidence of artifact publication or device authorization.
+
+
+### 2026-10-24 — Devtool / Skybind hosted AndroidTest blank-badging denial (NATIVE-05)
+
+- **Evidence:** GitHub [40109002928](https://github.com/Mikeyphw/skybind/actions/runs/40109002928), commit `c680f317e7c75395f4b1699b7568e98cd9bb16d0`. Both Android APKs compile; metadata verifier rejected `COMPILED_PACKAGE_IDENTITY_UNAVAILABLE:app-personal-androidTest.apk`; upload skipped. Diagnostic found compiled test XML `package`, min/target SDK and instrumentation target but no version fields. Exact badging values not retained.
+- **Affected:** Skybind `scripts/dev/android/personal_apk.py`, hosted diagnosis, `tests/test_native05_personal_apk.py`, `scripts/dev/android/native05_personal_apk_gate.py`; Devtool source validation, not Devtool overlay engine.
+- **Root cause / fix:** Before binary manifest fallback, the test badging parser rejected present-but-empty `versionCode=''`; now normalize only that role's empty code as null, require compiled XML for every AndroidTest APK and compare all present identity claims, preserving signer, strict app version and tests' instrumentation target. Disallow contradictory, malformed and duplicate badging fields. Diagnostic now reports value *presence* only.
+- **Improvement recommendation:** General Devtool external-release acceptance should distinguish source parser regressions from hosted byte evidence; keep raw CI diagnostics bounded, exact artifacts and post-run provider qualification authoritative; avoid serial guess-driven changes.
+- **Status:** SOURCE_IMPLEMENTED; FULL_SOURCE_REGRESSION_PASS; HOSTED_ARTIFACT_VERIFY_OPEN; DEVICE_INSTRUMENTATION_OPEN; OWNER_APPROVAL_OPEN. See `docs/qualification/NATIVE_05_ANDROIDTEST_BADGING_EMPTY_CODE_FIX_20261024.md`.

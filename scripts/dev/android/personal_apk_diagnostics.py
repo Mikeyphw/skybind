@@ -11,7 +11,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from personal_apk import APP_FILE, TEST_FILE, aapt_bin, CandidateError
+from personal_apk import (APP_FILE, TEST_FILE, aapt_bin, CandidateError,
+                          BADGING_PACKAGE_LINE, BADGING_ATTRIBUTE)
 
 FIELDS = ('package', 'android:versionCode', 'android:versionName',
           'android:minSdkVersion', 'android:targetSdkVersion',
@@ -32,8 +33,17 @@ def examine(path: Path, tool: str) -> dict:
         try:
             proc = subprocess.run(argv, text=True, capture_output=True, timeout=20)
             output = proc.stdout[:150000]
+            package_lines = BADGING_PACKAGE_LINE.findall(output) if label == 'badging' else []
+            attrs = BADGING_ATTRIBUTE.findall(package_lines[0]) if len(package_lines) == 1 else []
             result[label] = {
                 'exit': proc.returncode, 'stdout_length': len(proc.stdout),
+                'package_line_count': len(package_lines) if label == 'badging' else None,
+                'package_attribute_state': ({key: (
+                    'duplicate' if sum(a == key for a, _ in attrs) > 1 else
+                    'empty' if any(a == key and v == '' for a, v in attrs) else
+                    'present' if any(a == key for a, _ in attrs) else 'absent')
+                    for key in ('name', 'versionCode', 'versionName')}
+                    if label == 'badging' else None),
                 'stderr_length': len(proc.stderr),
                 # Emit only whitelisted attribute/element names and presence,
                 # never values that might originate from arbitrary APK text.
