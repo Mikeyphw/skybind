@@ -56,6 +56,68 @@ class PersonalApkTests(unittest.TestCase):
         t['version_name'] = '1.0'
         p.assert_pair(a,t,version=8)
 
+    def test_aapt_androidtest_empty_or_missing_version_name_is_valid(self):
+        fixtures = (
+            "package: name='io.github.mikeyphw.skybind.test' versionCode='1' versionName='' platformBuildVersionCode='35'",
+            "package: name='io.github.mikeyphw.skybind.test' versionCode='1' platformBuildVersionCode='35'",
+            "package: versionCode='1' name='io.github.mikeyphw.skybind.test' versionName=''",
+        )
+        for line in fixtures:
+            with self.subTest(line=line):
+                package, version, version_name = p.parse_compiled_package_line(line)
+                self.assertEqual((package, version, version_name), (p.TEST, 1, ''))
+                app, test = pair()
+                test.update(package=package, version_code=version, version_name=version_name)
+                p.assert_pair(app, test, version=8)
+
+    def test_aapt_package_missing_or_malformed_identity_still_refused(self):
+        fixtures = (
+            '', 'application: label=Skybind',
+            "package: name='io.github.mikeyphw.skybind.test' versionName=''",
+            "package: name='io.github.mikeyphw.skybind.test' versionCode='garbage'",
+            "package: name='io.github.mikeyphw.skybind.test' versionCode='1' versionCode='2'",
+            "package: name='io.github.mikeyphw.skybind.test' versionCode='1'\npackage: name='other' versionCode='1'",
+        )
+        for line in fixtures:
+            with self.subTest(line=line):
+                with self.assertRaises(p.CandidateError):
+                    p.parse_compiled_package_line(line)
+
+    def test_aapt_dump_full_pair_read_and_guarded_version_checks(self):
+        appbadging = ("package: name='io.github.mikeyphw.skybind' versionCode='8' "
+                      "versionName='0.2.0-personal.8'\nsdkVersion:'26'\ntargetSdkVersion:'35'")
+        testbadging = ("package: name='io.github.mikeyphw.skybind.test' "
+                       "versionCode='1' versionName=''\nsdkVersion:'26'\ntargetSdkVersion:'35'\n"
+                       "instrumentation: name='androidx.test.runner.AndroidJUnitRunner' "
+                       "targetPackage='io.github.mikeyphw.skybind'")
+        with tempfile.TemporaryDirectory() as dname:
+            apppath=pathlib.Path(dname)/p.APP_FILE
+            testpath=pathlib.Path(dname)/p.TEST_FILE
+            apppath.write_bytes(b'app')
+            testpath.write_bytes(b'test')
+            def fake_aapt(args, **kw):
+                if args[2]=='badging':
+                    return appbadging if args[-1]==str(apppath) else testbadging
+                if args[2]=='permissions':
+                    if args[-1]==str(apppath):
+                        return '\n'.join("uses-permission: name='"+v+"'" for v in sorted(p.ALLOWED_PERMISSIONS))
+                    return ''
+                self.fail('unexpected aapt invocation')
+            with patch.object(p, 'aapt_bin', return_value='/tools/aapt'), \
+                 patch.object(p, 'run_checked', side_effect=fake_aapt):
+                app=p.package_identity(apppath)
+                test=p.package_identity(testpath)
+            self.assertEqual(test['version_name'], '')
+            self.assertTrue(test['instrumentation_for_app'])
+            # aapt returns package properties; apksigner adds the checked cert.
+            app['certificate_sha256'] = PIN
+            test['certificate_sha256'] = PIN
+            p.assert_pair(app,test,version=8)
+            with self.assertRaises(p.CandidateError):
+                p.assert_pair({**app, 'version_name':'0.1.0-dev'},test,version=8)
+            with self.assertRaises(p.CandidateError):
+                p.assert_pair(app,{**test,'instrumentation_for_app':False},version=8)
+
     def test_invalid_version_rejected(self):
         for version in (0, 1, 2100000001):
             a,t = pair()

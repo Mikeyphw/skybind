@@ -40,6 +40,11 @@ def verify(root=ROOT):
                    'upload-artifact@', 'SKYBIND_ANDROID_SIGNER_SHA256',
                    'if: always()', 'retention-days:'):
         need(phrase in hosted, 'HOSTED_PERSONAL_APK_POLICY_MISSING:'+phrase)
+    need('def parse_compiled_package_line(' in impl and
+         'COMPILED_PACKAGE_ATTRIBUTES_AMBIGUOUS' in impl and
+         "fields.get('versionName', '')" in impl and
+         'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE' in impl,
+         'HOSTED_AAPT_ANDROIDTEST_METADATA_PARSER_MISSING')
     for code in ('COMPILED_PERMISSION_DRIFT', 'DEBUGGABLE_PERSONAL_APP_REFUSED',
                  'APK_TEST_SIGNER_DRIFT', 'ANDROIDTEST_TARGET_ID_MISMATCH',
                  'GITHUB_IDENTITY_INVALID', 'MANIFEST_OVERCLAIMS_QUALIFICATION',

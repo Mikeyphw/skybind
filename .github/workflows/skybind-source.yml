@@ -19,6 +19,10 @@ jobs:
         run: |
           python3 -B scripts/dev/android/native_kotlin_setter_gate.py
           python3 -B -m unittest -q tests.test_native_kotlin_setter_gate
+      - name: Validate NATIVE-05 personal APK identity parser contracts (source-only)
+        run: |
+          python3 -B scripts/dev/android/native05_personal_apk_gate.py
+          python3 -B -m unittest -q tests.test_native05_personal_apk
       - name: Targeted source tests and release evidence denials
         run: bash scripts/devtool/check_c06_integration_release.sh
       - name: M3 disposable source and evidence denials (NO device mutation)

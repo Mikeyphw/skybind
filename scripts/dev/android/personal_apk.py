@@ -34,7 +34,11 @@ ALLOWED_PERMISSIONS = frozenset({
     'android.permission.POST_NOTIFICATIONS',
     'android.permission.ACCESS_NETWORK_STATE',
 })
-BADGING_PACKAGE = re.compile(r"^package: name='([^']+)' versionCode='([0-9]+)' versionName='([^']+)'", re.M)
+# aapt may emit an *empty or absent* versionName for generated AndroidTest
+# packages. Parse identity fields independently; app release version is still
+# compared against the strict expected version in assert_pair().
+BADGING_PACKAGE_LINE = re.compile(r'^package: +([^\r\n]+)$', re.M)
+BADGING_ATTRIBUTE = re.compile(r"\b([A-Za-z][A-Za-z0-9]*)='([^']*)'")
 PERMISSION = re.compile(r"^uses-permission(?:-sdk-23)?: name='([^']+)'", re.M)
 MIN_SDK = re.compile(r"^sdkVersion:'([0-9]+)'", re.M)
 TARGET_SDK = re.compile(r"^targetSdkVersion:'([0-9]+)'", re.M)
@@ -65,19 +69,39 @@ def aapt_bin():
     demand(selected is not None, 'AAPT_REQUIRED_FOR_PACKAGE_AND_PERMISSION_VERIFICATION')
     return selected
 
+def parse_compiled_package_line(badging: str):
+    """Return required package identity plus optional AndroidTest versionName.
+
+    Never infer a package or versionCode. Reject ambiguous repeated attributes;
+    AndroidTest versionName may be absent/empty, unlike the personal app version.
+    """
+    lines = BADGING_PACKAGE_LINE.findall(badging)
+    demand(len(lines) == 1, 'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE')
+    pairs = BADGING_ATTRIBUTE.findall(lines[0])
+    demand(len({key for key, _ in pairs}) == len(pairs),
+           'COMPILED_PACKAGE_ATTRIBUTES_AMBIGUOUS')
+    fields = dict(pairs)
+    package = fields.get('name', '')
+    version_code = fields.get('versionCode', '')
+    demand(bool(re.fullmatch(r'[A-Za-z0-9_.]+', package)) and
+           bool(re.fullmatch(r'[0-9]+', version_code)),
+           'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE')
+    return package, int(version_code), fields.get('versionName', '')
+
+
 def package_identity(apk: Path):
     demand(apk.is_file() and not apk.is_symlink() and 0 < apk.stat().st_size < 200_000_000,
            'INVALID_APK_FILE')
     tool = aapt_bin()
     badging = run_checked([tool, 'dump', 'badging', str(apk)])
-    m = BADGING_PACKAGE.search(badging)
-    demand(m is not None, 'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE')
+    package, version_code, version_name = parse_compiled_package_line(badging)
     permissions = frozenset(PERMISSION.findall(run_checked([tool, 'dump', 'permissions', str(apk)])))
     minimum, target = MIN_SDK.search(badging), TARGET_SDK.search(badging)
     demand(minimum is not None and target is not None, 'COMPILED_SDK_METADATA_UNAVAILABLE')
     return {
-        'package': m.group(1), 'min_sdk': int(minimum.group(1)), 'target_sdk': int(target.group(1)), 'version_code': int(m.group(2)),
-        'version_name': m.group(3), 'permissions': sorted(permissions),
+        'package': package, 'min_sdk': int(minimum.group(1)),
+        'target_sdk': int(target.group(1)), 'version_code': version_code,
+        'version_name': version_name, 'permissions': sorted(permissions),
         'debuggable': bool(re.search(r'^application-debuggable\s*$', badging, re.M)),
         'instrumentation_for_app': "targetPackage='" + APP + "'" in badging,
     }
@@ -94,7 +118,11 @@ def file_record(path):
     cert = apk_manifest.apk_cert(path)
     demand(isinstance(cert, str) and HEX.fullmatch(cert) is not None,
            'SIGNED_APK_VERIFICATION_REQUIRED')
-    info = package_identity(path)
+    try:
+        info = package_identity(path)
+    except CandidateError as exc:
+        # Report which known APK role failed; never emit APK bytes or key data.
+        raise CandidateError(str(exc) + ':' + path.name) from exc
     return {
         'name': path.name, 'size_bytes': path.stat().st_size,
         'sha256': sha256_file(path),
@@ -110,8 +138,11 @@ def assert_pair(app, test, *, version):
     # AGP may give the generated AndroidTest package its own versionCode/name.
     # Bind the test to this EXACT hosted app with signer, target ID, source and bytes,
     # not an undocumented equality of the two packages' version metadata.
+    # AGP-created test APKs can have versionName='' or no versionName field.
+    # Keep the *app* version exact; the test APK is instead bound by its signed
+    # identity, instrumentation target package, source SHA and immutable bytes.
     demand(app['version_name'] == '0.2.0-personal.' + str(version) and
-           isinstance(test['version_name'], str) and bool(test['version_name']),
+           isinstance(test['version_name'], str),
            'PERSONAL_VERSION_NAME_MISMATCH')
     demand(version >= 2 and version <= 2100000000, 'PERSONAL_VERSION_INVALID')
     demand(app['min_sdk'] == test['min_sdk'] == 26 and
