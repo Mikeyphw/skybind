@@ -68,7 +68,7 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     private var resumeReconnectPending = false
     private var explicitlyDisconnected = false
 
-    fun setAutoConnectEnabled(enabled: Boolean) {
+    fun updateAutoConnectPreference(enabled: Boolean) {
         autoConnectEnabled = enabled
         getApplication<Application>().getSharedPreferences("skybind_native", 0).edit()
             .putBoolean("auto_connect", enabled).apply()

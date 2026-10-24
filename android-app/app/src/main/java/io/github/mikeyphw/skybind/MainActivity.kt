@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
-    private fun setBkxKeepBackground(keep: Boolean) {
+    private fun updateBkxBackgroundPreference(keep: Boolean) {
         bkxKeepBackground = keep
         getSharedPreferences("skybind_native", 0).edit()
             .putBoolean("bkx_keep_background", keep).apply()
@@ -99,13 +99,13 @@ class MainActivity : ComponentActivity() {
                 onConnect = session::connect,
                 onDisconnect = session::disconnect,
                 autoConnectEnabled = session.autoConnectEnabled,
-                onAutoConnectChanged = session::setAutoConnectEnabled,
+                onAutoConnectChanged = session::updateAutoConnectPreference,
                 bkxAuthorityRunning = bkxObserved,
                 bkxPeerConnected = bkxPeerConnected,
                 bkxStarting = bkxStartingSince > 0L,
                 bkxStartFailed = bkxStartFailed,
                 bkxKeepBackground = bkxKeepBackground,
-                onBkxKeepBackgroundChanged = ::setBkxKeepBackground,
+                onBkxKeepBackgroundChanged = ::updateBkxBackgroundPreference,
                 onEnableBkx = ::enableAuthority,
                 onDisableBkx = ::disableAuthority,
                 mountConfigMode = session.mountConfigMode,
