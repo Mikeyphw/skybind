@@ -20,7 +20,11 @@ def check():
                  'SAME_SOURCE_INSTALLED_MODULE_EVIDENCE_MISSING',
                  'EXPLICIT_ALL_OWNER_APPROVAL_FLAGS_REQUIRED',
                  'APPROVAL_ARTIFACT_DRIFT', 'REQUIRED_DEVICE_LANE_MISSING',
-                 'READONLY_MUST_NOT_HAVE_MUTATION_CONSENT'):
+                 'READONLY_MUST_NOT_HAVE_MUTATION_CONSENT',
+                 'MOUNT_FIXTURE_PATH_ALREADY_PRESENT_OR_UNKNOWN',
+                 'MOUNT_FIXTURE_CLEANUP_FAILED_INSPECT_DEVICE',
+                 'ACTIVE_SKYBIND_DAEMON_BINARY_STALE_OR_UNREADABLE',
+                 'ANDROID_36_QUALIFICATION_TARGET_REQUIRED'):
         if code not in runner:
             raise RuntimeError('MISSING_NATIVE06_FAIL_CLOSED_GUARD:' + code)
     for code in ('automaticForegroundRootNoManualConnect', 'mountsMatchAuthoritativeDaemon',
@@ -29,7 +33,9 @@ def check():
                  'global reconcile requires isolated inactive registry',
                  'root.previewMount("start", name)', 'root.previewMount("restart", name)',
                  'root.previewMount("stop", name)', 'root.previewMount("reconcile", "")',
-                 'root.previewConfig("delete", name, null)'):
+                 'root.previewConfig("delete", name, null)',
+                 '"skybind.native.personal.mountpoint"',
+                 'mountpoint = mountpoint,'):
         if code not in live:
             raise RuntimeError('MISSING_NATIVE06_DEVICE_CONTRACT:' + code)
     if 'onNodeWithTag("connect-readonly").performClick()' in live:

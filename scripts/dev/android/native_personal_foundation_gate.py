@@ -42,9 +42,13 @@ def verify(root=ROOT):
         need(vector.tag=='vector', 'ANDROID_VECTOR_INVALID:'+name)
     need('session.onForeground()' in activity and 'session.onBackground()' in activity and
          'onConnect = session::connect' in activity and 'RootService.bind' in session and
-         'fun onForeground()' in viewmodel and 'if (autoConnectEnabled && !explicitlyDisconnected && !initialAttempted)' in viewmodel and
+         'fun onForeground()' in viewmodel and 'if (autoConnectEnabled && !explicitlyDisconnected &&' in viewmodel and
+         'resumeReconnectPending && snapshot.link == LinkState.DISCONNECTED' in viewmodel and
+         'resumeReconnectPending = !foreground && snapshot.online' in viewmodel and
          'private fun connectInternal()' in viewmodel and 'reconnectUsed = true' in viewmodel and
          'getSharedPreferences("skybind_native", 0)' in viewmodel, 'AUTO_ROOT_POLICY_MISSING')
+    need('Modifier.statusBarsPadding().testTag("app-header")' in ui,
+         'API35_36_STATUS_BAR_INSET_MISSING')
     need('BKX background authority' in ui and 'bkxAuthorityRunning' in ui and
          'R1AuthorityService.isRunning' in activity and 'authorityRunning = true' not in activity,
          'BKX_SERVICE_STATE_NOT_OBSERVED')

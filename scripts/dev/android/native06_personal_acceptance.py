@@ -26,8 +26,13 @@ from personal_apk import (APP, TEST, MANIFEST_FILE, SHA, CandidateError, demand)
 from personal_apk_device import (verify_folder, inspect_installed, pin_from_owner, gh_info,
                                  adb, SERIAL)
 
-SCHEMA = 'skybind-native-personal-device-acceptance-v1'
+SCHEMA = 'skybind-native-personal-device-acceptance-v2'
 RUNNER = TEST + '/androidx.test.runner.AndroidJUnitRunner'
+# Device-side test mountpoints must already exist: Engine.verifyDestination()
+# rejects missing directories and symlinks. Only the operator-authorized full
+# profile may stage this single disposable directory.
+MOUNT_FIXTURE_PARENT = '/storage/emulated/0/Download'
+MOUNT_FIXTURE_NAME = re.compile(r'NativeLife[0-9a-f]{12}\Z')
 MANAGERS = ('kernelsu', 'kernelsu-next', 'magisk', 'apatch', 'other')
 CASE = APP + '.'
 # No generic test-package scan: an exact invocation and an exact passing method
@@ -95,14 +100,17 @@ def parse_instrumentation(case: str, output: str, rc: int) -> str:
     return sha256_bytes(output.encode('utf-8'))
 
 
-def instrument(serial: str, case: str, extra: dict[str, str], timeout=180) -> dict:
+def instrument(serial: str, case: str, extra: dict[str, str], timeout=180,
+               *, evidence_dir: Path | None = None, log_key: str = '') -> dict:
     name = CASE + case
     demand(re.fullmatch(r'[A-Za-z][A-Za-z0-9]+Test#[A-Za-z][A-Za-z0-9]+', case) is not None,
            'TEST_CASE_UNEXPECTED')
     args = ['adb', '-s', serial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', name]
     for k, v in sorted(extra.items()):
-        demand(re.fullmatch(r'skybind\.[a-z0-9._]+', k) is not None and
-               re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}', v) is not None,
+        safe_value = (re.fullmatch(r'/storage/emulated/0/Download/\.skybind-native-NativeLife[0-9a-f]{12}', v)
+            if k == 'skybind.native.personal.mountpoint'
+            else re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}', v))
+        demand(re.fullmatch(r'skybind\.[a-z0-9._]+', k) is not None and safe_value is not None,
                'INSTRUMENT_ARGUMENT_UNSAFE')
         args += ['-e', k, v]
     args.append(RUNNER)
@@ -112,8 +120,25 @@ def instrument(serial: str, case: str, extra: dict[str, str], timeout=180) -> di
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise CandidateError('INSTRUMENTATION_EXECUTION_FAILED:' + case) from exc
     output = proc.stdout + '\n' + proc.stderr
-    digest = parse_instrumentation(case, output, proc.returncode)
-    return {'status': 'PASS', 'case': name, 'instrumentation_sha256': digest}
+    demand(len(output.encode('utf-8')) <= 1_000_000, 'INSTRUMENTATION_LOG_TOO_LARGE')
+    digest = sha256_bytes(output.encode('utf-8'))
+    demand(evidence_dir is not None and re.fullmatch(r'[a-z0-9-]{1,48}', log_key) is not None,
+           'INSTRUMENTATION_LOG_DESTINATION_REQUIRED')
+    demand(evidence_dir.is_dir() and not evidence_dir.is_symlink() and
+           evidence_dir.stat().st_mode & 0o077 == 0,
+           'INSTRUMENTATION_EVIDENCE_DIRECTORY_UNSAFE')
+    path = evidence_dir / (log_key + '.log')
+    # Create private from the first write, not chmod after exposing runner output.
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    with os.fdopen(fd, 'w', encoding='utf-8') as file:
+        file.write(output)
+    demand(sha256_file(path) == digest, 'INSTRUMENTATION_LOG_PUBLICATION_DRIFT')
+    # Preserve a failed lane's original output for private diagnosis; never
+    # turn its log into a PASS unless the full runner grammar succeeds.
+    demand(parse_instrumentation(case, output, proc.returncode) == digest,
+           'INSTRUMENTATION_LOG_REPARSE_FAILED')
+    return {'status': 'PASS', 'case': name, 'instrumentation_sha256': digest,
+            'instrumentation_log': evidence_dir.name + '/' + path.name}
 
 
 def plan(profile: str, *, remote: str | None, consent_config: bool,
@@ -140,7 +165,10 @@ def preflight(folder: Path, serial: str, signer: str):
            'EXACT_SIGNED_PERSONAL_APP_AND_TEST_NOT_INSTALLED')
     demand(adb(serial, 'get-state').strip() == 'device', 'ADB_DEVICE_NOT_ONLINE')
     api = adb(serial, 'shell', 'getprop', 'ro.build.version.sdk').strip()
-    demand(api.isdecimal() and int(api) >= 35, 'ANDROID_35_PLUS_REQUIRED')
+    # NATIVE-05 explicitly promised Android 16 / API 36 acceptance coverage.
+    demand(api.isdecimal() and int(api) >= 36, 'ANDROID_36_QUALIFICATION_TARGET_REQUIRED')
+    abi = adb(serial, 'shell', 'getprop', 'ro.product.cpu.abi').strip()
+    demand(abi == 'arm64-v8a', 'ANDROID_ARM64_MODULE_DEVICE_REQUIRED')
     demand(adb(serial, 'shell', 'getenforce').strip() == 'Enforcing',
            'SELINUX_ENFORCING_REQUIRED')
     return manifest, int(api)
@@ -161,6 +189,42 @@ def run_cold_relaunch(serial: str) -> dict:
     demand(bool(fresh) and not set(old.split()) & set(fresh.split()), 'APP_COLD_PID_NOT_NEW')
     return {'status': 'PASS', 'old_pid_sha256': sha256_bytes(old.encode()),
             'new_pid_sha256': sha256_bytes(fresh.encode())}
+
+
+def make_private_evidence_dir(directory: Path) -> Path:
+    demand(not directory.is_symlink(), 'RECEIPT_DIRECTORY_SYMLINK')
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    demand(directory.is_dir() and not directory.is_symlink() and
+           directory.stat().st_mode & 0o077 == 0,
+           'RECEIPT_DIRECTORY_PERMISSIONS_UNSAFE')
+    name = 'native06-logs-' + uuid.uuid4().hex
+    path = directory / name
+    path.mkdir(mode=0o700)
+    return path
+
+
+def verify_instrumentation_logs(receipt: dict, directory: Path) -> None:
+    # Log paths are private relative names, never absolute paths or symlinks.
+    # The exact Android runner output is re-parsed, not just hash-shaped JSON.
+    entries = receipt['lanes']
+    for name, lane in entries.items():
+        if name == 'cold-relaunch':
+            continue
+        rel = lane.get('instrumentation_log')
+        demand(isinstance(rel, str) and
+               re.fullmatch(r'native06-logs-[0-9a-f]{32}/[a-z0-9-]{1,48}\.log', rel) is not None and
+               Path(rel).name == name + '.log',
+               'INSTRUMENTATION_LOG_PATH_NOT_BOUND:' + name)
+        log = directory / rel
+        demand(not log.is_symlink() and not log.parent.is_symlink() and
+               log.is_file() and 0 < log.stat().st_size <= 1_000_000 and
+               log.parent.stat().st_mode & 0o077 == 0 and
+               log.stat().st_mode & 0o077 == 0,
+               'INSTRUMENTATION_LOG_MISSING_OR_UNSAFE:' + name)
+        demand(sha256_file(log) == lane['instrumentation_sha256'],
+               'INSTRUMENTATION_LOG_DIGEST_MISMATCH:' + name)
+        parse_instrumentation(lane['case'].removeprefix(CASE),
+                              log.read_text(encoding='utf-8'), 0)
 
 
 def safe_store(payload: dict, directory: Path, prefix: str) -> Path:
@@ -214,8 +278,78 @@ def verify_matching_module(serial: str, json_path: Path, zip_path: Path, source:
                 observed = match.group(1)
                 break
     demand(observed == binary_sha, 'INSTALLED_NATIVE_DAEMON_BINARY_MISMATCH_OR_UNREADABLE')
+    # Hashing a module ZIP and its on-disk executable proves installation but
+    # not that the running daemon was restarted. Read the live process image,
+    # fail closed on missing root access, absent PID or stale running bytes.
+    try:
+        active = subprocess.run(['adb', '-s', serial, 'shell', 'su', '-c',
+            '/system/bin/pidof skybind'], capture_output=True, text=True, timeout=25)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CandidateError('ACTIVE_SKYBIND_DAEMON_PID_NOT_VERIFIED') from exc
+    pids = active.stdout.strip().split()
+    demand(active.returncode == 0 and 1 <= len(pids) <= 8 and
+           len(set(pids)) == len(pids) and
+           all(re.fullmatch(r'[1-9][0-9]{0,8}', pid) for pid in pids),
+           'ACTIVE_SKYBIND_DAEMON_PID_NOT_VERIFIED')
+    active_hashes = []
+    for pid in pids:
+        target_proc = '/proc/' + pid + '/exe'
+        try:
+            proc = subprocess.run(['adb', '-s', serial, 'shell', 'su', '-c',
+                '/system/bin/sha256sum ' + target_proc],
+                capture_output=True, text=True, timeout=25)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise CandidateError('ACTIVE_SKYBIND_DAEMON_BINARY_STALE_OR_UNREADABLE') from exc
+        match = re.fullmatch(r'([0-9a-f]{64})\s+' + re.escape(target_proc) + r'\s*',
+                             proc.stdout) if proc.returncode == 0 else None
+        demand(match is not None and match.group(1) == binary_sha,
+               'ACTIVE_SKYBIND_DAEMON_BINARY_STALE_OR_UNREADABLE')
+        active_hashes.append(match.group(1))
     return {'module_archive_sha256': archive_hash, 'module_binary_sha256': binary_sha,
-            'installed_module_verified': True, 'module_provider': meta['provider']}
+            'active_daemon_binary_sha256': binary_sha,
+            'active_daemon_process_count': len(active_hashes),
+            'installed_module_verified': True, 'active_module_verified': True,
+            'module_provider': meta['provider']}
+
+
+def mount_fixture_identity() -> tuple[str, str]:
+    name = 'NativeLife' + uuid.uuid4().hex[:12]
+    return name, MOUNT_FIXTURE_PARENT + '/.skybind-native-' + name
+
+
+def mount_fixture_shell(serial: str, *cmd: str) -> subprocess.CompletedProcess:
+    # Fixed, bounded argv only; no arbitrary remote shell, rm -rf or root helper.
+    try:
+        return subprocess.run(['adb', '-s', serial, 'shell', *cmd],
+                              capture_output=True, text=True, timeout=25)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CandidateError('MOUNT_FIXTURE_ADB_UNAVAILABLE') from exc
+
+
+def prepare_mount_fixture(serial: str, name: str, path: str) -> None:
+    demand(MOUNT_FIXTURE_NAME.fullmatch(name) is not None and
+           path == MOUNT_FIXTURE_PARENT + '/.skybind-native-' + name,
+           'MOUNT_FIXTURE_PATH_UNSAFE')
+    for flag in ('-e', '-L'):
+        probe = mount_fixture_shell(serial, 'test', flag, path)
+        demand(probe.returncode == 1, 'MOUNT_FIXTURE_PATH_ALREADY_PRESENT_OR_UNKNOWN')
+    created = mount_fixture_shell(serial, 'mkdir', path)
+    demand(created.returncode == 0, 'MOUNT_FIXTURE_CREATE_FAILED')
+    checked = mount_fixture_shell(serial, 'test', '-d', path)
+    no_link = mount_fixture_shell(serial, 'test', '-L', path)
+    demand(checked.returncode == 0 and no_link.returncode == 1 and
+           mount_fixture_shell(serial, 'ls', '-A', path).stdout.strip() == '',
+           'MOUNT_FIXTURE_NOT_EMPTY_OR_INVALID')
+
+
+def remove_mount_fixture(serial: str, name: str, path: str) -> None:
+    demand(MOUNT_FIXTURE_NAME.fullmatch(name) is not None and
+           path == MOUNT_FIXTURE_PARENT + '/.skybind-native-' + name,
+           'MOUNT_FIXTURE_CLEANUP_PATH_UNSAFE')
+    # Never force-unmount, recursively delete, or remove the directory contents.
+    # rmdir must fail if the Android test left files or an unsafe mount behind.
+    result = mount_fixture_shell(serial, 'rmdir', path)
+    demand(result.returncode == 0, 'MOUNT_FIXTURE_CLEANUP_FAILED_INSPECT_DEVICE')
 
 
 def acceptance(args):
@@ -241,6 +375,8 @@ def acceptance(args):
            'owner_approval': False, 'independent_attestation': False,
            'observed_at_utc': datetime.now(timezone.utc).isoformat()}
     base = {'skybind.remote': args.remote} if args.remote else {}
+    logs_dir = make_private_evidence_dir(args.receipt_dir)
+    doc['instrumentation_evidence_dir'] = logs_dir.name
     try:
         if args.profile == 'full':
             # Reuse target-side independently hashed fixtures. Never prepare them here.
@@ -250,18 +386,35 @@ def acceptance(args):
             options = dict(base)
             if opt_in:
                 options[opt_in] = 'true'
-            if key == 'mount-lifecycle':
-                options['skybind.native.personal.reconcile'] = 'true'
-                options['skybind.native.personal.remote'] = args.remote
             if key == 'config-disposable':
                 options['skybind.native.config.remote'] = args.remote
-            doc['lanes'][key] = instrument(args.serial, method, options, timeout=360)
+            if key == 'mount-lifecycle':
+                # The daemon refuses to start on an absent destination. The
+                # test UUID and mountpoint must refer to a real, initially
+                # empty, explicitly staged directory, not an invented path.
+                fixture_name, fixture_path = mount_fixture_identity()
+                prepare_mount_fixture(args.serial, fixture_name, fixture_path)
+                try:
+                    options.update({
+                        'skybind.native.personal.reconcile': 'true',
+                        'skybind.native.personal.remote': args.remote,
+                        'skybind.native.personal.mountname': fixture_name,
+                        'skybind.native.personal.mountpoint': fixture_path,
+                    })
+                    doc['lanes'][key] = instrument(args.serial, method, options, timeout=360,
+                        evidence_dir=logs_dir, log_key=key)
+                finally:
+                    remove_mount_fixture(args.serial, fixture_name, fixture_path)
+            else:
+                doc['lanes'][key] = instrument(args.serial, method, options, timeout=360,
+                        evidence_dir=logs_dir, log_key=key)
         if args.profile == 'full':
             doc['lanes']['cold-relaunch'] = run_cold_relaunch(args.serial)
             # Requalify real automatic root binding after deliberate cold launch.
             doc['lanes']['auto-root-after-cold'] = instrument(args.serial,
                 'NativePersonalLiveTest#automaticForegroundRootNoManualConnect',
-                {'skybind.native.personal.live': 'true'}, timeout=180)
+                {'skybind.native.personal.live': 'true'}, timeout=180,
+                evidence_dir=logs_dir, log_key='auto-root-after-cold')
             demand(set(REQUIRED_FULL).issubset(doc['lanes']) and
                    all(x['status'] == 'PASS' for x in doc['lanes'].values()),
                    'REQUIRED_DEVICE_LANE_MISSING')
@@ -292,16 +445,23 @@ def checked_full_receipt(receipt: dict, manifest: dict, trusted: str) -> None:
            receipt.get('signer_sha256') == trusted and
            receipt.get('candidate_version_code') == manifest['requested_version_code'] and
            receipt.get('root_manager') in MANAGERS and
-           type(receipt.get('device_api')) is int and receipt['device_api'] >= 35 and
+           type(receipt.get('device_api')) is int and receipt['device_api'] >= 36 and
            re.fullmatch('[0-9a-f]{64}', str(receipt.get('device_serial_sha256',''))) is not None,
            'DEVICE_RECEIPT_APK_IDENTITY_MISMATCH')
     mod = receipt.get('module')
     demand(isinstance(mod, dict) and mod.get('installed_module_verified') is True and
            re.fullmatch('[0-9a-f]{64}', str(mod.get('module_archive_sha256',''))) is not None and
            re.fullmatch('[0-9a-f]{64}', str(mod.get('module_binary_sha256',''))) is not None and
-           mod.get('module_provider') in ('bclone', 'newfuture'),
+           mod.get('module_provider') in ('bclone', 'newfuture') and
+           mod.get('active_module_verified') is True and
+           mod.get('active_daemon_binary_sha256') == mod.get('module_binary_sha256') and
+           type(mod.get('active_daemon_process_count')) is int and
+           1 <= mod['active_daemon_process_count'] <= 8,
            'SAME_SOURCE_INSTALLED_MODULE_EVIDENCE_MISSING')
     entries = receipt.get('lanes')
+    demand(isinstance(receipt.get('instrumentation_evidence_dir'), str) and
+           re.fullmatch(r'native06-logs-[0-9a-f]{32}', receipt['instrumentation_evidence_dir']) is not None,
+           'INSTRUMENTATION_EVIDENCE_DIRECTORY_NOT_BOUND')
     demand(isinstance(entries, dict) and set(REQUIRED_FULL).issubset(entries) and
            'auto-root-after-cold' in entries and all(isinstance(v, dict) and
            v.get('status') == 'PASS' for v in entries.values()),
@@ -313,7 +473,9 @@ def checked_full_receipt(receipt: dict, manifest: dict, trusted: str) -> None:
     for key, case in cases.items():
         observation = entries[key]
         demand(observation.get('case') == case and
-               re.fullmatch('[0-9a-f]{64}', str(observation.get('instrumentation_sha256',''))) is not None,
+               re.fullmatch('[0-9a-f]{64}', str(observation.get('instrumentation_sha256',''))) is not None and
+               observation.get('instrumentation_log') ==
+                   receipt['instrumentation_evidence_dir'] + '/' + key + '.log',
                'RECEIPT_TEST_CASE_OR_LOG_DIGEST_MISMATCH:' + key)
     cold = entries['cold-relaunch']
     demand(all(re.fullmatch('[0-9a-f]{64}', str(cold.get(name, ''))) is not None
@@ -337,6 +499,7 @@ def owner_approve(args):
     accepted_dir = (Path.home() / '.local/state/skybind/native-personal').resolve()
     demand(args.device_receipt.resolve().parent == accepted_dir,
            'RECEIPT_NOT_FROM_OPERATOR_STATE_DIRECTORY')
+    verify_instrumentation_logs(receipt, accepted_dir)
     demand(gh_info(manifest['run_id']) == manifest['source_sha'], 'HOSTED_RUN_DRIFT')
     approval = {'schema': 'skybind-native-personal-approval-v1',
                 'status': 'PERSONAL_NATIVE_APK_APPROVED',
@@ -382,6 +545,7 @@ def approval_check(args):
             raw = candidate.read_bytes()
             if sha256_bytes(raw) == digest:
                 checked_full_receipt(json.loads(raw), manifest, pin)
+                verify_instrumentation_logs(json.loads(raw), evidence_dir)
                 demand(approval.get('module') == json.loads(raw)['module'],
                        'APPROVED_MODULE_IDENTITY_DRIFT')
                 found = True

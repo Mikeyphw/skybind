@@ -79,7 +79,8 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
     MaterialTheme(colorScheme = scheme) {
         Scaffold(
             topBar = {
-                Surface(tonalElevation = 3.dp) {
+                Surface(tonalElevation = 3.dp,
+                    modifier = Modifier.statusBarsPadding().testTag("app-header")) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {

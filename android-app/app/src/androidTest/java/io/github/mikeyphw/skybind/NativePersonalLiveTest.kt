@@ -14,7 +14,6 @@ import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.UUID
 
 /** Live rooted PERSONAL acceptance only. No fixture states are accepted as daemon truth.
  * Disposable mutations require explicit ADB test arguments and an isolated registry.
@@ -68,7 +67,12 @@ class NativePersonalLiveTest {
         val application = InstrumentationRegistry.getInstrumentation()
             .targetContext.applicationContext as Application
         val root = RootReadSession(application) {}
-        val name = "NativeLife" + UUID.randomUUID().toString().replace("-", "").take(12)
+        // Host acceptance runner creates exactly this empty test-owned directory
+        // before the instrumented test. The daemon never creates mountpoints.
+        val name = args.getString("skybind.native.personal.mountname") ?: ""
+        val mountpoint = args.getString("skybind.native.personal.mountpoint") ?: ""
+        assertTrue(Regex("NativeLife[0-9a-f]{12}").matches(name))
+        assertEquals("/storage/emulated/0/Download/.skybind-native-" + name, mountpoint)
         var created = false
         try {
             root.connect()
@@ -81,7 +85,7 @@ class NativePersonalLiveTest {
                 before.mounts.all { !it.enabled } &&
                 initial.mounts.none { it.state == "RUNNING" })
             val draft = MountDraft(name = name, remote = "$remoteName:",
-                mountpoint = "/storage/emulated/0/Download/.skybind-native-$name",
+                mountpoint = mountpoint,
                 enabled = true, readOnly = true)
             val create = root.previewConfig("create", "", draft)
             root.applyConfig(create)

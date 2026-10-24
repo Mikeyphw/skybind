@@ -65,6 +65,7 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     private var foreground = false
     private var initialAttempted = false
     private var reconnectUsed = false
+    private var resumeReconnectPending = false
     private var explicitlyDisconnected = false
 
     fun setAutoConnectEnabled(enabled: Boolean) {
@@ -77,8 +78,10 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     /** Called only by Activity foreground lifecycle, once per ViewModel lifetime. */
     fun onForeground() {
         foreground = true
-        if (autoConnectEnabled && !explicitlyDisconnected && !initialAttempted) {
+        if (autoConnectEnabled && !explicitlyDisconnected &&
+            (!initialAttempted || (resumeReconnectPending && snapshot.link == LinkState.DISCONNECTED))) {
             initialAttempted = true
+            resumeReconnectPending = false
             connectInternal()
         }
     }
@@ -122,6 +125,9 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
             clearBrowser()
             clearOperations()
             generation++
+            // Rebind once on next foreground only if this was an authenticated
+            // connection. A denied root prompt must never auto-loop on resume.
+            resumeReconnectPending = !foreground && snapshot.online
             snapshot = SkybindReadSnapshot(LinkState.DISCONNECTED, "Broker connection lost")
             if (foreground && autoConnectEnabled && !explicitlyDisconnected && !reconnectUsed) {
                 reconnectUsed = true
@@ -141,6 +147,7 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
     /** Explicit app-local disconnect; no root-manager revocation or daemon mutation. */
     fun disconnect() {
         explicitlyDisconnected = true
+        resumeReconnectPending = false
         active?.cancel()
         generation++
         clearBrowser()
@@ -169,6 +176,7 @@ class SkybindSessionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun connect() {
         explicitlyDisconnected = false
+        resumeReconnectPending = false
         initialAttempted = true
         reconnectUsed = true // manual Retry is never followed by automatic prompt loops
         connectInternal()
