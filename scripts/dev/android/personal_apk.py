@@ -43,6 +43,14 @@ PERMISSION = re.compile(r"^uses-permission(?:-sdk-23)?: name='([^']+)'", re.M)
 MIN_SDK = re.compile(r"^sdkVersion:'([0-9]+)'", re.M)
 TARGET_SDK = re.compile(r"^targetSdkVersion:'([0-9]+)'", re.M)
 
+# Compiled AndroidTest APKs may omit the aapt "package:" badging line;
+# read the actual binary AndroidManifest.xml rather than inventing package
+# identity. aapt XML tree output is produced by the pinned SDK build tools.
+XML_ELEMENT = re.compile(r'^([ ]*)E: ([A-Za-z_][A-Za-z0-9_.-]*)\b')
+XML_ATTRIBUTE = re.compile(r'^([ ]*)A: ([A-Za-z_][A-Za-z0-9_:-]*)(?:\(0x[0-9a-fA-F]+\))?=(.*)$')
+XML_QUOTED = re.compile(r'^"([^"\r\n]*)"(?:\s|$)')
+XML_INT = re.compile(r'^\(type 0x10\)0x([0-9a-fA-F]+)(?:\s|$)')
+
 class CandidateError(Exception):
     pass
 
@@ -89,22 +97,122 @@ def parse_compiled_package_line(badging: str):
     return package, int(version_code), fields.get('versionName', '')
 
 
+def parse_compiled_manifest_tree(tree: str) -> dict:
+    """Strictly extract identity from aapt's compiled XML tree, not source XML.
+
+    The root manifest and direct children are tracked by indentation so an
+    arbitrary nested attribute cannot impersonate a package or test target.
+    Unknown, missing, duplicate, typed-unexpected attributes fail closed.
+    """
+    demand(0 < len(tree) <= 1_000_000, 'COMPILED_MANIFEST_TREE_INVALID')
+    stack = []
+    found = {}
+    for line in tree.splitlines():
+        element = XML_ELEMENT.match(line)
+        if element:
+            indent, name = len(element.group(1)), element.group(2)
+            while stack and stack[-1][0] >= indent:
+                stack.pop()
+            if not stack:
+                demand(name == 'manifest' and not found,
+                       'COMPILED_MANIFEST_ROOT_INVALID')
+            stack.append((indent, name))
+            continue
+        attribute = XML_ATTRIBUTE.match(line)
+        if not attribute or not stack:
+            continue
+        indent, name, value = (len(attribute.group(1)), attribute.group(2),
+                               attribute.group(3))
+        demand(indent > stack[-1][0], 'COMPILED_MANIFEST_ATTRIBUTE_NESTING_INVALID')
+        owner = stack[-1][1]
+        # Only manifest root and its direct children can define identity.
+        if len(stack) == 1 and owner == 'manifest':
+            section = 'manifest'
+        elif len(stack) == 2 and owner in ('uses-sdk', 'instrumentation',
+                                           'application', 'uses-permission', 'uses-permission-sdk-23'):
+            section = owner
+        else:
+            continue
+        wanted = {
+            'manifest': {'package', 'android:versionCode', 'android:versionName'},
+            'uses-sdk': {'android:minSdkVersion', 'android:targetSdkVersion'},
+            'instrumentation': {'android:targetPackage'},
+            'application': {'android:debuggable'},
+            'uses-permission': {'android:name'},
+            'uses-permission-sdk-23': {'android:name'},
+        }
+        if name not in wanted[section]:
+            continue
+        quoted, numeric = XML_QUOTED.match(value), XML_INT.match(value)
+        demand(quoted is not None or numeric is not None,
+               'COMPILED_MANIFEST_ATTRIBUTE_TYPE_INVALID:' + name)
+        parsed = quoted.group(1) if quoted else int(numeric.group(1), 16)
+        key = section + '/' + name
+        if section in ('uses-permission', 'uses-permission-sdk-23'):
+            found.setdefault('permissions', []).append(parsed)
+        else:
+            demand(key not in found, 'COMPILED_MANIFEST_ATTRIBUTE_DUPLICATE:' + name)
+            found[key] = parsed
+    package = found.get('manifest/package')
+    code = found.get('manifest/android:versionCode')
+    minimum = found.get('uses-sdk/android:minSdkVersion')
+    target = found.get('uses-sdk/android:targetSdkVersion')
+    demand(isinstance(package, str) and
+           re.fullmatch(r'[A-Za-z0-9_.]+', package) is not None and
+           type(code) is int and 0 <= code <= 2100000000,
+           'COMPILED_MANIFEST_PACKAGE_IDENTITY_INVALID')
+    demand(type(minimum) is int and type(target) is int and
+           1 <= minimum <= target <= 100,
+           'COMPILED_MANIFEST_SDK_IDENTITY_INVALID')
+    version_name = found.get('manifest/android:versionName', '')
+    demand(isinstance(version_name, str), 'COMPILED_MANIFEST_VERSION_NAME_INVALID')
+    instrumentation = found.get('instrumentation/android:targetPackage')
+    debug = found.get('application/android:debuggable', 0)
+    demand(debug in (0, 1, 'true', 'false'), 'COMPILED_MANIFEST_DEBUG_ATTRIBUTE_INVALID')
+    return {'package': package, 'version_code': code, 'version_name': version_name,
+            'min_sdk': minimum, 'target_sdk': target,
+            'instrumentation_for_app': instrumentation == APP,
+            'debuggable': debug in (1, 'true'),
+            'permissions': sorted(set(found.get('permissions', [])))}
+
+
 def package_identity(apk: Path):
     demand(apk.is_file() and not apk.is_symlink() and 0 < apk.stat().st_size < 200_000_000,
            'INVALID_APK_FILE')
     tool = aapt_bin()
     badging = run_checked([tool, 'dump', 'badging', str(apk)])
-    package, version_code, version_name = parse_compiled_package_line(badging)
-    permissions = frozenset(PERMISSION.findall(run_checked([tool, 'dump', 'permissions', str(apk)])))
-    minimum, target = MIN_SDK.search(badging), TARGET_SDK.search(badging)
-    demand(minimum is not None and target is not None, 'COMPILED_SDK_METADATA_UNAVAILABLE')
-    return {
-        'package': package, 'min_sdk': int(minimum.group(1)),
-        'target_sdk': int(target.group(1)), 'version_code': version_code,
-        'version_name': version_name, 'permissions': sorted(permissions),
-        'debuggable': bool(re.search(r'^application-debuggable\s*$', badging, re.M)),
-        'instrumentation_for_app': "targetPackage='" + APP + "'" in badging,
-    }
+    parsed = None
+    badging_id = None
+    try:
+        package, code, version_name = parse_compiled_package_line(badging)
+        badging_id = (package, code, version_name)
+        minimum, target = MIN_SDK.search(badging), TARGET_SDK.search(badging)
+        if minimum is not None and target is not None:
+            parsed = {'package': package, 'version_code': code,
+                      'version_name': version_name, 'min_sdk': int(minimum.group(1)),
+                      'target_sdk': int(target.group(1)),
+                      'instrumentation_for_app': "targetPackage='" + APP + "'" in badging,
+                      'debuggable': bool(re.search(r'^application-debuggable\s*$', badging, re.M))}
+    except CandidateError:
+        pass
+    # Fall back to authoritative compiled AndroidManifest.xml when badging has
+    # no usable identity, SDK, or instrumentation metadata. Never fabricate any
+    # missing fields from the source package name or Gradle settings.
+    if parsed is None or (apk.name == TEST_FILE and not parsed['instrumentation_for_app']):
+        tree = run_checked([tool, 'dump', 'xmltree', str(apk), 'AndroidManifest.xml'])
+        xml = parse_compiled_manifest_tree(tree)
+        if badging_id is not None:
+            demand(badging_id == (xml['package'], xml['version_code'], xml['version_name']),
+                   'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
+        if parsed is not None:
+            demand(all(parsed[field] == xml[field] for field in ('min_sdk', 'target_sdk')),
+                   'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
+        parsed = xml
+    # Require a separate, compiled permission inventory. aapt permissions
+    # output is compared against a strict application allowlist downstream.
+    perms = run_checked([tool, 'dump', 'permissions', str(apk)])
+    parsed['permissions'] = sorted(set(PERMISSION.findall(perms)))
+    return parsed
 
 def sha256_file(path):
     digest = hashlib.sha256()
@@ -133,7 +241,7 @@ def assert_pair(app, test, *, version):
     demand(app['package'] == APP and test['package'] == TEST, 'PACKAGE_NAME_MISMATCH')
     demand(app['certificate_sha256'] == test['certificate_sha256'], 'APK_TEST_SIGNER_DRIFT')
     demand(app['version_code'] == version and
-           isinstance(test['version_code'], int) and test['version_code'] > 0,
+           type(test['version_code']) is int and 0 <= test['version_code'] <= 2100000000,
            'PERSONAL_VERSION_CODE_MISMATCH')
     # AGP may give the generated AndroidTest package its own versionCode/name.
     # Bind the test to this EXACT hosted app with signer, target ID, source and bytes,

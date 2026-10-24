@@ -38,12 +38,16 @@ def verify(root=ROOT):
                    ':app:assemblePersonal', ':app:assemblePersonalAndroidTest',
                    'personal_apk.py create', 'personal_apk.py verify',
                    'upload-artifact@', 'SKYBIND_ANDROID_SIGNER_SHA256',
-                   'if: always()', 'retention-days:'):
+                   'if: always()', 'retention-days:',
+                   'Bounded compiled APK metadata diagnostics on verifier failure'):
         need(phrase in hosted, 'HOSTED_PERSONAL_APK_POLICY_MISSING:'+phrase)
     need('def parse_compiled_package_line(' in impl and
          'COMPILED_PACKAGE_ATTRIBUTES_AMBIGUOUS' in impl and
          "fields.get('versionName', '')" in impl and
-         'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE' in impl,
+         'COMPILED_PACKAGE_IDENTITY_UNAVAILABLE' in impl and
+         'def parse_compiled_manifest_tree(' in impl and
+         "'dump', 'xmltree'" in impl and
+         'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT' in impl,
          'HOSTED_AAPT_ANDROIDTEST_METADATA_PARSER_MISSING')
     for code in ('COMPILED_PERMISSION_DRIFT', 'DEBUGGABLE_PERSONAL_APP_REFUSED',
                  'APK_TEST_SIGNER_DRIFT', 'ANDROIDTEST_TARGET_ID_MISMATCH',
