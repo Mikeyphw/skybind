@@ -17,3 +17,7 @@
 - Re-dispatch `Skybind Personal APK (candidate only)` using a version code **strictly greater** than the installed APK's. Do **not** rerun failed run 40117550163 against old commit bytes as qualification evidence.
 - Inspect `Verify exact personal pair, package identity, signing and release metadata`. If it fails, read the `permissions_report` and `compiled_permissions` sections in the `Bounded compiled APK metadata diagnostics on verifier failure` job step and compare missing/extra entries. An actual permission expansion is a source-release blocker requiring manifest-merger diagnosis.
 - Require a successful published pair (`app-personal.apk`, `app-personal-androidTest.apk`, `PERSONAL_APK_MANIFEST.json`) and independent device verification before any NATIVE-06 instrumentation/owner approval.
+
+## Later hosted evidence and superseding correction
+
+CI run **40119051809** established an actual fifth permission injected by AndroidX, not an incomplete `aapt` report. This historical four-permission requirement is **superseded** for the production compiled APK by `NATIVE_05_ANDROIDX_RECEIVER_SIGNATURE_PERMISSION_HOTFIX_20261024.md`; the exact app-owned receiver permission must have a signature-only compiled declaration. No arbitrary permission additions are approved.

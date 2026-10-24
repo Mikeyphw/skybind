@@ -28,11 +28,18 @@ SHA = re.compile(r'[0-9a-f]{40}\Z')
 APP_FILE = 'app-personal.apk'
 TEST_FILE = 'app-personal-androidTest.apk'
 MANIFEST_FILE = 'PERSONAL_APK_MANIFEST.json'
+# AndroidX Core inserts this private signature permission to back
+# ContextCompat.RECEIVER_NOT_EXPORTED on pre-33 platforms. It is intentionally
+# NOT a free-form custom-permission exemption: only this app-owned name is
+# admitted, and the compiled <permission> declaration MUST be signature-only.
+RECEIVER_PERMISSION = APP + '.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'
+SIGNATURE_PERMISSION_PROTECTION_LEVEL = 2
 ALLOWED_PERMISSIONS = frozenset({
     'android.permission.FOREGROUND_SERVICE',
     'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
     'android.permission.POST_NOTIFICATIONS',
     'android.permission.ACCESS_NETWORK_STATE',
+    RECEIVER_PERMISSION,
 })
 # aapt may emit an *empty or absent* versionName for generated AndroidTest
 # packages. Parse identity fields independently; app release version is still
@@ -119,6 +126,7 @@ def parse_compiled_manifest_tree(tree: str, *, android_test=False) -> dict:
     demand(0 < len(tree) <= 1_000_000, 'COMPILED_MANIFEST_TREE_INVALID')
     stack = []
     found = {}
+    declared_permission_count = 0
     for line in tree.splitlines():
         element = XML_ELEMENT.match(line)
         if element:
@@ -128,6 +136,10 @@ def parse_compiled_manifest_tree(tree: str, *, android_test=False) -> dict:
             if not stack:
                 demand(name == 'manifest' and not found,
                        'COMPILED_MANIFEST_ROOT_INVALID')
+            if len(stack) == 1 and stack[0][1] == 'manifest' and name == 'permission':
+                declared_permission_count += 1
+                demand(declared_permission_count == 1,
+                       'COMPILED_PERMISSION_DECLARATION_AMBIGUOUS')
             stack.append((indent, name))
             continue
         attribute = XML_ATTRIBUTE.match(line)
@@ -141,12 +153,13 @@ def parse_compiled_manifest_tree(tree: str, *, android_test=False) -> dict:
         if len(stack) == 1 and owner == 'manifest':
             section = 'manifest'
         elif len(stack) == 2 and owner in ('uses-sdk', 'instrumentation',
-                                           'application', 'uses-permission', 'uses-permission-sdk-23'):
+                                           'application', 'uses-permission', 'uses-permission-sdk-23', 'permission'):
             section = owner
         else:
             continue
         wanted = {
             'manifest': {'package', 'android:versionCode', 'android:versionName'},
+            'permission': {'android:name', 'android:protectionLevel'},
             'uses-sdk': {'android:minSdkVersion', 'android:targetSdkVersion'},
             'instrumentation': {'android:targetPackage'},
             'application': {'android:debuggable'},
@@ -183,6 +196,17 @@ def parse_compiled_manifest_tree(tree: str, *, android_test=False) -> dict:
            'COMPILED_MANIFEST_SDK_IDENTITY_INVALID')
     version_name = found.get('manifest/android:versionName', '')
     demand(isinstance(version_name, str), 'COMPILED_MANIFEST_VERSION_NAME_INVALID')
+    # A duplicate, mismatched or weak permission declaration must NEVER make
+    # the single known AndroidX receiver permission acceptable. Android's
+    # compiled signature protection level is the integer 0x00000002.
+    declared_name = found.get('permission/android:name')
+    declared_level = found.get('permission/android:protectionLevel')
+    if declared_permission_count:
+        demand(declared_name == RECEIVER_PERMISSION and
+               type(declared_level) is int and
+               declared_level == SIGNATURE_PERMISSION_PROTECTION_LEVEL,
+               'COMPILED_RECEIVER_PERMISSION_SIGNATURE_REQUIRED')
+    receiver_protected = declared_permission_count == 1
     instrumentation = found.get('instrumentation/android:targetPackage')
     debug = found.get('application/android:debuggable', 0)
     demand(debug in (0, 1, 'true', 'false'), 'COMPILED_MANIFEST_DEBUG_ATTRIBUTE_INVALID')
@@ -190,7 +214,8 @@ def parse_compiled_manifest_tree(tree: str, *, android_test=False) -> dict:
             'min_sdk': minimum, 'target_sdk': target,
             'instrumentation_for_app': instrumentation == APP,
             'debuggable': debug in (1, 'true'),
-            'permissions': sorted(set(found.get('permissions', [])))}
+            'permissions': sorted(set(found.get('permissions', []))),
+            'receiver_permission_signature_protected': receiver_protected}
 
 
 def package_identity(apk: Path):
@@ -237,27 +262,34 @@ def package_identity(apk: Path):
             demand(all(parsed[field] == xml[field] for field in ('min_sdk', 'target_sdk')),
                    'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
         parsed = xml
-    # aapt 'dump permissions' is a *secondary report*, not the authoritative
-    # manifest. Some pinned SDK versions emit a partial permission listing.
-    # Never interpret such under-reporting as permission removal; instead,
-    # inspect the *compiled* XML tree and require precisely the four reviewed
-    # permissions. Extra reported privileges remain a hard failure.
+    # The compiled binary manifest is the authority for both permission
+    # requests and the protection *declaration*. AndroidX Core's injected
+    # app-owned DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION is the only
+    # dependency-generated addition to the four explicit app permissions.
+    # Always inspect the app's compiled definition, even when aapt's secondary
+    # report matches the allowlist; otherwise an attacker could weaken the
+    # definition to 'normal' while retaining the same permission name.
     perms = run_checked([tool, 'dump', 'permissions', str(apk)])
     listed = set(PERMISSION.findall(perms))
-    if not is_test and listed != ALLOWED_PERMISSIONS:
-        demand(not (listed - ALLOWED_PERMISSIONS), 'COMPILED_PERMISSION_DRIFT')
+    if not is_test:
         tree = run_checked([tool, 'dump', 'xmltree', str(apk), 'AndroidManifest.xml'])
         compiled = parse_compiled_manifest_tree(tree, android_test=False)
-        # The fallback is allowed only if it describes these EXACT app bytes,
-        # not an unrelated nested element or a disagreement with badging.
         for key in ('package', 'version_code', 'version_name', 'min_sdk',
                     'target_sdk', 'debuggable', 'instrumentation_for_app'):
             demand(compiled[key] == parsed[key],
                    'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
+        demand(compiled['receiver_permission_signature_protected'] is True,
+               'COMPILED_RECEIVER_PERMISSION_SIGNATURE_REQUIRED')
         demand(compiled['permissions'] == sorted(ALLOWED_PERMISSIONS),
                'COMPILED_PERMISSION_DRIFT')
-        parsed['permissions'] = compiled['permissions']
+        # Partial aapt reports are tolerated only when no unapproved extra
+        # permission appears; compiled XML must contain the complete set.
+        demand(not (listed - ALLOWED_PERMISSIONS), 'COMPILED_PERMISSION_DRIFT')
+        parsed = compiled
     else:
+        # The test APK has its own independently reported instrumentation
+        # permissions (REORDER_TASKS in the observed hosted build). It is NOT
+        # an authority for application capabilities.
         parsed['permissions'] = sorted(listed)
     return parsed
 
@@ -286,6 +318,8 @@ def file_record(path):
 
 def assert_pair(app, test, *, version):
     demand(app['package'] == APP and test['package'] == TEST, 'PACKAGE_NAME_MISMATCH')
+    demand(app.get('receiver_permission_signature_protected') is True,
+           'COMPILED_RECEIVER_PERMISSION_SIGNATURE_REQUIRED')
     demand(app['certificate_sha256'] == test['certificate_sha256'], 'APK_TEST_SIGNER_DRIFT')
     demand(type(app['version_code']) is int and app['version_code'] == version and
            (test['version_code'] is None or

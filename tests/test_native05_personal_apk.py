@@ -20,6 +20,7 @@ def artifact(name, package, version=8, *, debuggable=False, permissions=None, si
                 version_name=f'0.2.0-personal.{version}',
                 permissions=sorted(p.ALLOWED_PERMISSIONS if permissions is None and package == p.APP else
                                    ([] if permissions is None else permissions)),
+                receiver_permission_signature_protected=(package == p.APP),
                 certificate_sha256=signer, debuggable=debuggable,
                 instrumentation_for_app=instrument,
                 sha256=('c' if package == p.APP else 'd') * 64,
@@ -42,6 +43,7 @@ class PersonalApkTests(unittest.TestCase):
             ('target_sdk', 29, 'app'),
             ('permissions', ['android.permission.INTERNET'], 'app'),
             ('debuggable', True, 'app'),
+            ('receiver_permission_signature_protected', False, 'app'),
             ('instrumentation_for_app', False, 'test'),
         ]:
             with self.subTest(field=field):
@@ -99,6 +101,20 @@ class PersonalApkTests(unittest.TestCase):
                 if args[2]=='badging':
                     return appbadging if args[-1]==str(apppath) else testbadging
                 if args[2]=='xmltree':
+                    if args[3] == str(apppath):
+                        return ("E: manifest (line=1)\n"
+                            '  A: package="io.github.mikeyphw.skybind"\n'
+                            '  A: android:versionCode(0x0101021b)=(type 0x10)0x8\n'
+                            '  A: android:versionName="0.2.0-personal.8"\n'
+                            '  E: uses-sdk (line=2)\n'
+                            '    A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a\n'
+                            '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n'
+                            '  E: permission (line=3)\n'
+                            '    A: android:name="'+p.RECEIVER_PERMISSION+'"\n'
+                            '    A: android:protectionLevel(0x01010009)=(type 0x10)0x2\n' +
+                            ''.join('  E: uses-permission (line=5)\n'
+                              '    A: android:name="'+name+'"\n'
+                              for name in sorted(p.ALLOWED_PERMISSIONS)))
                     return ("E: manifest (line=1)\n"
                             '  A: package="io.github.mikeyphw.skybind.test"\n'
                             '  A: android:versionCode(0x0101021b)=(type 0x10)0x1\n'
@@ -446,7 +462,7 @@ class PersonalApkTests(unittest.TestCase):
                 d.device_action(pathlib.Path('/fixture'),'serial',PIN,do_install=True,sha=SHA)
 
     def test_ci_40117550163_permission_inventory_underreport_fails_closed(self):
-        """Compiled APK XML must authorize all four permissions, no more."""
+        """Compiled APK XML must contain only the five reviewed permissions."""
         app_badging = ("package: name='io.github.mikeyphw.skybind' versionCode='8' "
                        "versionName='0.2.0-personal.8'\nsdkVersion:'26'\ntargetSdkVersion:'35'")
         def tree(extra=(), omit=(), package=p.APP, code='8'):
@@ -460,7 +476,10 @@ class PersonalApkTests(unittest.TestCase):
                     '  A: android:versionName(0x0101021c)="0.2.0-personal.8"\n'
                     '  E: uses-sdk (line=2)\n'
                     '    A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a\n'
-                    '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n' + nodes)
+                    '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n'
+                    '  E: permission (line=3)\n'
+                    '    A: android:name="'+p.RECEIVER_PERMISSION+'"\n'
+                    '    A: android:protectionLevel(0x01010009)=(type 0x10)0x2\n' + nodes)
         with tempfile.TemporaryDirectory() as d:
             apk = pathlib.Path(d)/p.APP_FILE
             apk.write_bytes(b'fixture')
@@ -485,6 +504,73 @@ class PersonalApkTests(unittest.TestCase):
             # An additional permission even in only one independent report is a hard fail.
             with self.assertRaisesRegex(p.CandidateError,'COMPILED_PERMISSION_DRIFT'):
                 check(tree(),subset+"\nuses-permission: name='android.permission.INTERNET'")
+
+    def test_ci_40119051809_androidx_private_receiver_permission_is_exactly_signature(self):
+        """Real CI saw 5 compiled permissions, including AndroidX private receiver."""
+        self.assertEqual(p.RECEIVER_PERMISSION,
+            'io.github.mikeyphw.skybind.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION')
+        self.assertEqual(p.ALLOWED_PERMISSIONS, frozenset({
+            'android.permission.FOREGROUND_SERVICE',
+            'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+            'android.permission.POST_NOTIFICATIONS',
+            'android.permission.ACCESS_NETWORK_STATE',
+            p.RECEIVER_PERMISSION,
+        }))
+        app_badging = ("package: name='io.github.mikeyphw.skybind' versionCode='8' "
+                       "versionName='0.2.0-personal.8'\nsdkVersion:'26'\ntargetSdkVersion:'35'")
+        def tree(level='0x2', permission_name=p.RECEIVER_PERMISSION,
+                 declared=True, extra='', duplicate_decl=False):
+            decl = ('  E: permission (line=3)\n'
+                    '    A: android:name="'+permission_name+'"\n'
+                    '    A: android:protectionLevel(0x01010009)=(type 0x10)'+level+'\n')
+            return ('E: manifest (line=1)\n'
+                    '  A: package="'+p.APP+'"\n'
+                    '  A: android:versionCode(0x0101021b)=(type 0x10)0x8\n'
+                    '  A: android:versionName="0.2.0-personal.8"\n'
+                    '  E: uses-sdk (line=2)\n'
+                    '    A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a\n'
+                    '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n' +
+                    (decl + (decl if duplicate_decl else '') if declared else '') +
+                    ''.join('  E: uses-permission (line=9)\n'
+                            '    A: android:name="'+name+'"\n'
+                            for name in sorted(p.ALLOWED_PERMISSIONS)) + extra)
+        with tempfile.TemporaryDirectory() as tmp:
+            path=pathlib.Path(tmp)/p.APP_FILE
+            path.write_bytes(b'compiled APK test bytes')
+            def check(xml, report):
+                def fake_aapt(args, **kw):
+                    return {'badging': app_badging, 'xmltree': xml,
+                            'permissions': report}[args[2]]
+                with patch.object(p, 'aapt_bin', return_value='/sdk/aapt'), \
+                     patch.object(p, 'run_checked', side_effect=fake_aapt):
+                    return p.package_identity(path)
+            complete = ''.join("uses-permission: name='"+name+"'\n" for name in sorted(p.ALLOWED_PERMISSIONS))
+            # Hosted five-permission report and a partially missing aapt report
+            # must both be grounded in one exact, signature-protected compiled XML.
+            for report in (complete, '', "uses-permission: name='android.permission.ACCESS_NETWORK_STATE'"):
+                actual=check(tree(),report)
+                self.assertEqual(actual['permissions'], sorted(p.ALLOWED_PERMISSIONS))
+                self.assertTrue(actual['receiver_permission_signature_protected'])
+            bad_cases = [
+                tree(level='0x0'), # 'normal' is spoofable, never an allowed substitute
+                tree(level='0x1'), # 'dangerous' is not signature
+                tree(level='0x3'), # legacy/system variants must not be accepted
+                tree(permission_name='evil.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'),
+                tree(declared=False),
+                tree(duplicate_decl=True),
+                tree(extra='  E: uses-permission (line=20)\n    A: android:name="android.permission.INTERNET"\n'),
+            ]
+            for xml in bad_cases:
+                with self.subTest(scenario=xml[:190]):
+                    with self.assertRaises(p.CandidateError):
+                        check(xml,complete)
+            for report in [complete+"uses-permission: name='android.permission.CAMERA'\n"]:
+                with self.assertRaisesRegex(p.CandidateError,'COMPILED_PERMISSION_DRIFT'):
+                    check(tree(),report)
+            app,test=pair()
+            app['receiver_permission_signature_protected']=False
+            with self.assertRaisesRegex(p.CandidateError,'COMPILED_RECEIVER_PERMISSION_SIGNATURE_REQUIRED'):
+                p.assert_pair(app,test,version=8)
 
     def test_public_permission_diagnostics_retains_bounded_names_only(self):
         import personal_apk_diagnostics as diag

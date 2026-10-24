@@ -59,6 +59,13 @@ def verify(root=ROOT):
          "listed - ALLOWED_PERMISSIONS" in impl and
          'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT' in impl,
          'COMPILED_PERMISSION_FALLBACK_MUST_RETAIN_EXACT_ALLOWLIST')
+    need('RECEIVER_PERMISSION = APP +' in impl and
+         "'permission': {'android:name', 'android:protectionLevel'}" in impl and
+         'SIGNATURE_PERMISSION_PROTECTION_LEVEL = 2' in impl and
+         "compiled['receiver_permission_signature_protected'] is True" in impl and
+         'COMPILED_RECEIVER_PERMISSION_SIGNATURE_REQUIRED' in impl and
+         'listed - ALLOWED_PERMISSIONS' in impl,
+         'ANDROIDX_RECEIVER_PERMISSION_MUST_BE_EXACT_APP_OWNED_SIGNATURE')
     diagnostics=source('scripts/dev/android/personal_apk_diagnostics.py')
     need('compiled_permissions' in diagnostics and
          'missing_expected' in diagnostics and 'unexpected' in diagnostics,

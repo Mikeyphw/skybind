@@ -84,6 +84,8 @@ def examine(path: Path, tool: str) -> dict:
                 'missing_expected': safe(ALLOWED_PERMISSIONS - names),
                 'unexpected': safe(names - ALLOWED_PERMISSIONS),
                 'entries': safe(names),
+                'receiver_permission_signature_protected':
+                    info['receiver_permission_signature_protected'],
             }
         else:
             result['compiled_permissions'] = {'status': 'XML_PERMISSION_PARSE_UNAVAILABLE'}
