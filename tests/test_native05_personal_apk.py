@@ -445,6 +445,64 @@ class PersonalApkTests(unittest.TestCase):
             with self.assertRaises(p.CandidateError):
                 d.device_action(pathlib.Path('/fixture'),'serial',PIN,do_install=True,sha=SHA)
 
+    def test_ci_40117550163_permission_inventory_underreport_fails_closed(self):
+        """Compiled APK XML must authorize all four permissions, no more."""
+        app_badging = ("package: name='io.github.mikeyphw.skybind' versionCode='8' "
+                       "versionName='0.2.0-personal.8'\nsdkVersion:'26'\ntargetSdkVersion:'35'")
+        def tree(extra=(), omit=(), package=p.APP, code='8'):
+            perms = sorted((p.ALLOWED_PERMISSIONS - set(omit)) | set(extra))
+            nodes = ''.join('  E: uses-permission (line=3)\n'
+                    '    A: android:name(0x01010003)="'+value+'" (Raw: "'+value+'")\n'
+                    for value in perms)
+            return ('E: manifest (line=1)\n'
+                    '  A: package="'+package+'"\n'
+                    '  A: android:versionCode(0x0101021b)=(type 0x10)0x'+code+'\n'
+                    '  A: android:versionName(0x0101021c)="0.2.0-personal.8"\n'
+                    '  E: uses-sdk (line=2)\n'
+                    '    A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a\n'
+                    '    A: android:targetSdkVersion(0x01010270)=(type 0x10)0x23\n' + nodes)
+        with tempfile.TemporaryDirectory() as d:
+            apk = pathlib.Path(d)/p.APP_FILE
+            apk.write_bytes(b'fixture')
+            def check(tree_contents, report):
+                def fake_aapt(args, **kwargs):
+                    return {'badging': app_badging, 'xmltree': tree_contents,
+                            'permissions': report}[args[2]]
+                with patch.object(p, 'aapt_bin', return_value='/sdk/aapt'), \
+                     patch.object(p, 'run_checked', side_effect=fake_aapt):
+                    return p.package_identity(apk)
+            # Missing aapt report entries: acceptable only after full XML check.
+            self.assertEqual(check(tree(), '')['permissions'], sorted(p.ALLOWED_PERMISSIONS))
+            subset = "uses-permission: name='android.permission.ACCESS_NETWORK_STATE'"
+            self.assertEqual(check(tree(),subset)['permissions'], sorted(p.ALLOWED_PERMISSIONS))
+            # Source/backend claimed permissions aren't enough; the binary must match.
+            for altered in [tree(omit={'android.permission.POST_NOTIFICATIONS'}),
+                            tree(extra={'android.permission.INTERNET'}),
+                            tree(package='untrusted.app'), tree(code='9')]:
+                with self.subTest(altered=altered[:110]):
+                    with self.assertRaises(p.CandidateError):
+                        check(altered, '')
+            # An additional permission even in only one independent report is a hard fail.
+            with self.assertRaisesRegex(p.CandidateError,'COMPILED_PERMISSION_DRIFT'):
+                check(tree(),subset+"\nuses-permission: name='android.permission.INTERNET'")
+
+    def test_public_permission_diagnostics_retains_bounded_names_only(self):
+        import personal_apk_diagnostics as diag
+        with tempfile.TemporaryDirectory() as tmp:
+            apk=pathlib.Path(tmp)/p.APP_FILE
+            apk.write_bytes(b'fixture')
+            report=("uses-permission: name='android.permission.FOREGROUND_SERVICE'\n"
+                    "uses-permission: name='android.permission.INTERNET'\n")
+            def fake_run(argv, **kw):
+                return type('P',(),{'stdout':report if argv[2]=='permissions' else '',
+                                   'stderr':'secret-do-not-print', 'returncode':0})()
+            with patch.object(diag.subprocess,'run',side_effect=fake_run):
+                data=diag.examine(apk,'/sdk/aapt')
+            self.assertEqual(data['permissions_report']['unexpected'],['android.permission.INTERNET'])
+            self.assertIn('android.permission.POST_NOTIFICATIONS',data['permissions_report']['missing_expected'])
+            self.assertNotIn('secret-do-not-print',json.dumps(data))
+            self.assertIn('compiled_permissions',data)
+
     def test_failed_verifier_has_bounded_compiled_identity_diagnostics(self):
         workflow=(ROOT/'.github/workflows/skybind-personal-apk.yml').read_text()
         self.assertIn('Bounded compiled APK metadata diagnostics on verifier failure', workflow)

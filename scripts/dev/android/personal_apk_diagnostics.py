@@ -12,7 +12,8 @@ import re
 import subprocess
 import sys
 from personal_apk import (APP_FILE, TEST_FILE, aapt_bin, CandidateError,
-                          BADGING_PACKAGE_LINE, BADGING_ATTRIBUTE)
+                          BADGING_PACKAGE_LINE, BADGING_ATTRIBUTE,
+                          ALLOWED_PERMISSIONS, PERMISSION, parse_compiled_manifest_tree)
 
 FIELDS = ('package', 'android:versionCode', 'android:versionName',
           'android:minSdkVersion', 'android:targetSdkVersion',
@@ -54,6 +55,40 @@ def examine(path: Path, tool: str) -> dict:
             }
         except (OSError, subprocess.TimeoutExpired):
             result[label] = {'error': 'AAPT_INVOCATION_FAILED'}
+    safe = lambda values: sorted(v for v in values
+                    if re.fullmatch(r'[a-zA-Z0-9_.]{1,160}', v))[:32]
+    # Permission names are public APK capabilities, not signer material. Only
+    # bounded, syntactically safe names are emitted; the raw XML is never logged.
+    try:
+        proc = subprocess.run([tool, 'dump', 'permissions', str(path)],
+                              text=True, capture_output=True, timeout=20)
+        if proc.returncode == 0 and len(proc.stdout) <= 150000:
+            listed = set(PERMISSION.findall(proc.stdout))
+            result['permissions_report'] = {
+                'exit': proc.returncode, 'count': len(listed),
+                'missing_expected': safe(ALLOWED_PERMISSIONS - listed),
+                'unexpected': safe(listed - ALLOWED_PERMISSIONS),
+                'entries': safe(listed),
+            }
+    except (OSError, subprocess.TimeoutExpired):
+        result['permissions_report'] = {'status': 'AAPT_PERMISSIONS_UNAVAILABLE'}
+    try:
+        raw = subprocess.run([tool, 'dump', 'xmltree', str(path), 'AndroidManifest.xml'],
+                             text=True, capture_output=True, timeout=20)
+        if raw.returncode == 0 and 0 < len(raw.stdout) <= 150000:
+            info = parse_compiled_manifest_tree(raw.stdout,
+                                                android_test=path.name == TEST_FILE)
+            names = set(info['permissions'])
+            result['compiled_permissions'] = {
+                'count': len(names),
+                'missing_expected': safe(ALLOWED_PERMISSIONS - names),
+                'unexpected': safe(names - ALLOWED_PERMISSIONS),
+                'entries': safe(names),
+            }
+        else:
+            result['compiled_permissions'] = {'status': 'XML_PERMISSION_PARSE_UNAVAILABLE'}
+    except (OSError, subprocess.TimeoutExpired, CandidateError, ValueError):
+        result['compiled_permissions'] = {'status': 'XML_PERMISSION_PARSE_UNAVAILABLE'}
     return result
 
 def main():

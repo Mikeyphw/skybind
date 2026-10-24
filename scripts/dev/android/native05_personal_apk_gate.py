@@ -54,7 +54,15 @@ def verify(root=ROOT):
          'def parse_compiled_manifest_tree(tree: str, *, android_test=False)' in impl and
          "'COMPILED_MANIFEST_VERSION_CODE_INVALID'" in impl,
          'HOSTED_AAPT_ANDROIDTEST_METADATA_PARSER_MISSING')
+    need('compiled = parse_compiled_manifest_tree(tree, android_test=False)' in impl and
+         "compiled['permissions'] == sorted(ALLOWED_PERMISSIONS)" in impl and
+         "listed - ALLOWED_PERMISSIONS" in impl and
+         'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT' in impl,
+         'COMPILED_PERMISSION_FALLBACK_MUST_RETAIN_EXACT_ALLOWLIST')
     diagnostics=source('scripts/dev/android/personal_apk_diagnostics.py')
+    need('compiled_permissions' in diagnostics and
+         'missing_expected' in diagnostics and 'unexpected' in diagnostics,
+         'HOSTED_PERMISSION_DIAGNOSTIC_MISSING')
     need('tool = aapt_bin()' in diagnostics and
          'DIAGNOSTIC_ONLY_NOT_RELEASE_QUALIFIED' in diagnostics and
          'personal_apk_diagnostics.py' in hosted,

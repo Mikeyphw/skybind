@@ -237,10 +237,28 @@ def package_identity(apk: Path):
             demand(all(parsed[field] == xml[field] for field in ('min_sdk', 'target_sdk')),
                    'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
         parsed = xml
-    # Require a separate, compiled permission inventory. aapt permissions
-    # output is compared against a strict application allowlist downstream.
+    # aapt 'dump permissions' is a *secondary report*, not the authoritative
+    # manifest. Some pinned SDK versions emit a partial permission listing.
+    # Never interpret such under-reporting as permission removal; instead,
+    # inspect the *compiled* XML tree and require precisely the four reviewed
+    # permissions. Extra reported privileges remain a hard failure.
     perms = run_checked([tool, 'dump', 'permissions', str(apk)])
-    parsed['permissions'] = sorted(set(PERMISSION.findall(perms)))
+    listed = set(PERMISSION.findall(perms))
+    if not is_test and listed != ALLOWED_PERMISSIONS:
+        demand(not (listed - ALLOWED_PERMISSIONS), 'COMPILED_PERMISSION_DRIFT')
+        tree = run_checked([tool, 'dump', 'xmltree', str(apk), 'AndroidManifest.xml'])
+        compiled = parse_compiled_manifest_tree(tree, android_test=False)
+        # The fallback is allowed only if it describes these EXACT app bytes,
+        # not an unrelated nested element or a disagreement with badging.
+        for key in ('package', 'version_code', 'version_name', 'min_sdk',
+                    'target_sdk', 'debuggable', 'instrumentation_for_app'):
+            demand(compiled[key] == parsed[key],
+                   'BADGING_AND_COMPILED_MANIFEST_IDENTITY_DRIFT')
+        demand(compiled['permissions'] == sorted(ALLOWED_PERMISSIONS),
+               'COMPILED_PERMISSION_DRIFT')
+        parsed['permissions'] = compiled['permissions']
+    else:
+        parsed['permissions'] = sorted(listed)
     return parsed
 
 def sha256_file(path):
