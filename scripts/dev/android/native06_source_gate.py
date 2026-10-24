@@ -2,6 +2,7 @@
 """NATIVE-06 safety/source shape gate. Not an Android compile or device receipt."""
 from pathlib import Path
 import json
+import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[3]
 
 def source(path):
@@ -38,6 +39,33 @@ def check():
                  'mountpoint = mountpoint,'):
         if code not in live:
             raise RuntimeError('MISSING_NATIVE06_DEVICE_CONTRACT:' + code)
+    # createComposeRule() launches androidx.activity.ComponentActivity in the
+    # instrumentation package. The personal buildType does not inherit
+    # debugImplementation(ui-test-manifest); the host belongs ONLY to androidTest.
+    host_source = source('android-app/app/src/androidTest/AndroidManifest.xml')
+    ns = '{http://schemas.android.com/apk/res/android}'
+    try:
+        host_root = ET.fromstring(host_source)
+        prod_root = ET.fromstring(source('android-app/app/src/main/AndroidManifest.xml'))
+    except ET.ParseError as exc:
+        raise RuntimeError('NATIVE06_COMPOSE_TEST_MANIFEST_MALFORMED') from exc
+    if host_root.tag != 'manifest' or host_root.find('application') is None:
+        raise RuntimeError('NATIVE06_COMPOSE_TEST_MANIFEST_INVALID')
+    activities = host_root.findall('./application/activity')
+    if len(activities) != 1 or activities[0].get(ns + 'name') != 'androidx.activity.ComponentActivity' or \
+            activities[0].get(ns + 'exported') != 'true' or \
+            activities[0].find('intent-filter') is not None:
+        raise RuntimeError('NATIVE06_COMPOSE_TEST_HOST_UNSAFE_OR_ABSENT')
+    if any(e.get(ns + 'name') == 'androidx.activity.ComponentActivity'
+           for e in prod_root.findall('./application/activity')):
+        raise RuntimeError('NATIVE06_COMPOSE_TEST_HOST_IN_PRODUCTION')
+    if any(e.tag in ('uses-permission', 'permission') for e in host_root):
+        raise RuntimeError('NATIVE06_COMPOSE_TEST_HOST_ADDS_PERMISSION')
+    # These concrete suites use createComposeRule(), not a launcher fixture.
+    for test in ('NativeUiTest.kt', 'NativePolishUiTest.kt'):
+        test_source = source('android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/' + test)
+        if 'createComposeRule()' not in test_source:
+            raise RuntimeError('NATIVE06_COMPOSE_TEST_HOST_CONTRACT_CHANGED:' + test)
     if 'onNodeWithTag("connect-readonly").performClick()' in live:
         raise RuntimeError('AUTO_ROOT_TEST_MUST_NOT_USE_MANUAL_CONNECT')
     if any(x in runner for x in ("adb(serial, 'uninstall'", "adb(serial, 'install'", "'pm', 'clear'")):
