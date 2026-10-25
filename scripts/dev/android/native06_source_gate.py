@@ -75,6 +75,30 @@ def check():
                     'fixtureContent {')
         if any(v not in ui for v in required) or 'createComposeRule()' in ui or re.search(r'^\s*compose\.setContent\s*\{', ui, re.M):
             raise RuntimeError('NATIVE06_COMPOSE_TARGET_PROCESS_RULE_INVALID:' + test)
+    # On API 36 with larger font scaling, Material3 Dialog's scroll region
+    # may clip the review checkbox from the merged semantics tree while the
+    # action footer remains present. Consent must be an independent clickable
+    # semantics node outside the bounded review-details scroller.
+    editor = source('android-app/app/src/main/java/io/github/mikeyphw/skybind/ui/MountConfigEditor.kt')
+    config_test = source('android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/NativeUiTest.kt')
+    review_scroll = editor.find('Column(Modifier.heightIn(max = 480.dp).verticalScroll')
+    review_footer = editor.find('if (step == 3 && preview != null)')
+    action_footer = editor.find('modifier = Modifier.testTag("config-apply")')
+    consent_tag = editor.find('.testTag("config-consent")')
+    if (min(review_scroll, review_footer, consent_tag, action_footer) < 0 or
+            not (review_scroll < review_footer < consent_tag < action_footer) or
+            'toggleable(value = consent, role = Role.Checkbox,' not in editor or
+            'Checkbox(checked = consent, onCheckedChange = null)' not in editor or
+            'var consent by remember(preview?.id) { mutableStateOf(false) }' not in editor or
+            'enabled = !busy && consent' not in editor or
+            'onClick = onApply' not in editor or
+            'if (step == 3 && preview != null)' not in editor):
+        raise RuntimeError('NATIVE06_CONFIG_REVIEW_CONSENT_ACCESSIBILITY_OR_GATE_INVALID')
+    if ('compose.onNodeWithTag("config-consent").assertIsOff()' not in config_test or
+            'compose.onNodeWithTag("config-consent").assertIsOn()' not in config_test or
+            'compose.onNodeWithTag("config-apply").assertIsNotEnabled()' not in config_test or
+            'compose.runOnIdle { assertEquals(1, applies) }' not in config_test):
+        raise RuntimeError('NATIVE06_CONFIG_CONSENT_TEST_COVERAGE_MISSING')
     gradle = source('android-app/app/build.gradle.kts')
     if 'testBuildType = if (personalRequested) "personal" else "debug"' not in gradle or \
             'personalImplementation("androidx.compose.ui:ui-test-manifest")' in gradle:

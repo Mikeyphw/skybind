@@ -2,6 +2,8 @@ package io.github.mikeyphw.skybind
 
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -106,8 +108,11 @@ class NativeUiTest {
                 listOf("delete: photos"), "/storage/emulated/0/Photos", "photos:"),
             onApplyMountConfig = { applies++ }) }
         compose.onNodeWithTag("config-editor-dialog").assertExists()
+        compose.onNodeWithTag("config-consent").assertIsOff()
         compose.onNodeWithTag("config-apply").assertIsNotEnabled()
+        compose.runOnIdle { assertEquals(0, applies) }
         compose.onNodeWithTag("config-consent").performClick()
+        compose.onNodeWithTag("config-consent").assertIsOn()
         compose.onNodeWithTag("config-apply").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, applies) }
     }

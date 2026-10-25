@@ -2,12 +2,14 @@ package io.github.mikeyphw.skybind.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -116,11 +118,6 @@ fun MountConfigEditor(mode: String, original: String, draft: MountDraft,
                                 preview.effects.forEach { Text("Effect: $it") }
                                 Text("Preview expires after 60 seconds. A conflict, unknown outcome, or daemon refusal needs a fresh review.",
                                     style = MaterialTheme.typography.bodySmall)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = consent, onCheckedChange = { consent = it },
-                                        modifier = Modifier.testTag("config-consent"))
-                                    Text(if (mode == "delete") "I approve deleting this mount" else "I approve these configuration changes")
-                                }
                             }
                         }
                     }
@@ -141,6 +138,22 @@ fun MountConfigEditor(mode: String, original: String, draft: MountDraft,
                     if (!valid && mode != "delete") Text("Check required fields and numeric limits before preview.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                // Keep review consent visible and discoverable even when the
+                // effects/explanation inside the bounded scroll region overflow.
+                // A single toggleable semantics node owns the entire label+check.
+                // Consent still resets for every new one-use preview ID.
+                if (step == 3 && preview != null) {
+                    Row(
+                        Modifier.fillMaxWidth().testTag("config-consent")
+                            .toggleable(value = consent, role = Role.Checkbox,
+                                onValueChange = { consent = it }),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = consent, onCheckedChange = null)
+                        Text(if (mode == "delete") "I approve deleting this mount"
+                            else "I approve these configuration changes")
+                    }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = { if (step > 0 && mode != "delete") step-- else onClose() },
