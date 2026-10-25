@@ -2,7 +2,9 @@ package io.github.mikeyphw.skybind
 
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.Composable
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.mikeyphw.skybind.bridge.RemoteBrowseReader
 import io.github.mikeyphw.skybind.model.*
@@ -14,12 +16,21 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class RemoteBrowserTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    // Run fixture UI inside the already-declared TARGET package activity.
+    // Do not call compose.setContent(): MainActivity sets its own content onCreate.
+    // Replacing its composition is test-only and adds no manifest components.
+    private fun fixtureContent(content: @Composable () -> Unit) {
+        val activity = compose.activity  // resolve outside the main thread
+        compose.runOnUiThread { activity.setContent(content = content) }
+        compose.waitForIdle()
+    }
+
     private fun snapshot() = SkybindReadSnapshot(LinkState.ONLINE, "Fixture only",
         remotes = listOf(RemoteSummary("alpha", "Alpha", "drive")))
 
     @Test fun listsRealFoldersAndKeepsWritesDisabled() {
-        compose.setContent { SkybindApp(snapshot(), {}, {}, browser = BrowserState("alpha", "",
+        fixtureContent { SkybindApp(snapshot(), {}, {}, browser = BrowserState("alpha", "",
             listOf(RemoteFileEntry("folder", true, 0), RemoteFileEntry("data.txt", false, 12))),
             onBrowseFolder = {}) }
         compose.onNodeWithTag("nav-browser").performClick()
@@ -29,7 +40,7 @@ class RemoteBrowserTest {
     }
 
     @Test fun disconnectedStateHidesFormerContents() {
-        compose.setContent { SkybindApp(SkybindReadSnapshot(LinkState.DISCONNECTED, "Offline"), {}, {},
+        fixtureContent { SkybindApp(SkybindReadSnapshot(LinkState.DISCONNECTED, "Offline"), {}, {},
             browser = BrowserState("alpha", "secret", listOf(RemoteFileEntry("private", false, 5)))) }
         compose.onNodeWithTag("nav-browser").performClick()
         compose.onNodeWithTag("file-private").assertDoesNotExist()

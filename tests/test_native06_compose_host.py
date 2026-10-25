@@ -1,67 +1,89 @@
-"""Source-only regressions for NATIVE-06 Compose instrumented activity isolation.
+"""Source-only negative contracts for correct-process Compose instrumentation.
 
-Not evidence that the hosted APK or real Android device test has passed.
+Real Android execution remains a separate, mandatory NATIVE-06 gate.
 """
 import unittest
 from unittest.mock import patch
-import xml.etree.ElementTree as ET
-from pathlib import Path
 from scripts.dev.android import native06_source_gate as gate
 
-MANIFEST = 'android-app/app/src/androidTest/AndroidManifest.xml'
-PROD = 'android-app/app/src/main/AndroidManifest.xml'
+TEST_MANIFEST = 'android-app/app/src/androidTest/AndroidManifest.xml'
+PROD_MANIFEST = 'android-app/app/src/main/AndroidManifest.xml'
+TEST_PREFIX = 'android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/'
 
-class ComposeTestHostContract(unittest.TestCase):
-    def test_source_gate_accepts_instrumentation_only_host(self):
+
+class ComposeCorrectProcessContract(unittest.TestCase):
+    def test_actual_source_satisfies_gate(self):
         self.assertEqual(gate.check()['status'], 'PASS_NATIVE06_ACCEPTANCE_SOURCE_ONLY')
 
-    def _expect_block(self, replace, error):
+    def assert_source_rejected(self, path, old, new, expected):
         real = gate.source
-        def modified(path):
-            content = real(path)
-            return replace(content) if path == MANIFEST else content
-        with patch.object(gate, 'source', side_effect=modified):
-            with self.assertRaisesRegex(RuntimeError, error):
+        def tampered(p):
+            data = real(p)
+            if p == path:
+                self.assertIn(old, data)
+                return data.replace(old, new)
+            return data
+        with patch.object(gate, 'source', side_effect=tampered):
+            with self.assertRaisesRegex(RuntimeError, expected):
                 gate.check()
 
-    def test_absent_host_is_denied(self):
-        self._expect_block(lambda s: s.replace('androidx.activity.ComponentActivity',
-                                                 'androidx.activity.OtherActivity'), 'HOST_UNSAFE_OR_ABSENT')
+    def test_test_apk_foreign_process_activity_denied(self):
+        self.assert_source_rejected(TEST_MANIFEST, ' />', """>
+<application><activity android:name="androidx.activity.ComponentActivity"
+ android:exported="true" /></application></manifest>""",
+            'NATIVE06_COMPOSE_FOREIGN_PROCESS_HOST_OR_PERMISSIONS')
 
-    def test_non_exported_host_is_denied(self):
-        self._expect_block(lambda s: s.replace('android:exported="true"',
-                                                 'android:exported="false"'), 'HOST_UNSAFE_OR_ABSENT')
+    def test_test_apk_extra_permission_denied(self):
+        self.assert_source_rejected(TEST_MANIFEST, ' />', """>
+<uses-permission android:name="android.permission.CAMERA" /></manifest>""",
+            'NATIVE06_COMPOSE_FOREIGN_PROCESS_HOST_OR_PERMISSIONS')
 
-    def test_extra_launcher_is_denied(self):
-        self._expect_block(lambda s: s.replace(' />', '><intent-filter /></activity>', 1),
-                           'HOST_UNSAFE_OR_ABSENT')
+    def test_test_apk_malformed_denied(self):
+        self.assert_source_rejected(TEST_MANIFEST, ' />', '>',
+            'NATIVE06_COMPOSE_TEST_MANIFEST_MALFORMED')
 
-    def test_malformed_manifest_is_denied(self):
-        self._expect_block(lambda s: s.replace('</manifest>', ''), 'MANIFEST_MALFORMED')
+    def test_production_componentactivity_denied(self):
+        self.assert_source_rejected(PROD_MANIFEST, '</application>',
+            '<activity android:name="androidx.activity.ComponentActivity" /></application>',
+            'NATIVE06_COMPOSE_TEST_HOST_IN_PRODUCTION')
 
-    def test_permissions_are_not_added(self):
-        self._expect_block(lambda s: s.replace('<application>',
-            '<uses-permission android:name="android.permission.CAMERA" />\n    <application>'),
-            'HOST_ADDS_PERMISSION')
+    def test_target_main_activity_missing_denied(self):
+        self.assert_source_rejected(PROD_MANIFEST, 'android:name=".MainActivity"',
+            'android:name=".WrongActivity"', 'NATIVE06_COMPOSE_TARGET_MAINACTIVITY_INVALID')
 
-    def test_production_host_is_rejected(self):
-        original=gate.source
-        def altered(path):
-            content=original(path)
-            if path == PROD:
-                return content.replace('</application>',
-                    '<activity android:name="androidx.activity.ComponentActivity" />\n</application>')
-            return content
-        with patch.object(gate, 'source', side_effect=altered):
-            with self.assertRaisesRegex(RuntimeError, 'HOST_IN_PRODUCTION'):
-                gate.check()
+    def test_target_app_activity_type_must_be_componentactivity(self):
+        self.assert_source_rejected(
+            'android-app/app/src/main/java/io/github/mikeyphw/skybind/MainActivity.kt',
+            'class MainActivity : ComponentActivity()', 'class MainActivity : Activity()',
+            'NATIVE06_COMPOSE_TARGET_MAINACTIVITY_INVALID')
 
-    def test_build_type_is_not_changed_to_debug(self):
-        root=Path(gate.ROOT)
-        gradle=(root/'android-app/app/build.gradle.kts').read_text()
-        self.assertIn('testBuildType = if (personalRequested) "personal" else "debug"', gradle)
-        self.assertIn('debugImplementation("androidx.compose.ui:ui-test-manifest")', gradle)
-        self.assertNotIn('personalImplementation("androidx.compose.ui:ui-test-manifest")', gradle)
+    def test_all_three_fixture_suites_use_same_process(self):
+        for path in ('NativeUiTest.kt', 'NativePolishUiTest.kt', 'RemoteBrowserTest.kt'):
+            with self.subTest(path=path):
+                self.assert_source_rejected(TEST_PREFIX + path,
+                    'createAndroidComposeRule<MainActivity>()', 'createComposeRule()',
+                    'NATIVE06_COMPOSE_TARGET_PROCESS_RULE_INVALID')
+
+    def test_no_direct_compose_rule_setcontent(self):
+        for path in ('NativeUiTest.kt', 'NativePolishUiTest.kt', 'RemoteBrowserTest.kt'):
+            with self.subTest(path=path):
+                self.assert_source_rejected(TEST_PREFIX + path,
+                    'fixtureContent {', 'compose.setContent {',
+                    'NATIVE06_COMPOSE_TARGET_PROCESS_RULE_INVALID')
+
+    def test_no_main_thread_activity_provider_deadlock(self):
+        for path in ('NativeUiTest.kt', 'NativePolishUiTest.kt', 'RemoteBrowserTest.kt'):
+            with self.subTest(path=path):
+                self.assert_source_rejected(TEST_PREFIX + path,
+                    'val activity = compose.activity', 'val bogus = compose.activity',
+                    'NATIVE06_COMPOSE_TARGET_PROCESS_RULE_INVALID')
+
+    def test_release_variant_cannot_gain_test_manifest_dependency(self):
+        self.assert_source_rejected('android-app/app/build.gradle.kts',
+            'debugImplementation("androidx.compose.ui:ui-test-manifest")',
+            'debugImplementation("androidx.compose.ui:ui-test-manifest")\n    personalImplementation("androidx.compose.ui:ui-test-manifest")',
+            'NATIVE06_COMPOSE_PRODUCTION_TEST_HOST_UNSAFE')
+
 
 if __name__ == '__main__':
     unittest.main()

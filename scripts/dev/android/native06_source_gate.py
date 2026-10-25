@@ -3,6 +3,7 @@
 from pathlib import Path
 import json
 import xml.etree.ElementTree as ET
+import re
 ROOT = Path(__file__).resolve().parents[3]
 
 def source(path):
@@ -39,9 +40,9 @@ def check():
                  'mountpoint = mountpoint,'):
         if code not in live:
             raise RuntimeError('MISSING_NATIVE06_DEVICE_CONTRACT:' + code)
-    # createComposeRule() launches androidx.activity.ComponentActivity in the
-    # instrumentation package. The personal buildType does not inherit
-    # debugImplementation(ui-test-manifest); the host belongs ONLY to androidTest.
+    # Android instrumentation runs inside io.github.mikeyphw.skybind, NOT
+    # io.github.mikeyphw.skybind.test. A host declared in the test APK fails
+    # ActivityScenario with "resolved to different process" on real devices.
     host_source = source('android-app/app/src/androidTest/AndroidManifest.xml')
     ns = '{http://schemas.android.com/apk/res/android}'
     try:
@@ -49,23 +50,35 @@ def check():
         prod_root = ET.fromstring(source('android-app/app/src/main/AndroidManifest.xml'))
     except ET.ParseError as exc:
         raise RuntimeError('NATIVE06_COMPOSE_TEST_MANIFEST_MALFORMED') from exc
-    if host_root.tag != 'manifest' or host_root.find('application') is None:
-        raise RuntimeError('NATIVE06_COMPOSE_TEST_MANIFEST_INVALID')
-    activities = host_root.findall('./application/activity')
-    if len(activities) != 1 or activities[0].get(ns + 'name') != 'androidx.activity.ComponentActivity' or \
-            activities[0].get(ns + 'exported') != 'true' or \
-            activities[0].find('intent-filter') is not None:
-        raise RuntimeError('NATIVE06_COMPOSE_TEST_HOST_UNSAFE_OR_ABSENT')
-    if any(e.get(ns + 'name') == 'androidx.activity.ComponentActivity'
-           for e in prod_root.findall('./application/activity')):
+    if host_root.tag != 'manifest' or list(host_root):
+        raise RuntimeError('NATIVE06_COMPOSE_FOREIGN_PROCESS_HOST_OR_PERMISSIONS')
+    activities = prod_root.findall('./application/activity')
+    if any(a.get(ns + 'name') == 'androidx.activity.ComponentActivity' for a in activities):
         raise RuntimeError('NATIVE06_COMPOSE_TEST_HOST_IN_PRODUCTION')
-    if any(e.tag in ('uses-permission', 'permission') for e in host_root):
-        raise RuntimeError('NATIVE06_COMPOSE_TEST_HOST_ADDS_PERMISSION')
-    # These concrete suites use createComposeRule(), not a launcher fixture.
-    for test in ('NativeUiTest.kt', 'NativePolishUiTest.kt'):
-        test_source = source('android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/' + test)
-        if 'createComposeRule()' not in test_source:
-            raise RuntimeError('NATIVE06_COMPOSE_TEST_HOST_CONTRACT_CHANGED:' + test)
+    main = [a for a in activities if a.get(ns + 'name') == '.MainActivity']
+    if len(main) != 1 or main[0].get(ns + 'exported') != 'true':
+        raise RuntimeError('NATIVE06_COMPOSE_TARGET_MAINACTIVITY_INVALID')
+    launcher = main[0].find('intent-filter')
+    if launcher is None or not (launcher.find("action[@" + ns + "name='android.intent.action.MAIN']") is not None and
+                              launcher.find("category[@" + ns + "name='android.intent.category.LAUNCHER']") is not None):
+        raise RuntimeError('NATIVE06_COMPOSE_TARGET_MAINACTIVITY_INVALID')
+    activity = source('android-app/app/src/main/java/io/github/mikeyphw/skybind/MainActivity.kt')
+    if 'class MainActivity : ComponentActivity()' not in activity:
+        raise RuntimeError('NATIVE06_COMPOSE_TARGET_MAINACTIVITY_INVALID')
+    for test in ('NativeUiTest.kt', 'NativePolishUiTest.kt', 'RemoteBrowserTest.kt'):
+        ui = source('android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/' + test)
+        required = ('createAndroidComposeRule<MainActivity>()',
+                    'private fun fixtureContent(content: @Composable () -> Unit)',
+                    'val activity = compose.activity',
+                    'compose.runOnUiThread { activity.setContent(content = content) }',
+                    'compose.waitForIdle()',
+                    'fixtureContent {')
+        if any(v not in ui for v in required) or 'createComposeRule()' in ui or re.search(r'^\s*compose\.setContent\s*\{', ui, re.M):
+            raise RuntimeError('NATIVE06_COMPOSE_TARGET_PROCESS_RULE_INVALID:' + test)
+    gradle = source('android-app/app/build.gradle.kts')
+    if 'testBuildType = if (personalRequested) "personal" else "debug"' not in gradle or \
+            'personalImplementation("androidx.compose.ui:ui-test-manifest")' in gradle:
+        raise RuntimeError('NATIVE06_COMPOSE_PRODUCTION_TEST_HOST_UNSAFE')
     if 'onNodeWithTag("connect-readonly").performClick()' in live:
         raise RuntimeError('AUTO_ROOT_TEST_MUST_NOT_USE_MANUAL_CONNECT')
     if any(x in runner for x in ("adb(serial, 'uninstall'", "adb(serial, 'install'", "'pm', 'clear'")):

@@ -5,7 +5,9 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.Composable
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.mikeyphw.skybind.model.*
 import io.github.mikeyphw.skybind.ui.SkybindApp
@@ -17,7 +19,16 @@ import org.junit.runner.RunWith
 /** Test-only fixtures never become a production backend or a broker. */
 @RunWith(AndroidJUnit4::class)
 class NativeUiTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    // Run fixture UI inside the already-declared TARGET package activity.
+    // Do not call compose.setContent(): MainActivity sets its own content onCreate.
+    // Replacing its composition is test-only and adds no manifest components.
+    private fun fixtureContent(content: @Composable () -> Unit) {
+        val activity = compose.activity  // resolve outside the main thread
+        compose.runOnUiThread { activity.setContent(content = content) }
+        compose.waitForIdle()
+    }
+
 
     private fun fixture() = SkybindReadSnapshot(
         link = LinkState.ONLINE, detail = "Fixture-only authenticated session", serverVersion = "fixture-v1",
@@ -35,7 +46,7 @@ class NativeUiTest {
     )
 
     @Test fun realNavigationHasFiveDistinctPages() {
-        compose.setContent { SkybindApp(SkybindReadSnapshot(LinkState.NOT_AUTHORIZED, "Not paired"), {}) }
+        fixtureContent { SkybindApp(SkybindReadSnapshot(LinkState.NOT_AUTHORIZED, "Not paired"), {}) }
         compose.onNodeWithTag("screen-home").assertExists()
         for (page in listOf("mounts", "browser", "jobs", "more")) {
             compose.onNodeWithTag("nav-$page").performClick()
@@ -45,7 +56,7 @@ class NativeUiTest {
     }
 
     @Test fun mountsHaveDedicatedNavigationAndAuthoritativeStatus() {
-        compose.setContent { SkybindApp(fixture(), {}) }
+        fixtureContent { SkybindApp(fixture(), {}) }
         compose.onNodeWithTag("nav-mounts").performClick()
         compose.onNodeWithTag("screen-mounts").assertExists()
         compose.onNodeWithTag("mount-photos").assertExists()
@@ -54,7 +65,7 @@ class NativeUiTest {
 
     @Test fun mountActionsRequireUserGestureAndExplicitConsent() {
         var requested: String? = null
-        compose.setContent { SkybindApp(fixture(), {},
+        fixtureContent { SkybindApp(fixture(), {},
             onPreviewMount = { action, name -> requested = "$action:$name" }) }
         compose.onNodeWithTag("nav-mounts").performClick()
         compose.onNodeWithTag("mount-start-photos").assertIsNotEnabled()
@@ -64,7 +75,7 @@ class NativeUiTest {
 
     @Test fun mountConfirmationNeverRunsWithoutCheckboxConsent() {
         var submitted = 0
-        compose.setContent { SkybindApp(fixture(), {},
+        fixtureContent { SkybindApp(fixture(), {},
             mountPreview = PreparedMountAction("f7bf6776-6ee3-4520-bbfb-9f55e327c7c1", "stop", "photos", "RUNNING", true),
             onConfirmMount = { submitted++ }) }
         compose.onNodeWithTag("mount-action-dialog").assertExists()
@@ -76,7 +87,7 @@ class NativeUiTest {
 
     @Test fun nativeMountConfigurationOpensFromTheMountsTab() {
         var action: String? = null
-        compose.setContent { SkybindApp(fixture(), {}, onOpenMountConfig = { selected, _ -> action = selected }) }
+        fixtureContent { SkybindApp(fixture(), {}, onOpenMountConfig = { selected, _ -> action = selected }) }
         compose.onNodeWithTag("nav-mounts").performClick()
         compose.onNodeWithTag("mount-add").assertExists().performClick()
         compose.runOnIdle { assertEquals("create", action) }
@@ -88,7 +99,7 @@ class NativeUiTest {
 
     @Test fun configApplyRequiresReviewConsent() {
         var applies = 0
-        compose.setContent { SkybindApp(fixture(), {},
+        fixtureContent { SkybindApp(fixture(), {},
             mountConfigMode = "delete", mountConfigDraft = MountDraft(name = "photos"),
             mountConfigPreview = PreparedConfigChange(
                 "f7bf6776-6ee3-4520-bbfb-9f55e327c7c1", "delete", "photos", 4,
@@ -102,14 +113,14 @@ class NativeUiTest {
     }
 
     @Test fun unpairedMountActionsAreNotAvailable() {
-        compose.setContent { SkybindApp(fixture().copy(link = LinkState.NOT_AUTHORIZED), {}) }
+        fixtureContent { SkybindApp(fixture().copy(link = LinkState.NOT_AUTHORIZED), {}) }
         compose.onNodeWithTag("nav-mounts").performClick()
         compose.onNodeWithTag("mount-stop-photos").assertDoesNotExist()
         compose.onNodeWithTag("mount-action-dialog").assertDoesNotExist()
     }
 
     @Test fun activityIsAJournalNotAnActionableJobQueue() {
-        compose.setContent { SkybindApp(fixture(), {}) }
+        fixtureContent { SkybindApp(fixture(), {}) }
         compose.onNodeWithTag("nav-jobs").performClick()
         compose.onNodeWithTag("job-live-fixture").assertExists()
         compose.onNodeWithTag("job-done-fixture").assertExists()
@@ -126,7 +137,7 @@ class NativeUiTest {
     }
 
     @Test fun browserDoesNotOfferWritesOrInventContents() {
-        compose.setContent { SkybindApp(fixture(), {}) }
+        fixtureContent { SkybindApp(fixture(), {}) }
         compose.onNodeWithTag("nav-browser").performClick()
         compose.onNodeWithTag("remote-photos").assertExists()
         compose.onNodeWithTag("remote-archive").assertExists()
@@ -138,7 +149,7 @@ class NativeUiTest {
 
     @Test fun unpairedStateHidesStaleServerData() {
         val stale = fixture().copy(link = LinkState.DISCONNECTED, detail = "No authenticated session")
-        compose.setContent { SkybindApp(stale, {}) }
+        fixtureContent { SkybindApp(stale, {}) }
         compose.onNodeWithTag("nav-jobs").performClick()
         compose.onNodeWithTag("job-live-fixture").assertDoesNotExist()
         compose.onNodeWithTag("nav-more").performClick()
