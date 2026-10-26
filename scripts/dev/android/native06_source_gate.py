@@ -140,6 +140,16 @@ def check():
             'if (showSigner) InfoPanel(' in app_ui or \
             any(v not in polish for v in signer_test_required):
         raise RuntimeError('NATIVE06_SIGNER_DISCLOSURE_DIALOG_CONTRACT_INVALID')
+    # Run 40394246393 failed at AndroidTest Kotlin compilation: the signer
+    # presentation lives in the ui package, but the test did not import it.
+    # This source check catches that specific regression only; hosted Kotlin
+    # compilation is still required before declaring an APK candidate.
+    presentation = source('android-app/app/src/main/java/io/github/mikeyphw/skybind/ui/NativePresentation.kt')
+    import_statement = 'import io.github.mikeyphw.skybind.ui.NativePresentation'
+    if (not re.search(r'^object NativePresentation\s*\{', presentation, re.M) or
+            not re.search(r'^\s*fun signer\(context: Context\): String\s*\{', presentation, re.M) or
+            len(re.findall(r'^' + re.escape(import_statement) + r'$', polish, re.M)) != 1):
+        raise RuntimeError('NATIVE06_SIGNER_PRESENTATION_IMPORT_INVALID')
     gradle = source('android-app/app/build.gradle.kts')
     if 'testBuildType = if (personalRequested) "personal" else "debug"' not in gradle or \
             'personalImplementation("androidx.compose.ui:ui-test-manifest")' in gradle:

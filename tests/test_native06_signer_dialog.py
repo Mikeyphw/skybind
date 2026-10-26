@@ -77,6 +77,30 @@ class SignerDisclosureDialogContract(unittest.TestCase):
                              'onNodeWithTag("about-signer-close", useUnmergedTree = true).assertDoesNotExist()',
                              'onNodeWithTag("about-signer-close", useUnmergedTree = true).assertExists()')
 
+    def test_signer_presentation_import_must_be_explicit(self):
+        real = gate.source
+        def missing_import(path):
+            s = real(path)
+            if path == POLISH:
+                self.assertIn('import io.github.mikeyphw.skybind.ui.NativePresentation', s)
+                return s.replace('import io.github.mikeyphw.skybind.ui.NativePresentation', '', 1)
+            return s
+        with patch.object(gate, 'source', side_effect=missing_import):
+            with self.assertRaisesRegex(RuntimeError, 'NATIVE06_SIGNER_PRESENTATION_IMPORT_INVALID'):
+                gate.check()
+
+    def test_signer_presentation_wrong_package_must_fail(self):
+        real = gate.source
+        def wrong_import(path):
+            s = real(path)
+            if path == POLISH:
+                return s.replace('import io.github.mikeyphw.skybind.ui.NativePresentation',
+                                 'import io.github.mikeyphw.skybind.NativePresentation', 1)
+            return s
+        with patch.object(gate, 'source', side_effect=wrong_import):
+            with self.assertRaisesRegex(RuntimeError, 'NATIVE06_SIGNER_PRESENTATION_IMPORT_INVALID'):
+                gate.check()
+
     def test_dialog_stays_production_unchanged_in_this_diagnostic_change(self):
         self.assertIn('NativePresentation.signer(context)', gate.source(APP))
 

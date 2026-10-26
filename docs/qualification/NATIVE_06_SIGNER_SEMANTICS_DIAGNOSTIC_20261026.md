@@ -33,3 +33,15 @@
 - [ ] Verified v7 signed pair, guarded in-place install, real v7 instrumentation.
 - [ ] Any further production fix based on actual v7 per-tag evidence.
 - [ ] NATIVE-06 remaining readonly/full profile, module and owner approval.
+
+## 2026-10-26 — v7 hosted compile blocker and source hotfix B
+
+Run [40394246393](https://github.com/Mikeyphw/skybind/actions/runs/40394246393) built from `3e8a9101476fcb5fc412b702dbf06eb934730873`. Source/signer admission and production Kotlin compiled, but the AndroidTest Kotlin task failed at `NativePolishUiTest.kt:88:34` (`Unresolved reference 'NativePresentation'`); zero APK artifacts published. The diagnostic's Java/Kotlin import of the UI package was missing; source-only Python checks did not catch it. **This is not Android 16 device evidence.**
+
+Hotfix B explicitly imports `io.github.mikeyphw.skybind.ui.NativePresentation` in the test harness and adds strict source gate plus two negative mutation tests for missing or incorrect import. Source gate remains labelled source-only; final Kotlin compilation, paired-APK provenance verification and instrumented test are required. Original production UI, source A semantics diagnostics, signer, root permissions and data-preserving install policy are unchanged. Do **not** re-run the failed commit; dispatch a new v7 pair from the hotfixed exact HEAD after Devtool commits it and checks it into GitHub. VersionCode 7 is valid only if the installed app is older, the signer matches and guarded upgrade preflight explicitly permits it.
+
+- [x] Pin failed run and actual compiler diagnostic to ledger.
+- [x] Correct diagnostic test's Kotlin symbol import and negative source tests.
+- [ ] Compile production+AndroidTest pair on the new commit.
+- [ ] Verify APK, source SHA, persistent signer; run preflight before any install.
+- [ ] Re-run NATIVE-06 readonly and interpret bounded merged/unmerged tags.

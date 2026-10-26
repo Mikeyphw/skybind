@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.mikeyphw.skybind.model.*
 import io.github.mikeyphw.skybind.ui.SkybindApp
+import io.github.mikeyphw.skybind.ui.NativePresentation
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
