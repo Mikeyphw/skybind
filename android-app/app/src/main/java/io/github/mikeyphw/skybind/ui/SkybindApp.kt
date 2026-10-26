@@ -649,12 +649,26 @@ fun SkybindApp(snapshot: SkybindReadSnapshot, onRefresh: () -> Unit, onConnect: 
         var showSigner by rememberSaveable { mutableStateOf(false) }
         InfoPanel("Native app", "Skybind ${NativePresentation.version()} · Android API ${Build.VERSION.SDK_INT}",
             Modifier.testTag("about-app-version"))
-        TextButton(onClick = { showSigner = !showSigner },
+        // The More page can exceed one viewport. Present the requested signer
+        // in a separate accessible dialog instead of conditionally adding a
+        // card below a long scrollable item where it may be undiscoverable.
+        TextButton(onClick = { showSigner = true },
             modifier = Modifier.testTag("about-show-signer").heightIn(min = 48.dp)) {
-            Text(if (showSigner) "Hide APK signing fingerprint" else "View APK signing fingerprint")
+            Text("View APK signing fingerprint")
         }
-        if (showSigner) InfoPanel("Installed APK certificate · SHA-256",
-            NativePresentation.signer(context), Modifier.testTag("about-signer-sha256"))
+        if (showSigner) {
+            AlertDialog(
+                onDismissRequest = { showSigner = false },
+                title = { Text("Installed APK certificate · SHA-256") },
+                text = { Text(NativePresentation.signer(context),
+                    modifier = Modifier.testTag("about-signer-sha256")) },
+                confirmButton = {
+                    TextButton(onClick = { showSigner = false },
+                        modifier = Modifier.testTag("about-signer-close")) { Text("Close") }
+                },
+                modifier = Modifier.testTag("about-signer-dialog"),
+            )
+        }
         InfoPanel("Security and privacy", "Root permission is controlled by your root manager; privileged write actions require explicit previews. No remote secrets are displayed. BKX authority is optional and separate.")
         InfoPanel("Snapshot freshness", if (s.online && s.sampledAtMillis != null)
             "Last daemon read: ${NativePresentation.time(s.sampledAtMillis.toString())}. Refresh to re-check."

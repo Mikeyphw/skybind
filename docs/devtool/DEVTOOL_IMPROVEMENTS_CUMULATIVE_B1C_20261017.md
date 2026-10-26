@@ -1342,3 +1342,12 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Repair:** dedicated fixed-area `Role.Checkbox` consent row with one clickable semantics node; gate Apply on checked and not busy, reset across proof ID; explicit off/on device assertions plus source negative tests. Preserve production permission/signature/root scope.
 - **Status:** source-remediated in proposed exact-source hotfix; new GitHub Android build and real-device NATIVE-06 read-only must validate (not yet qualified).
 - **Recommendations:** record per-lane UI semantics-tree evidence in private logs on node-not-found; batch independent read-only lane probes before successive hosted rebuilds when authorized. Keep 0-SKIP and explicit owner review gates unchanged.
+
+
+## NATIVE-06 Android 16 signer disclosure accessibility (2026-10-25)
+
+- **Evidence:** signed personal APK v5, source `3f022fcbf865fbd75eb1d94438ce013352032278`, NATIVE-06 receipt `native06-b0441d23b3ad42e7b606aa5844596a2e.json`: four readonly lanes pass; fifth `polish` fails at `NativePolishUiTest.kt:63` after clicking the signer control; `about-signer-sha256` is absent from the Compose test semantics tree.
+- **Affected surface:** `android-app/.../ui/SkybindApp.kt`, `NativePolishUiTest.kt`, `scripts/dev/android/native06_source_gate.py`, NATIVE-06 personal Android instrumented acceptance.
+- **Recommended/delivered source change:** show read-only installed APK fingerprint in a modal Material `AlertDialog` rather than a conditional card after the scrollable More page. Give fingerprint, dialog and Close individual semantics tags; assert open/content/dismiss states in instrumentation; negative source regressions check contract. No changes to signing/permission/root authority.
+- **Status:** SOURCE FIX PREPARED; hosted compile and real-device rerun OPEN. Do not count v5's four passed lanes as new-source qualification; preserve evidence without overstating closure.
+- **Tooling improvement:** establish a recurrent Android UI semantics smoke gate for expanded More-page content to detect elements present in source but missing from the real device semantics tree. **OPEN**: independent device evidence and broader coverage.

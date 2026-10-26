@@ -99,6 +99,32 @@ def check():
             'compose.onNodeWithTag("config-apply").assertIsNotEnabled()' not in config_test or
             'compose.runOnIdle { assertEquals(1, applies) }' not in config_test):
         raise RuntimeError('NATIVE06_CONFIG_CONSENT_TEST_COVERAGE_MISSING')
+    # A formerly inline signer card after the More page's long scrolling
+    # content became undiscoverable on Android 16. Require a separate dialog
+    # with an explicit, independently testable dismiss action. This test-only
+    # source guard never substitutes for an instrumented device result.
+    app_ui = source('android-app/app/src/main/java/io/github/mikeyphw/skybind/ui/SkybindApp.kt')
+    polish = source('android-app/app/src/androidTest/java/io/github/mikeyphw/skybind/NativePolishUiTest.kt')
+    signer_required = (
+        'if (showSigner) {',
+        'AlertDialog(',
+        'onDismissRequest = { showSigner = false }',
+        'modifier = Modifier.testTag("about-signer-dialog")',
+        'modifier = Modifier.testTag("about-signer-sha256")',
+        'modifier = Modifier.testTag("about-signer-close")',
+        'NativePresentation.signer(context)',
+    )
+    signer_test_required = (
+        'onNodeWithTag("about-signer-dialog").assertDoesNotExist()',
+        'onNodeWithTag("about-show-signer").performClick()',
+        'onNodeWithTag("about-signer-dialog").assertExists()',
+        'onNodeWithTag("about-signer-sha256").assertExists()',
+        'onNodeWithTag("about-signer-close").performClick()',
+    )
+    if any(v not in app_ui for v in signer_required) or \
+            'if (showSigner) InfoPanel(' in app_ui or \
+            any(v not in polish for v in signer_test_required):
+        raise RuntimeError('NATIVE06_SIGNER_DISCLOSURE_DIALOG_CONTRACT_INVALID')
     gradle = source('android-app/app/build.gradle.kts')
     if 'testBuildType = if (personalRequested) "personal" else "debug"' not in gradle or \
             'personalImplementation("androidx.compose.ui:ui-test-manifest")' in gradle:

@@ -59,8 +59,14 @@ class NativePolishUiTest {
         compose.onNodeWithTag("bkx-background-lifetime").assertExists()
         compose.onNodeWithTag("diagnostics-fuse").assertExists()
         compose.onNodeWithTag("about-app-version").assertExists()
+        compose.onNodeWithTag("about-signer-dialog").assertDoesNotExist()
         compose.onNodeWithTag("about-show-signer").performClick()
+        // The fingerprint must be in an accessible dialog window, never
+        // an unmeasured child below the long More page's scroll viewport.
+        compose.onNodeWithTag("about-signer-dialog").assertExists()
         compose.onNodeWithTag("about-signer-sha256").assertExists()
+        compose.onNodeWithTag("about-signer-close").performClick()
+        compose.onNodeWithTag("about-signer-dialog").assertDoesNotExist()
     }
     @Test fun activityFiltersAndReceiptDetailsRemainReadOnly() {
         fixtureContent { SkybindApp(fixture(), {}) }
