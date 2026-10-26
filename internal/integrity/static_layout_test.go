@@ -55,3 +55,31 @@ func TestReviewedStaticHelperTwoFileInventory(t *testing.T) {
 		})
 	}
 }
+
+func TestAPINativeLauncherProvenance(t *testing.T) {
+	native := "system/bin/skybind-rclone-engine"
+	launcher := "system/bin/rclone"
+	alias := "system/bin/skybind-rclone"
+	helper := "system/vendor/bin/fusermount3"
+	sum := func(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+	files := map[string]File{native: {SHA256: sum("engine"), Size: 6},
+		launcher: {SHA256: sum("launcher"), Size: 8}, alias: {SHA256: sum("launcher"), Size: 8}, helper: {SHA256: sum("helper"), Size: 6}}
+	obj, err := json.Marshal(Manifest{Schema: 1, Product: "Skybind", Provider: "bclone", Arch: "arm64", Engine: native, Helper: helper, Files: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(obj); err != nil {
+		t.Fatal(err)
+	}
+	delete(files, alias)
+	obj, _ = json.Marshal(Manifest{Schema: 1, Product: "Skybind", Provider: "bclone", Arch: "arm64", Engine: native, Helper: helper, Files: files})
+	if _, err := Decode(obj); err == nil {
+		t.Fatal("missing public alias accepted")
+	}
+	files[alias] = File{SHA256: sum("launcher"), Size: 8}
+	delete(files, native)
+	obj, _ = json.Marshal(Manifest{Schema: 1, Product: "Skybind", Provider: "bclone", Arch: "arm64", Engine: native, Helper: helper, Files: files})
+	if _, err := Decode(obj); err == nil {
+		t.Fatal("missing native engine accepted")
+	}
+}

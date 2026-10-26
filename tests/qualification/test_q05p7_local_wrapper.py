@@ -45,7 +45,7 @@ class LocalWrappers(unittest.TestCase):
             self.assertEqual(cmd[:2], ['python3', 'scripts/dev/integration/local_build.py'])
             self.assertNotIn('release', cmd)
 
-    def test_selected_go_accepts_exact_local_1271_compatibility_only(self):
+    def test_selected_go_accepts_exact_reviewed_local_compilers(self):
         with patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([], 0, stdout=b'go version go1.27.1 android/arm64\n')):
             with contextlib.redirect_stdout(io.StringIO()) as messages:
                 version, env = local.selected_go('go')
@@ -58,9 +58,15 @@ class LocalWrappers(unittest.TestCase):
             version, env = local.selected_go('go')
             self.assertEqual(version, '1.27.2')
             self.assertEqual(env['GOTOOLCHAIN'], 'local')
+        with patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([], 0, stdout=b'go version go1.27.3 android/arm64\n')):
+            with contextlib.redirect_stdout(io.StringIO()) as messages:
+                version, env = local.selected_go('go')
+            self.assertEqual(version, '1.27.3')
+            self.assertIn('LOCAL, UNQUALIFIED', messages.getvalue())
+            self.assertIn('CI source pin remains Go 1.27.2', messages.getvalue())
 
     def test_other_compilers_remain_rejected_before_evidence_download(self):
-        for version in ('1.27.0','1.27.3','1.26.5','1.28.0'):
+        for version in ('1.27.0','1.26.5','1.28.0'):
             with self.subTest(version=version), patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([], 0, stdout=f'go version go{version} android/arm64\n'.encode())):
                 with self.assertRaisesRegex(local.LocalBuildError, 'No provider download'):
                     local.selected_go('go')
@@ -71,7 +77,7 @@ class LocalWrappers(unittest.TestCase):
     def test_mismatched_ci_lock_does_not_authorize_fallback(self):
         with patch.object(local.q05, 'json_input', return_value={'bclone': {'go_version': '1.27.3'}}), \
                 patch.object(local, 'checked_command', return_value=subprocess.CompletedProcess([], 0, stdout=b'go version go1.27.1 android/arm64\n')):
-            with self.assertRaisesRegex(local.LocalBuildError, 'CI pin is 1.27.2'):
+            with self.assertRaisesRegex(local.LocalBuildError, r'Go 1.27.3 \(selected CI pin\)'):
                 local.selected_go('go')
 
     def test_local_candidate_receipt_records_actual_not_selected_compiler(self):
@@ -95,7 +101,7 @@ class LocalWrappers(unittest.TestCase):
                 with self.assertRaises(local.LocalBuildError):
                     local.record_local_toolchain(Path(tmp),altered,'1.27.1','1.27.2')
             with self.assertRaises(local.LocalBuildError):
-                local.record_local_toolchain(Path(tmp),good,'1.27.3','1.27.2')
+                local.record_local_toolchain(Path(tmp),good,'1.27.0','1.27.2')
 
     def test_native_metadata_rejects_wrong_local_compiler(self):
         with tempfile.TemporaryDirectory() as tmp:

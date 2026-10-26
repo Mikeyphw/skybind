@@ -65,10 +65,11 @@ func Decode(data []byte) (Manifest, error) {
 	if e := json.Unmarshal(data, &m); e != nil {
 		return m, e
 	}
-	if m.Schema != 1 || m.Product != "Skybind" || m.Arch != "arm64" || (m.Provider != "newfuture" && m.Provider != "bclone") || m.Engine != "system/bin/rclone" || m.Helper != "system/vendor/bin/fusermount3" {
+	if m.Schema != 1 || m.Product != "Skybind" || m.Arch != "arm64" || (m.Provider != "newfuture" && m.Provider != "bclone") || (m.Engine != "system/bin/rclone" && m.Engine != "system/bin/skybind-rclone-engine") || m.Helper != "system/vendor/bin/fusermount3" {
 		return m, errors.New("invalid runtime authority")
 	}
-	// Reviewed static FUSE delivery has exactly rclone + fusermount3; shared
+	// Runtime v1 includes pinned provider ELF plus fusermount3. Native CLI modules
+	// additionally include the immutable public launcher; shared
 	// libfuse layouts may have additional members. Both executable members
 	// remain mandatory and every listed file is digest-checked on disk.
 	if len(m.Files) < 2 || len(m.Files) > 66 {
@@ -80,6 +81,14 @@ func Decode(data []byte) (Manifest, error) {
 		}
 		if _, err := hex.DecodeString(f.SHA256); err != nil {
 			return m, err
+		}
+	}
+	if m.Engine == "system/bin/skybind-rclone-engine" {
+		if _, ok := m.Files["system/bin/rclone"]; !ok {
+			return m, errors.New("native runtime launcher missing in provenance")
+		}
+		if _, ok := m.Files["system/bin/skybind-rclone"]; !ok {
+			return m, errors.New("native runtime public alias missing in provenance")
 		}
 	}
 	if _, ok := m.Files[m.Engine]; !ok {

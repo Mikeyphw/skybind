@@ -20,7 +20,9 @@ def candidate(prov, sha, daemon=HASH, helper=B_HASH, runtime=C_HASH):
     return {'status': 'VALID_UNQUALIFIED_CANDIDATE', 'file': f'skybind-{prov}-CANDIDATE-UNQUALIFIED.zip',
             'sha256': sha, 'provider': prov, 'members': {'system/bin/skybind': daemon,
                                      'system/vendor/bin/fusermount3': helper,
-                                     'system/bin/rclone': runtime,
+                                     'system/bin/rclone': HASH,
+                                     'system/bin/skybind-rclone': HASH,
+                                     'system/bin/skybind-rclone-engine': runtime,
                                      'runtime.provenance.json': HASH if prov=='newfuture' else B_HASH}}
 
 

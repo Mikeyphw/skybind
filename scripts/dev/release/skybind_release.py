@@ -25,6 +25,10 @@ MAX_TOTAL = 512 * 1024 * 1024
 MAX_FILE = 256 * 1024 * 1024
 ALLOWED_MODULE = {'module.prop','customize.sh','service.sh','post-fs-data.sh','action.sh','uninstall.sh'}
 MANDATORY_WEB = {'index.html', 'style.css','app.js','model.js','bridge.js','icon.png','platform.json','config.json'}
+NATIVE_ENGINE = 'system/bin/skybind-rclone-engine'
+PUBLIC_LAUNCHER = 'system/bin/rclone'
+PUBLIC_ALIAS = 'system/bin/skybind-rclone'
+LAUNCHER_SOURCE = ROOT / 'module/rclone-launcher.sh'
 
 
 def safe_path(name: str) -> bool:
@@ -71,7 +75,7 @@ def verify_installed_runtime(files: dict[str, bytes]) -> dict:
         provenance = json.loads(files['runtime.provenance.json'])
         if not isinstance(provenance, dict) or provenance.get('schema_version') != 1 or provenance.get('product') != 'Skybind' or provenance.get('arch') != 'arm64':
             raise Reject('invalid installed runtime provenance schema')
-        if provenance.get('provider') not in ('newfuture', 'bclone') or provenance.get('engine_path') != 'system/bin/rclone' or provenance.get('helper_path') != 'system/vendor/bin/fusermount3':
+        if provenance.get('provider') not in ('newfuture', 'bclone') or provenance.get('engine_path') not in (PUBLIC_LAUNCHER, NATIVE_ENGINE) or provenance.get('helper_path') != 'system/vendor/bin/fusermount3':
             raise Reject('invalid runtime authority identity')
         required = provenance.get('files')
         if not isinstance(required, dict) or not 2 <= len(required) <= 66:
@@ -85,7 +89,7 @@ def verify_installed_runtime(files: dict[str, bytes]) -> dict:
         delivery = provenance.get('fuse_delivery')
         fuse_libs = {name for name in required if name.startswith('system/vendor/lib64/libfuse') and name.endswith('.so')}
         if delivery == 'reviewed_static_helper_layout':
-            if fuse_libs or len(required) != 2:
+            if fuse_libs or len(required) != (4 if provenance['engine_path'] == NATIVE_ENGINE else 2):
                 raise Reject('static helper layout must contain only two ELF executables')
         elif delivery == 'shared_libfuse':
             if not fuse_libs:
@@ -98,9 +102,14 @@ def verify_installed_runtime(files: dict[str, bytes]) -> dict:
             blob = files.get(name)
             if blob is None or record.get('sha256') != sha(blob) or record.get('size') != len(blob) or not blob:
                 raise Reject('installed runtime member digest/size mismatch: ' + name)
-        for name in ('system/bin/rclone', 'system/vendor/bin/fusermount3'):
+        for name in (provenance['engine_path'], 'system/vendor/bin/fusermount3'):
             if name not in required or not is_arm64_elf(files[name]):
                 raise Reject('required runtime ELF missing from provenance')
+        if provenance['engine_path'] == NATIVE_ENGINE:
+            if (PUBLIC_LAUNCHER not in required or PUBLIC_ALIAS not in required or
+                files[PUBLIC_LAUNCHER] != checked_source(LAUNCHER_SOURCE, 128*1024) or
+                files[PUBLIC_ALIAS] != files[PUBLIC_LAUNCHER]):
+                raise Reject('public launcher or named alias missing/noncanonical')
         return provenance
     except (KeyError, TypeError, ValueError, UnicodeError) as exc:
         if isinstance(exc, Reject):
@@ -115,12 +124,24 @@ def collect(runtime: Path, binary: Path, module: Path, webroot: Path) -> tuple[d
         raise Reject('invalid build-time runtime inventory')
     # Input archive must be the known, complete, hash-verified runtime package.
     payload = {n: b for n, b in engine.items() if n.startswith('system/')}
-    # The installed runtime authority reads this root-level file directly.
-    # Never discard or regenerate upstream build provenance during composition.
+    # First verify the byte-exact upstream runtime and never mutate that archive.
     payload['runtime.provenance.json'] = engine['runtime.provenance.json']
     verify_installed_runtime(payload)
-    if not {'system/bin/rclone','system/vendor/bin/fusermount3'} <= payload.keys():
+    if not {PUBLIC_LAUNCHER,'system/vendor/bin/fusermount3'} <= payload.keys():
         raise Reject('runtime binary/helper missing')
+    native = payload.pop(PUBLIC_LAUNCHER)
+    payload[NATIVE_ENGINE] = native
+    payload[PUBLIC_LAUNCHER] = checked_source(module/'rclone-launcher.sh', 128*1024)
+    payload[PUBLIC_ALIAS] = payload[PUBLIC_LAUNCHER]
+    if payload[PUBLIC_LAUNCHER] != checked_source(LAUNCHER_SOURCE, 128*1024):
+        raise Reject('noncanonical public launcher source')
+    installed_provenance = json.loads(engine['runtime.provenance.json'])
+    installed_provenance['engine_path'] = NATIVE_ENGINE
+    installed_provenance['files'][NATIVE_ENGINE] = installed_provenance['files'].pop(PUBLIC_LAUNCHER)
+    installed_provenance['files'][PUBLIC_LAUNCHER] = {'sha256': sha(payload[PUBLIC_LAUNCHER]), 'size': len(payload[PUBLIC_LAUNCHER])}
+    installed_provenance['files'][PUBLIC_ALIAS] = {'sha256': sha(payload[PUBLIC_ALIAS]), 'size': len(payload[PUBLIC_ALIAS])}
+    payload['runtime.provenance.json'] = canonical(installed_provenance)
+    verify_installed_runtime(payload)
     app = checked_source(binary)
     if not is_arm64_elf(app):
         raise Reject('Skybind native binary must be Android ARM64 ELF')
@@ -150,10 +171,12 @@ def collect(runtime: Path, binary: Path, module: Path, webroot: Path) -> tuple[d
     }
     payload['sbom.spdx.json'] = canonical(sbom)
     info = {
+      'runtime_source_provenance_sha256':sha(engine['runtime.provenance.json']),
+      'runtime_source_engine_sha256':sha(native),
       'schema_version':1,'product':'skybind', 'qualification':'CANDIDATE_ONLY_NOT_SEALED',
       'runtime_provider':proven['provider'],
       'runtime_package_sha256':sha(runtime.read_bytes()),
-      'runtime_provenance_sha256':sha(engine['runtime.provenance.json']),
+      'runtime_provenance_sha256':sha(payload['runtime.provenance.json']),
       'files':{n:{'sha256':sha(b),'size':len(b)} for n,b in sorted(payload.items())},
     }
     payload['skybind.manifest.json'] = canonical(info)
@@ -181,12 +204,14 @@ def write_zip(path:Path, payload:dict[str,bytes]) -> None:
 
 def verify_release(path:Path) ->dict:
     entries=zip_members(path)
-    if not {'system/bin/skybind','system/bin/rclone','system/vendor/bin/fusermount3','skybind.manifest.json','SHA256SUMS'} <= entries.keys():
+    if not {'system/bin/skybind',PUBLIC_LAUNCHER,PUBLIC_ALIAS,NATIVE_ENGINE,'system/vendor/bin/fusermount3','skybind.manifest.json','SHA256SUMS'} <= entries.keys():
         raise Reject('incomplete module package')
     manifest=json.loads(entries['skybind.manifest.json'])
     verify_installed_runtime(entries)
     if manifest.get('runtime_provenance_sha256') != sha(entries['runtime.provenance.json']):
         raise Reject('release provenance identity mismatch')
+    if manifest.get('runtime_source_engine_sha256') != sha(entries[NATIVE_ENGINE]) or not re.fullmatch(r'[0-9a-f]{64}', manifest.get('runtime_source_provenance_sha256', '')):
+        raise Reject('missing source provenance bridge')
     if manifest.get('qualification')!='CANDIDATE_ONLY_NOT_SEALED' or manifest.get('product')!='skybind' or manifest.get('schema_version')!=1:
         raise Reject('forged/missing candidate status')
     if set(manifest['files'])!=set(entries)-{'skybind.manifest.json','SHA256SUMS'}:
@@ -206,7 +231,7 @@ def verify_release(path:Path) ->dict:
         b=entries[name]
         if sha(b)!=evidence['sha256'] or len(b)!=evidence['size']:
             raise Reject('tampered member: '+name)
-    for executable in ('system/bin/skybind','system/bin/rclone','system/vendor/bin/fusermount3'):
+    for executable in ('system/bin/skybind',NATIVE_ENGINE,'system/vendor/bin/fusermount3'):
         if not is_arm64_elf(entries[executable]):raise Reject('invalid installed ARM64 binary')
     expected={f'{sha(b)}  {n}' for n,b in entries.items() if n!='SHA256SUMS'}
     if set(entries['SHA256SUMS'].decode().splitlines())!=expected:raise Reject('incorrect SHA256SUMS')

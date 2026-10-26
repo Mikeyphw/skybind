@@ -24,7 +24,7 @@ import skybind_release as release
 import q11_reconcile as q11
 
 H64 = re.compile(r'[0-9a-f]{64}\Z')
-FILES = ('system/bin/skybind', 'system/bin/rclone', 'system/vendor/bin/fusermount3', 'runtime.provenance.json')
+FILES = ('system/bin/skybind', 'system/bin/rclone', 'system/bin/skybind-rclone', 'system/bin/skybind-rclone-engine', 'system/vendor/bin/fusermount3', 'runtime.provenance.json')
 INSTALLED = '/data/adb/modules/skybind'
 MAX_ARCHIVE = 600 * 1024 * 1024
 MAX_REPORT = 1024 * 1024

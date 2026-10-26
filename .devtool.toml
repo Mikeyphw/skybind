@@ -241,6 +241,7 @@ inputs = ["../tests/test_r1_chrootctl_process_device.py", "../scripts/dev/androi
 metadata = { source_only = true, simulated_device_receipts = true, no_grants = true }
 
 [targets.skybind_release.workflows]
+api01-native-rclone = ["job:api01-native-rclone"]
 r1-chrootctl-process-source = [
   { id = "contract", ref = "job:r1-chrootctl-live-process-source", depends_on = [] },
   { id = "negative-receipts", ref = "job:r1-chrootctl-live-process-negatives", depends_on = ["contract"] },
@@ -1777,4 +1778,17 @@ target = "skybind_release"
 [wrapper.commands.r1-chrootctl-process-source]
 description = "Source-only provenance-bound chrootctl live process attestation runner + denied forged receipt regression; NO device run or grants"
 workflow = "r1-chrootctl-process-source"
+target = "skybind_release"
+
+# API-01: source/build-time only. Does NOT issue module installation approval.
+[targets.skybind_release.jobs.api01-native-rclone]
+runner = "command"
+command = ["python3", "-B", "-m", "unittest", "discover", "-s", "../tests/qualification", "-p", "test_api01_native_rclone.py", "-v"]
+inputs = ["../scripts/dev/release/skybind_release.py", "../module/rclone-launcher.sh", "../tests/qualification/test_api01_native_rclone.py"]
+metadata = { source_only = true, root_device_acceptance = false, external_consumers_qualified = false }
+
+
+[wrapper.commands.api01-native-rclone]
+description = "API-01 native rclone CLI candidate packaging and provenance source regressions (no device activation)"
+workflow = "api01-native-rclone"
 target = "skybind_release"

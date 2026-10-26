@@ -24,6 +24,8 @@ class Q15Tests(TestCase):
      'metadata_source':'AUTHENTICATED_GITHUB_API','conclusion':'success'},
    'lanes':{},'signed_candidate_provenance':{}}
   self.members={'system/bin/skybind':'a'*64,'system/bin/rclone':'b'*64,
+     'system/bin/skybind-rclone':'b'*64,
+     'system/bin/skybind-rclone-engine':'e'*64,
      'system/vendor/bin/fusermount3':'c'*64,'runtime.provenance.json':'d'*64}
   self.lanes={}
   for lab in ['A','B']:

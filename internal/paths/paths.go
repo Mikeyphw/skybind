@@ -14,7 +14,7 @@ import (
 const (
 	ModuleRoot   = "/data/adb/modules/skybind"
 	StateRoot    = "/data/adb/skybind"
-	Engine       = ModuleRoot + "/system/bin/rclone"
+	Engine       = ModuleRoot + "/system/bin/skybind-rclone-engine"
 	FuseHelper   = ModuleRoot + "/system/vendor/bin/fusermount3"
 	DaemonSocket = StateRoot + "/run/skybindd.sock"
 	RcloneConfig = StateRoot + "/config/rclone.conf"

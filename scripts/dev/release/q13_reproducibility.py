@@ -29,7 +29,7 @@ import sb_cfs1
 
 PROVIDERS = ('newfuture', 'bclone')
 H64 = re.compile(r'[0-9a-f]{64}\Z')
-SHARED = ('system/bin/skybind', 'system/vendor/bin/fusermount3')
+SHARED = ('system/bin/skybind', 'system/bin/rclone', 'system/bin/skybind-rclone', 'system/vendor/bin/fusermount3')
 MAX_RECEIPT = 1024 * 1024
 
 
@@ -129,7 +129,7 @@ def cross_provider(lane: dict) -> dict:
     # Runtime provider 'rclone' binary and runtime provenance are EXPECTED to differ.
     return {'status': 'SHARED_PAYLOAD_MATCH_UNATTESTED' if all(matches.values()) else 'SHARED_PAYLOAD_MISMATCH',
             'shared_payload': matches,
-            'provider_runtime_distinct': a['members']['system/bin/rclone'] != b['members']['system/bin/rclone'],
+            'provider_runtime_distinct': a['members']['system/bin/skybind-rclone-engine'] != b['members']['system/bin/skybind-rclone-engine'],
             'runtime_binaries_expected_to_differ': True}
 
 

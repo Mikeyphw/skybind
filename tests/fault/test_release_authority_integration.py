@@ -16,10 +16,12 @@ class InstalledRuntimeAuthority(unittest.TestCase):
             payload, manifest=rel.collect(source,binary,ROOT/'module',ROOT/'module/webroot')
             with zipfile.ZipFile(source) as z:
                 original=z.read('runtime.provenance.json')
-            self.assertEqual(payload['runtime.provenance.json'],original)
+            self.assertNotEqual(payload['runtime.provenance.json'],original)
+            self.assertEqual(json.loads(payload['runtime.provenance.json'])['engine_path'],rel.NATIVE_ENGINE)
             candidate=d/'candidate.zip'
             rel.write_zip(candidate,payload)
-            self.assertEqual(rel.verify_release(candidate)['runtime_provenance_sha256'],rel.sha(original))
+            self.assertEqual(rel.verify_release(candidate)['runtime_provenance_sha256'],rel.sha(payload['runtime.provenance.json']))
+            self.assertEqual(rel.verify_release(candidate)['runtime_source_provenance_sha256'],rel.sha(original))
             with zipfile.ZipFile(candidate) as z:
                 # Mimic final on-device layout, including root-level provenance.
                 root=d/'installed'

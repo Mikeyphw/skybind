@@ -10,7 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOK = ROOT / 'module/customize.sh'
-FILES = ('module.prop','system/bin/skybind','system/bin/rclone',
+FILES = ('module.prop','system/bin/skybind','system/bin/rclone','system/bin/skybind-rclone','system/bin/skybind-rclone-engine',
          'system/vendor/bin/fusermount3','action.sh','service.sh',
          'post-fs-data.sh','uninstall.sh')
 

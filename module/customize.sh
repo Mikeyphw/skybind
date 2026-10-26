@@ -9,7 +9,7 @@ REMOVE=''
 [ -d "$MODPATH" ] && [ ! -L "$MODPATH" ] || abort 'Skybind: invalid module directory'
 # No downloads, mutable runtime selection, or migration during install.
 [ -f "$MODPATH/module.prop" ] && [ ! -L "$MODPATH/module.prop" ] || abort 'Skybind: missing or linked module identity'
-for f in "$MODPATH/system/bin/skybind" "$MODPATH/system/bin/rclone" "$MODPATH/system/vendor/bin/fusermount3"; do
+for f in "$MODPATH/system/bin/skybind" "$MODPATH/system/bin/rclone" "$MODPATH/system/bin/skybind-rclone" "$MODPATH/system/bin/skybind-rclone-engine" "$MODPATH/system/vendor/bin/fusermount3"; do
   [ -f "$f" ] && [ ! -L "$f" ] || abort "Skybind: missing or linked executable: $f"
   chmod 0755 "$f" || abort "Skybind: cannot set executable permissions: $f"
 done

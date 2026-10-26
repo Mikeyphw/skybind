@@ -25,6 +25,7 @@ jobs:
           python3 scripts/dev/runtime/pin_selection.py verify
           python3 -m unittest discover -s tests/qualification -p 'test_q05_candidate_integration.py' -v
           python3 -m unittest discover -s tests/qualification -p 'test_q05p3_kernelsu_install.py' -v
+          PYTHONPATH=tests/fault python3 -m unittest discover -s tests/qualification -p 'test_api01_native_rclone.py' -v
           python3 -m unittest discover -s tests/qualification -p 'test_q05p7_local_wrapper.py' -v
       # An ES module must be parsed in module mode. Plain `node --check file.js`
       # can parse as a script and miss module-only syntax failures.
