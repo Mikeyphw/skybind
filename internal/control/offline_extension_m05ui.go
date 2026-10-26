@@ -6,6 +6,8 @@ import "skybind/internal/protocol"
 // catalog is immutable; these are separately allowlisted, NOT silently added
 // to the historical catalog or represented as CFS1-qualified operations.
 var offlineExtension = map[string]protocol.Class{
+	"feature.capabilities": protocol.Query,
+	"feature.execute": protocol.Query,
 	"operation.events":          protocol.Query,
 	"remote.list":               protocol.Query,
 	"remote.stat":               protocol.Query,

@@ -242,6 +242,10 @@ metadata = { source_only = true, simulated_device_receipts = true, no_grants = t
 
 [targets.skybind_release.workflows]
 api01-native-rclone = ["job:api01-native-rclone"]
+api02-managed-features = [
+  { id = "contract", ref = "job:api02-managed-feature-source", depends_on = [] },
+  { id = "go-root-api", ref = "job:api02-managed-feature-go", depends_on = ["contract"] },
+]
 r1-chrootctl-process-source = [
   { id = "contract", ref = "job:r1-chrootctl-live-process-source", depends_on = [] },
   { id = "negative-receipts", ref = "job:r1-chrootctl-live-process-negatives", depends_on = ["contract"] },
@@ -1791,4 +1795,23 @@ metadata = { source_only = true, root_device_acceptance = false, external_consum
 [wrapper.commands.api01-native-rclone]
 description = "API-01 native rclone CLI candidate packaging and provenance source regressions (no device activation)"
 workflow = "api01-native-rclone"
+target = "skybind_release"
+
+
+# API-02: versioned root-local feature CLI, never a public app IPC grant.
+[targets.skybind_release.jobs.api02-managed-feature-source]
+runner = "command"
+command = ["python3", "-B", "../scripts/dev/android/api02_source_gate.py"]
+inputs = ["../scripts/dev/android/api02_source_gate.py", "../tests/test_api02_managed_feature_source.py", "../internal/featureapi/**", "../cmd/skybind/feature.go", "../internal/daemon/feature_capabilities.go"]
+metadata = { source_only = true, no_device_mutation = true, nonroot_consumer_qualified = false }
+
+[targets.skybind_release.jobs.api02-managed-feature-go]
+runner = "command"
+command = ["go", "-C", "..", "test", "-count=1", "./internal/featureapi", "./internal/daemon", "./internal/control", "./cmd/skybind", "./internal/namespace", "./internal/mounts/lifecycle", "./internal/opevents"]
+inputs = ["../internal/featureapi/**", "../internal/daemon/feature_capabilities*", "../cmd/skybind/feature*", "../internal/mounts/lifecycle/**", "../internal/namespace/**", "../internal/opevents/**"]
+metadata = { source_only = true, root_device_acceptance = false, explicit_mutation_approval = false }
+
+[wrapper.commands.api02-managed-features]
+description = "API-02 root-local feature gateway, strict versioned CLI, duplicate receipts and mount/namespace proof regressions; NO Android device grant"
+workflow = "api02-managed-features"
 target = "skybind_release"

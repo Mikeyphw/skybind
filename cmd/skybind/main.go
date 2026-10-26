@@ -67,6 +67,8 @@ func run(args []string) int {
 		return webuiCommand(args[1:])
 	case "events":
 		return eventsCommand(args[1:])
+	case "feature":
+		return featureCommand(args[1:])
 	case "support-export":
 		// Fixed, root-only export of a verified owned ZIP. No arbitrary path,
 		// shell command, unredacted data, or caller-controlled destination.
@@ -165,7 +167,7 @@ func run(args []string) int {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: skybind <mount|jobs|job|events|operations|crypt|remotes|namespace|doctor|platform|runtime|rc|offline|webui|daemon|capabilities|operation|rpc|version|paths|help>")
+	fmt.Fprintln(os.Stderr, "usage: skybind <mount|jobs|job|events|feature|operations|crypt|remotes|namespace|doctor|platform|runtime|rc|offline|webui|daemon|capabilities|operation|rpc|version|paths|help>")
 }
 func daemonCommand() int {
 	if os.Geteuid() != 0 {
@@ -244,6 +246,11 @@ func daemonCommand() int {
 	}
 	if err = daemon.RegisterBackup(engine, cfg, uiStore, offlineStore, mountEngine.ApplyConfig); err != nil {
 		fmt.Fprintln(os.Stderr, "backup RPC registry:", err)
+		return 1
+	}
+
+	if err = daemon.RegisterFeatureCapabilities(engine, j); err != nil {
+		fmt.Fprintln(os.Stderr, "feature API registry:", err)
 		return 1
 	}
 
