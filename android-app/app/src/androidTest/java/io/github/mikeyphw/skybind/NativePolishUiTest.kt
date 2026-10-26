@@ -1,6 +1,9 @@
 package io.github.mikeyphw.skybind
 
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.captureToImage
@@ -44,6 +47,18 @@ class NativePolishUiTest {
             ActivityRecord(1, null, "job.started", "1790000000000", ActivitySeverity.INFO)),
         hasEventGap = true,
     )
+    // Private, bounded diagnostics: tag counts only (merged/unmerged), never
+    // text, package signing material, root state or the full semantics tree.
+    // A failure wraps its assertion with these counts for the NATIVE-06 log.
+    private fun signerSemantics(phase: String): String {
+        val tags = listOf("about-signer-dialog", "about-signer-sha256", "about-signer-close")
+        return "NATIVE06_SIGNER_SEMANTICS_V1 phase=$phase " + tags.joinToString(" ") { tag ->
+            val merged = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().size
+            val unmerged = compose.onAllNodesWithTag(tag, useUnmergedTree = true)
+                .fetchSemanticsNodes().size
+            "$tag=$merged/$unmerged"
+        }
+    }
     @Test fun homeShowsEvidenceNotHealthyGuess() {
         fixtureContent { SkybindApp(fixture(), {}) }
         compose.onNodeWithTag("home-runtime-health").assertExists()
@@ -60,13 +75,30 @@ class NativePolishUiTest {
         compose.onNodeWithTag("diagnostics-fuse").assertExists()
         compose.onNodeWithTag("about-app-version").assertExists()
         compose.onNodeWithTag("about-signer-dialog").assertDoesNotExist()
+        compose.onNodeWithTag("about-signer-dialog", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithTag("about-show-signer").performClick()
-        // The fingerprint must be in an accessible dialog window, never
-        // an unmeasured child below the long More page's scroll viewport.
-        compose.onNodeWithTag("about-signer-dialog").assertExists()
-        compose.onNodeWithTag("about-signer-sha256").assertExists()
-        compose.onNodeWithTag("about-signer-close").performClick()
-        compose.onNodeWithTag("about-signer-dialog").assertDoesNotExist()
+        compose.waitForIdle()
+        val afterClick = signerSemantics("after_click")
+        println(afterClick)
+        // Do not assume Material3's dialog wrapper is exposed as a merged
+        // semantics node on API 36. Still require the ACTUAL dialog, Close
+        // action and signer SHA-256 to be composed and visible after the click.
+        try {
+            compose.onNodeWithTag("about-signer-dialog", useUnmergedTree = true).assertExists()
+            val expectedSigner = NativePresentation.signer(compose.activity)
+            assertTrue("Installed fingerprint must be an actual SHA-256", Regex("[0-9a-f]{64}").matches(expectedSigner))
+            compose.onNodeWithTag("about-signer-sha256", useUnmergedTree = true)
+                .assertTextEquals(expectedSigner).assertIsDisplayed()
+            compose.onNodeWithTag("about-signer-close", useUnmergedTree = true)
+                .assertIsDisplayed().performClick()
+            compose.waitForIdle()
+            compose.onNodeWithTag("about-signer-dialog", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("about-signer-sha256", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("about-signer-close", useUnmergedTree = true).assertDoesNotExist()
+        } catch (failure: AssertionError) {
+            // Unlike raw printToLog(), this cannot disclose the fingerprint.
+            throw AssertionError(afterClick + " (bounded signer-only semantics)", failure)
+        }
     }
     @Test fun activityFiltersAndReceiptDetailsRemainReadOnly() {
         fixtureContent { SkybindApp(fixture(), {}) }

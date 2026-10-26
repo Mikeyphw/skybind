@@ -45,16 +45,40 @@ class SignerDisclosureDialogContract(unittest.TestCase):
                              'modifier = Modifier.testTag("removed-close")')
 
     def test_test_must_assert_dialog_open(self):
-        self.assert_rejected(POLISH, 'onNodeWithTag("about-signer-dialog").assertExists()',
-                             'onNodeWithTag("about-signer-dialog").assertDoesNotExist()')
+        self.assert_rejected(POLISH, 'onNodeWithTag("about-signer-dialog", useUnmergedTree = true).assertExists()',
+                             'onNodeWithTag("about-signer-dialog", useUnmergedTree = true).assertDoesNotExist()')
 
     def test_test_must_click_dismiss(self):
-        self.assert_rejected(POLISH, 'onNodeWithTag("about-signer-close").performClick()',
-                             'onNodeWithTag("about-signer-close").assertExists()')
+        self.assert_rejected(POLISH, '.assertIsDisplayed().performClick()',
+                             '.assertIsDisplayed().assertExists()')
 
     def test_test_must_examine_fingerprint(self):
-        self.assert_rejected(POLISH, 'onNodeWithTag("about-signer-sha256").assertExists()',
-                             'onNodeWithTag("about-signer-sha256").assertDoesNotExist()')
+        self.assert_rejected(POLISH, '.assertTextEquals(expectedSigner).assertIsDisplayed()',
+                             '.assertExists()')
+
+    def test_test_must_probe_unmerged_semantics(self):
+        self.assert_rejected(POLISH, 'compose.onAllNodesWithTag(tag, useUnmergedTree = true)',
+                             'compose.onAllNodesWithTag(tag)')
+
+    def test_test_must_report_bounded_tag_counts(self):
+        self.assert_rejected(POLISH, '"NATIVE06_SIGNER_SEMANTICS_V1 phase=$phase "',
+                             '"SIGNER_PROBE_DISABLED "')
+
+    def test_test_must_keep_sha256_identity_check(self):
+        self.assert_rejected(POLISH, 'Regex("[0-9a-f]{64}").matches(expectedSigner)',
+                             'true')
+
+    def test_test_must_wait_for_dialog_composition(self):
+        self.assert_rejected(POLISH, 'compose.waitForIdle()\n        val afterClick = signerSemantics("after_click")',
+                             'val afterClick = signerSemantics("after_click")')
+
+    def test_test_must_check_post_close_absence(self):
+        self.assert_rejected(POLISH,
+                             'onNodeWithTag("about-signer-close", useUnmergedTree = true).assertDoesNotExist()',
+                             'onNodeWithTag("about-signer-close", useUnmergedTree = true).assertExists()')
+
+    def test_dialog_stays_production_unchanged_in_this_diagnostic_change(self):
+        self.assertIn('NativePresentation.signer(context)', gate.source(APP))
 
 if __name__ == '__main__':
     unittest.main()

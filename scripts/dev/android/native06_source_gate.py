@@ -114,12 +114,27 @@ def check():
         'modifier = Modifier.testTag("about-signer-close")',
         'NativePresentation.signer(context)',
     )
+    # Query both semantics trees without dumping text or fingerprint values.
+    # Keep the full unmerged-dialog, SHA-256 and close/dismiss assertions;
+    # a missing dialog must remain BLOCKED, not silently be counted as PASS.
     signer_test_required = (
         'onNodeWithTag("about-signer-dialog").assertDoesNotExist()',
+        'onNodeWithTag("about-signer-dialog", useUnmergedTree = true).assertDoesNotExist()',
         'onNodeWithTag("about-show-signer").performClick()',
-        'onNodeWithTag("about-signer-dialog").assertExists()',
-        'onNodeWithTag("about-signer-sha256").assertExists()',
-        'onNodeWithTag("about-signer-close").performClick()',
+        'compose.waitForIdle()\n        val afterClick = signerSemantics("after_click")',
+        'onNodeWithTag("about-signer-dialog", useUnmergedTree = true).assertExists()',
+        'onNodeWithTag("about-signer-sha256", useUnmergedTree = true)',
+        '.assertTextEquals(expectedSigner).assertIsDisplayed()',
+        'onNodeWithTag("about-signer-close", useUnmergedTree = true)',
+        '.assertIsDisplayed().performClick()',
+        'onNodeWithTag("about-signer-dialog", useUnmergedTree = true).assertDoesNotExist()',
+        'onNodeWithTag("about-signer-sha256", useUnmergedTree = true).assertDoesNotExist()',
+        'onNodeWithTag("about-signer-close", useUnmergedTree = true).assertDoesNotExist()',
+        'Regex("[0-9a-f]{64}").matches(expectedSigner)',
+        'throw AssertionError(afterClick + " (bounded signer-only semantics)", failure)',
+        'val merged = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().size',
+        'compose.onAllNodesWithTag(tag, useUnmergedTree = true)',
+        '"NATIVE06_SIGNER_SEMANTICS_V1 phase=$phase "',
     )
     if any(v not in app_ui for v in signer_required) or \
             'if (showSigner) InfoPanel(' in app_ui or \
