@@ -24,6 +24,7 @@ import (
 var ErrPMBridgePeerLabelMismatch = errors.New("pm_bridge_peer_selinux_label_mismatch")
 
 const PMBridgeSocket = "\x00skybind-r1-pm-authority-v1"
+const API04PMBridgeSocket = "\x00skybind-api04-pm-authority-v1"
 const pmMaxLine = 48 * 1024
 
 // AuthorityPeerPin is separately operator approved; never taken from agent
@@ -66,7 +67,12 @@ func (b *PMBridge) validConfig() bool {
 	return p.UID >= 10000 && p.UID < 1<<31 && len(p.SELinuxContext) >= 8 && len(p.SELinuxContext) <= 192 && strings.HasPrefix(p.SELinuxContext, "u:r:") && !strings.ContainsAny(p.SELinuxContext, "\n\r\t\x00") && b.Proc != nil
 }
 
-func (b *PMBridge) Listen() error {
+func (b *PMBridge) Listen() error { return b.listenAt(PMBridgeSocket) }
+
+// ListenAPI04 uses a distinct fixed endpoint so R1 retains independent authority.
+func (b *PMBridge) ListenAPI04() error { return b.listenAt(API04PMBridgeSocket) }
+
+func (b *PMBridge) listenAt(endpoint string) error {
 	if b == nil || !b.validConfig() || os.Geteuid() != 0 {
 		return errors.New("pm_bridge_not_operator_authorized")
 	}
@@ -75,7 +81,7 @@ func (b *PMBridge) Listen() error {
 	if b.listener != nil {
 		return errors.New("pm_bridge_already_started")
 	}
-	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: PMBridgeSocket, Net: "unix"})
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: endpoint, Net: "unix"})
 	if err != nil {
 		return err
 	}

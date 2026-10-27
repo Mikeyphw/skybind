@@ -30,6 +30,7 @@ class R1AuthorityService : Service() {
             if (!isRunning) return
             // Idempotent while connected; retries only after genuine socket loss.
             R1PMBridgeAgent.start(applicationContext)
+            API04PMBridgeAgent.start(applicationContext)
             handler.postDelayed(this, 3_000L)
         }
     }
@@ -85,6 +86,7 @@ class R1AuthorityService : Service() {
         isRunning = false
         handler.removeCallbacks(reconnect)
         R1PMBridgeAgent.stop()
+        API04PMBridgeAgent.stop()
         super.onDestroy()
     }
 }

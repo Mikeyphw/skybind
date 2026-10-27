@@ -1399,3 +1399,10 @@ This addendum is based on inspected and locally executable source from both uplo
 **Status:** SOURCE ONLY / P2 and P3 OPEN. No listener, Android Binder export, app-to-root authentication session, daemon dispatch, installed policy, SELinux qualification, root permission, or release/device acceptance delivered. P2 producer transport and BKX client are separate; P5 installed device evidence not merged.
 
 **Follow-up improvements:** Validate approved mount-name binding under concurrent config changes, bound request lifetimes to exact process incarnation, verify privileged runtime uses canonical `LoadCanonical`, enforce raw-socket peer credential source and strict output privacy, full matrix on real device.
+
+## API04-P2 (2026-10-27) — producer read-only cross-UID query transport
+
+- Implemented as source candidate: separate fixed abstract BKX query endpoint, explicit root operator activation, independent PackageManager bridge endpoint, per-connection SO_PEERCRED and P1 verifier admission, strict read-only daemon dispatch, bounds/cancellation, reattestation and negative Go regressions. BKX client is a separate source-locked consumer overlay.
+- Unqualified: enforcing SELinux app-to-root socket accessibility, real PM/installed APK attestation, root runtime and signed BKX app, independent Devtool/CI receipts. P3 mutations not permitted.
+- Outstanding review: Android foreground bridge lifecycle and root process shutdown, full end-to-end installed device tests, protocol robustness including orphan/stale peer/EOF after accept.
+- No root module auto-start, no policy provision, no broadening of R1 grants or rclone.

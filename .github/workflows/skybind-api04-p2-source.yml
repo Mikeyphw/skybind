@@ -1,0 +1,37 @@
+name: Skybind API-04 P2 root gateway (unqualified source)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  api04-p2-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Read-only policy, peer transport and existing R1 regressions
+        run: |
+          set -euo pipefail
+          go test -count=1 ./internal/featuregateway ./internal/featureapi ./internal/brokeridentity ./internal/brokeripc ./cmd/skybind-api04-gateway ./cmd/skybind-r1-gateway
+          go test -race -count=1 ./internal/featuregateway ./internal/featureapi ./internal/brokeridentity ./internal/brokeripc
+          go vet ./internal/featuregateway ./internal/brokeridentity ./cmd/skybind-api04-gateway
+      - name: Build source-only Android arm64 root operator diagnostic
+        env:
+          GOOS: android
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p dist/api04-p2
+          go build -trimpath -ldflags '-buildid=' -o dist/api04-p2/skybind-api04-gateway-android-arm64 ./cmd/skybind-api04-gateway
+          chmod 0755 dist/api04-p2/skybind-api04-gateway-android-arm64
+          (cd dist/api04-p2 && sha256sum skybind-api04-gateway-android-arm64 > SHA256SUMS.txt)
+          printf '{"schema":"skybind-api04-p2-candidate-v1","source_sha":"%s","real_device_qualified":false,"selinux_qualified":false,"release_qualified":false}\n' "$GITHUB_SHA" > dist/api04-p2/source.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skybind-api04-p2-unqualified-android-arm64
+          path: dist/api04-p2/*
+          if-no-files-found: error
+          retention-days: 14

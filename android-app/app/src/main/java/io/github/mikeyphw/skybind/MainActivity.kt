@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
+import io.github.mikeyphw.skybind.bridge.API04PMBridgeAgent
 import io.github.mikeyphw.skybind.bridge.R1PMBridgeAgent
 import io.github.mikeyphw.skybind.bridge.R1AuthorityService
 import io.github.mikeyphw.skybind.bridge.SkybindSessionViewModel
@@ -36,12 +37,13 @@ class MainActivity : ComponentActivity() {
         // Preserve the original seven-case PM bridge test behavior while UI
         // is foreground, but don't shut down a user-enabled FGS on app switch.
         R1PMBridgeAgent.start(applicationContext)
+        API04PMBridgeAgent.start(applicationContext)
     }
 
     override fun onStop() {
         session.onBackground()
         if (!bkxKeepBackground && R1AuthorityService.isRunning) disableAuthority()
-        if (!R1AuthorityService.isRunning) R1PMBridgeAgent.stop()
+        if (!R1AuthorityService.isRunning) { R1PMBridgeAgent.stop(); API04PMBridgeAgent.stop() }
         super.onStop()
     }
 
