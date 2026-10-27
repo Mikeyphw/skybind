@@ -1390,3 +1390,12 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Limits:** feature-only locking does not magically dedupe concurrent writes sent through unrelated legacy transports. `operation.events` is optional and advertised implemented only when spool registered. Real FUSE/namespace/Android/SELinux and signed module builds still OPEN. BKX non-root transport is **not** made available by running a `su` child; verify independent identity and permissions in API-03.
 - **Devtool backlog:** consider a common shared idempotency key/reservation primitive at `journal.StartRequest` for all authenticated transports, preserving current on-disk receipts and compatibility; require explicit recovery semantics and negative tests before changing core globally. Consumer capability manifest must track only truly implemented source and independently attested device behavior.
 - **Status:** IMPLEMENTED_SOURCE_ONLY, DEVICE_AND_CROSS_UID_UNQUALIFIED, release/owner approval OPEN. No automatic device install or grants.
+
+
+## API04-P1 BKX read-only feature admission (2026-10-27)
+
+**Scope:** Root-policy-locked, package/UID/DER-signer/SELinux+PID-bound BKX admission for exactly named `mount.status` and `mount.health` queries. Reuses R1 platform/package verifier and API02 canonical feature contracts; strictly rejects mutable/global scopes. Includes negative test suite.
+
+**Status:** SOURCE ONLY / P2 and P3 OPEN. No listener, Android Binder export, app-to-root authentication session, daemon dispatch, installed policy, SELinux qualification, root permission, or release/device acceptance delivered. P2 producer transport and BKX client are separate; P5 installed device evidence not merged.
+
+**Follow-up improvements:** Validate approved mount-name binding under concurrent config changes, bound request lifetimes to exact process incarnation, verify privileged runtime uses canonical `LoadCanonical`, enforce raw-socket peer credential source and strict output privacy, full matrix on real device.
