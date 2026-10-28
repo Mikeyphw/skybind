@@ -1450,3 +1450,14 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Evidence/behavior:** Personal, single-device read-only collector checks root policy metadata, SELinux Enforcing, optional root `SO_PEERCRED`, explicitly opted-in unapproved-client denial, and passive reboot/mount snapshots. Private 0600 JSON evidence and fail-closed four-gate evaluation. It does not start a daemon, execute a mutation, install an app, claim daemon namespace ownership, or issue a final seal.
 - **Risk addressed:** Source-only `go test` or a successful commit was previously easy to confuse with Android SELinux, identity, lifecycle and recovery acceptance. Every gate now emits an explicit incomplete status; the final gate is blocked without real device receipts.
 - **Remaining:** Real installed PackageManager authority identity and signature, authorized-package positive calls, proof replay/stale mount/UID negative tests, real FUSE crash/reboot/lost-reply observation, supported-host race evidence, final Devtool receipt. No external consumer implementation is required or authorized in this Skybind scope.
+
+
+## API05-H1 — personal-device SELinux visibility and staged policy reporting (2026-10-28)
+
+**Status:** Source implemented and unit-tested; real-device recapture, Devtool transaction and final device evidence pending. **Scope:** `scripts/devtool/api05_personal_device.py`, regression tests, personal-device documentation. No runtime gateway, BKX, root policy or listener modified.
+
+**Evidence:** On a rooted Android phone, Termux `/system/bin/getenforce` returned Permission denied while `su -c /system/bin/getenforce` returned Enforcing. `/data/adb/skybind` was UID 0 mode 0700, while read-only and mutation policy files were both absent. The earlier collector reported SELinux unavailable and treated deliberately disabled mutation policy as an immediate general security blocker.
+
+**Remediation:** Strict root fallback for SELinux observation with provenance; separate query security readiness from unprovisioned optional mutation readiness; block insecure existing policies, unexpected live endpoints and missing query policy; preserve final `device_qualification_complete=false` and `05-4-final-seal=BLOCKED`.
+
+**Open:** Actual read-only policy provisioned from independently verified installed consumer identity, authorized query and negative security probes, per-operation mutation proof/approval tests if explicitly enabled, daemon-owned mount and reboot evidence, supported-host race receipt, on-device Devtool verification.

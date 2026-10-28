@@ -55,10 +55,13 @@ class PersonalDeviceEvidence(unittest.TestCase):
         s["environment"]["android"] = False
         self.assertEqual(a.gate_results([s])["gates"]["05-1-security"], "BLOCKED")
 
-    def test_mutation_socket_absent_not_false_pass(self):
+    def test_mutation_socket_absent_keeps_query_evidence_partial(self):
         s = fixture()
         s["sockets"]["mutation"]["reachable"] = False
-        self.assertEqual(a.gate_results([s])["gates"]["05-2-gateway"], "NOT_RUN")
+        got = a.gate_results([s])
+        self.assertEqual(got["gates"]["05-2-gateway"], "PARTIAL")
+        self.assertFalse(got["observations"]["unapproved_client_rejected_at_both_sockets"])
+        self.assertFalse(got["observations"]["unapproved_client_rejected_at_mutation_socket"])
 
     def test_reboot_needs_changed_boot_id_and_mount_observation(self):
         baseline = fixture(stage="baseline")
@@ -116,6 +119,89 @@ class PersonalDeviceEvidence(unittest.TestCase):
             self.assertEqual(a.main(["capture", "--stage", "gateway", "--output", path, "--probe-unapproved-client"]), 2)
             self.assertEqual(a.main(["capture", "--stage", "gateway", "--output", path, "--approved-consumer-uid", "1"]), 2)
             self.assertFalse(Path(path).exists())
+
+    def test_selinux_root_fallback_after_termux_permission_denied(self):
+        with patch.object(a, "command", return_value={"ok": False, "stdout": "", "code": 1}) as direct, patch.object(a, "root_command", return_value={"ok": True, "stdout": "Enforcing", "code": 0}) as root:
+            self.assertEqual(a.observe_selinux(), {"mode": "Enforcing", "source": "root"})
+            direct.assert_called_once()
+            root.assert_called_once_with("/system/bin/getenforce")
+
+    def test_selinux_direct_success_never_uses_root(self):
+        with patch.object(a, "command", return_value={"ok": True, "stdout": "Enforcing", "code": 0}), patch.object(a, "root_command") as root:
+            self.assertEqual(a.observe_selinux(), {"mode": "Enforcing", "source": "termux"})
+            root.assert_not_called()
+
+    def test_selinux_root_unavailable_or_untrusted_never_passes(self):
+        with patch.object(a, "command", return_value={"ok": False, "stdout": "", "code": 1}), patch.object(a, "root_command", return_value={"ok": True, "stdout": "garbage", "code": 0}):
+            self.assertEqual(a.observe_selinux(), {"mode": "unavailable", "source": "unavailable"})
+        s = fixture()
+        s["environment"]["selinux"] = "unavailable"
+        self.assertEqual(a.gate_results([s])["gates"]["05-1-security"], "BLOCKED")
+
+    def test_query_only_configuration_is_partial_security_not_final_acceptance(self):
+        s = fixture()
+        s["policy"]["mutation"] = {"observed": False, "secure": False}
+        s["sockets"]["mutation"] = {"reachable": False, "root_peer": False, "denial": "not_run"}
+        got = a.gate_results([s])
+        self.assertEqual(got["gates"]["05-1-security"], "PARTIAL")
+        self.assertEqual(got["gates"]["05-2-gateway"], "PARTIAL")
+        self.assertEqual(got["gates"]["05-4-final-seal"], "BLOCKED")
+        self.assertFalse(got["device_qualification_complete"])
+        self.assertEqual(got["observations"]["mutation_policy_state"], "NOT_CONFIGURED")
+        self.assertEqual(got["observations"]["mutation_readiness_blockers"], ["mutation_policy_not_provisioned"])
+        self.assertFalse(got["observations"]["unapproved_client_rejected_at_both_sockets"])
+
+    def test_missing_query_policy_still_blocks_security(self):
+        s = fixture()
+        s["policy"]["query"] = {"observed": False, "secure": False}
+        self.assertEqual(a.gate_results([s])["gates"]["05-1-security"], "BLOCKED")
+
+    def test_exact_personal_phone_baseline_reports_true_missing_query_blocker(self):
+        s = fixture(stage="baseline")
+        s["environment"].update(selinux="Enforcing", selinux_source="root")
+        for name in ("query", "mutation"):
+            s["policy"][name] = {"observed": False, "secure": False}
+            s["sockets"][name] = {"reachable": False, "root_peer": False, "denial": "not_run"}
+        got = a.gate_results([s])
+        self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
+        self.assertEqual(got["observations"]["security_blockers"], ["root_owned_policy_missing_or_unverified:query"])
+        self.assertEqual(got["observations"]["mutation_policy_state"], "NOT_CONFIGURED")
+        self.assertEqual(got["gates"]["05-2-gateway"], "NOT_RUN")
+        self.assertEqual(got["gates"]["05-4-final-seal"], "BLOCKED")
+
+    def test_unobserved_mutation_policy_cannot_claim_secure_from_forged_flag(self):
+        s = fixture()
+        s["policy"]["mutation"] = {"observed": False, "secure": True}
+        s["sockets"]["mutation"] = {"reachable": False, "root_peer": False, "denial": "not_run"}
+        got = a.gate_results([s])
+        self.assertEqual(got["observations"]["mutation_policy_state"], "NOT_CONFIGURED")
+        self.assertFalse(got["observations"]["unapproved_client_rejected_at_mutation_socket"])
+
+    def test_insecure_mutation_policy_never_qualifies_query_only(self):
+        s = fixture()
+        s["policy"]["mutation"] = {"observed": True, "secure": False}
+        got = a.gate_results([s])
+        self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
+        self.assertIn("root_owned_policy_insecure:mutation", got["observations"]["security_blockers"])
+
+    def test_mutation_endpoint_without_policy_is_security_blocker(self):
+        s = fixture()
+        s["policy"]["mutation"] = {"observed": False, "secure": False}
+        got = a.gate_results([s])
+        self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
+        self.assertIn("mutation_socket_without_secure_policy", got["observations"]["security_blockers"])
+
+    def test_query_endpoint_without_query_policy_is_security_blocker(self):
+        s = fixture()
+        s["policy"]["query"] = {"observed": False, "secure": False}
+        got = a.gate_results([s])
+        self.assertIn("query_socket_without_secure_policy", got["observations"]["security_blockers"])
+
+    def test_capture_evidence_includes_selinux_source_without_sensitive_output(self):
+        with patch.object(a, "observe_selinux", return_value={"mode": "Enforcing", "source": "root"}), patch.object(a, "root_command", return_value={"ok": True, "stdout": "0", "code": 0}), patch.object(a, "inspect_secure_file", return_value={"observed": False, "secure": False}), patch.object(a, "probe_socket", return_value={"reachable": False, "root_peer": False, "denial": "not_run"}), patch.object(a, "mount_snapshot", return_value={"observed": False}), patch.object(a, "android_environment", return_value=True):
+            out = a.capture("baseline", None, denial=False, mountpoint=None)
+            self.assertEqual(out["environment"]["selinux"], "Enforcing")
+            self.assertEqual(out["environment"]["selinux_source"], "root")
 
     def test_evaluate_cli_never_seals(self):
         with tempfile.TemporaryDirectory() as t:

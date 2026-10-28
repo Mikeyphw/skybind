@@ -124,19 +124,35 @@ def android_environment() -> bool:
     return bool(shutil.which("getprop")) and Path("/system/bin").is_dir()
 
 
+def observe_selinux() -> dict:
+    """Read SELinux mode without interpreting Termux's permission denial as permissive.
+
+    Only the exact Android modes are accepted. A root fallback is independently
+    identified in evidence and is not treated as installed-app identity proof.
+    """
+    getter = shutil.which("getenforce") or "/system/bin/getenforce"
+    direct = command([getter])
+    if direct["ok"] and direct["stdout"] in ("Enforcing", "Permissive", "Disabled"):
+        return {"mode": direct["stdout"], "source": "termux"}
+    elevated = root_command("/system/bin/getenforce")
+    if elevated["ok"] and elevated["stdout"] in ("Enforcing", "Permissive", "Disabled"):
+        return {"mode": elevated["stdout"], "source": "root"}
+    return {"mode": "unavailable", "source": "unavailable"}
+
+
 def capture(stage: str, approved_uid: int | None, *, denial: bool, mountpoint: str | None) -> dict:
     try:
         boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
     except OSError:
         boot = ""
-    enforcement = command([shutil.which("getenforce") or "/system/bin/getenforce"])
+    enforcement = observe_selinux()
     root = root_command("id -u")
     parent = inspect_secure_file(PARENT)
     policies = {key: inspect_secure_file(path) for key, path in POLICIES.items()}
     return {
         "schema": SCHEMA, "stage": stage,
         "captured_at_utc": datetime.now(timezone.utc).isoformat(),
-        "environment": {"android": android_environment(), "root_available": root["ok"] and root["stdout"] == "0", "selinux": enforcement["stdout"] if enforcement["ok"] else "unavailable", "boot_id": boot},
+        "environment": {"android": android_environment(), "root_available": root["ok"] and root["stdout"] == "0", "selinux": enforcement["mode"], "selinux_source": enforcement["source"], "boot_id": boot},
         "policy": {"parent": parent, **policies},
         "sockets": {"query": probe_socket(QUERY, approved_uid, send_denial=denial), "mutation": probe_socket(MUTATION, approved_uid, send_denial=denial)},
         "mount": mount_snapshot(mountpoint),
@@ -165,20 +181,47 @@ def gate_results(snapshots: list[dict]) -> dict:
         errors.append("root_probe_unavailable")
     if env.get("selinux") != "Enforcing":
         errors.append("selinux_enforcing_not_observed")
-    for k in ("parent", "query", "mutation"):
+    # Query-only is a legitimate intermediate configuration. Never require an
+    # unprovisioned, intentionally disabled mutation policy to assess query
+    # security. Neither state grants final API-05 device acceptance.
+    for k in ("parent", "query"):
         p = policies.get(k, {})
         if not p.get("observed") or not p.get("secure"):
             errors.append("root_owned_policy_missing_or_unverified:" + k)
+    mut_policy = policies.get("mutation", {})
+    mut_observed = bool(mut_policy.get("observed"))
+    mut_secure = bool(mut_observed and mut_policy.get("secure"))
+    mutation_blockers = []
+    if not mut_observed:
+        mutation_blockers.append("mutation_policy_not_provisioned")
+    elif not mut_secure:
+        mutation_blockers.append("mutation_policy_insecure")
+        errors.append("root_owned_policy_insecure:mutation")
     for name in ("query", "mutation"):
-        s = sock.get(name, {})
-        if s.get("reachable") and not s.get("root_peer"):
+        endpoint = sock.get(name, {})
+        if endpoint.get("reachable") and not endpoint.get("root_peer"):
             errors.append("nonroot_server_socket:" + name)
-    # G1 remains partial: file permissions and peer UID do not prove live APK signature.
+    if sock.get("query", {}).get("reachable") and not policies.get("query", {}).get("secure"):
+        errors.append("query_socket_without_secure_policy")
+    if sock.get("mutation", {}).get("reachable") and not mut_secure:
+        errors.append("mutation_socket_without_secure_policy")
+        mutation_blockers.append("mutation_gateway_exposed_without_secure_policy")
+    # This grade is deliberately PARTIAL at most: root mode, file metadata and
+    # SO_PEERCRED cannot certify installed PackageManager identity/signatures.
     g1 = "PARTIAL" if not errors else "BLOCKED"
+    query_peer = sock.get("query", {})
+    mutation_peer = sock.get("mutation", {})
+    query_denied = (bool(policies.get("query", {}).get("observed") and policies.get("query", {}).get("secure"))
+                    and query_peer.get("reachable") and query_peer.get("root_peer")
+                    and query_peer.get("denial") == "pass")
+    mutation_denied = (mut_secure and mutation_peer.get("reachable")
+                       and mutation_peer.get("root_peer")
+                       and mutation_peer.get("denial") == "pass")
+    negative = bool(query_denied and mutation_denied)
     failed_peer = any(sock.get(name, {}).get("reachable") and not sock.get(name, {}).get("root_peer") for name in ("query", "mutation"))
-    negative = all(sock.get(name, {}).get("reachable") and sock.get(name, {}).get("root_peer") and sock.get(name, {}).get("denial") == "pass" for name in ("query", "mutation"))
-    # Explicitly refuse to treat a negative-client probe as a positive authorized-client integration.
-    g2 = "BLOCKED" if failed_peer else "PARTIAL" if negative else "NOT_RUN"
+    # An independently observed query-side negative probe is useful partial
+    # evidence even if the mutation gateway is deliberately not started.
+    g2 = "BLOCKED" if failed_peer else "PARTIAL" if query_denied or mutation_denied else "NOT_RUN"
     baseline = next((x for x in snapshots if x["stage"] == "baseline"), None)
     reboot = next((x for x in snapshots if x["stage"] == "after_reboot"), None)
     distinct_boot = bool(baseline and reboot and baseline["environment"].get("boot_id") and reboot["environment"].get("boot_id") and baseline["environment"]["boot_id"] != reboot["environment"]["boot_id"])
@@ -187,7 +230,13 @@ def gate_results(snapshots: list[dict]) -> dict:
     return {
         "schema": SCHEMA, "device_qualification_complete": False,
         "gates": {"05-1-security": g1, "05-2-gateway": g2, "05-3-lifecycle": g3, "05-4-final-seal": "BLOCKED"},
-        "observations": {"security_blockers": errors, "unapproved_client_rejected_at_both_sockets": negative, "reboot_observed": distinct_boot, "mount_observation_only": observed_mount},
+        "observations": {"security_blockers": errors,
+                         "mutation_policy_state": "SECURE" if mut_secure else "INSECURE" if mut_observed else "NOT_CONFIGURED",
+                         "mutation_readiness_blockers": mutation_blockers,
+                         "unapproved_client_rejected_at_query_socket": bool(query_denied),
+                         "unapproved_client_rejected_at_mutation_socket": bool(mutation_denied),
+                         "unapproved_client_rejected_at_both_sockets": negative,
+                         "reboot_observed": distinct_boot, "mount_observation_only": observed_mount},
         "still_required": ["independent installed PackageManager identity/signature/SELinux attestation", "authorized-client positive query and approved mutation preview/proof tests", "actual named-mount start-stop/reconciliation with daemon-owned observations", "crash/lost-reply/reboot recovery device receipts", "supported-host -race receipt and source-bound final qualification"],
     }
 

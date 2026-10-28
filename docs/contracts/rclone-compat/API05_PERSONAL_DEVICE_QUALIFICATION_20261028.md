@@ -62,3 +62,13 @@ A boot ID change and mountinfo observation are **partial evidence only**, not pr
 **Privacy:** Evidence is stored under your Termux home and is never uploaded. The collector never serializes installed APK contents, policy JSON, secrets, filesystem listings, or full mountinfo lines. The evidence still contains a boot ID and file metadata; treat it as private. Do not publish evidence bundles indiscriminately.
 
 **No implicit release seal.** The kit is implemented when its source tests and Devtool transaction pass. API-05 itself remains *not qualified* until independent installed-device evidence is reviewed. The default mutation gateway remains disabled.
+
+## H1: Termux SELinux probe and query-only staging (2026-10-28)
+
+- Termux's unprivileged `/system/bin/getenforce` can be denied despite Android running in Enforcing mode. The collector now attempts an exact `su -c /system/bin/getenforce` fallback and records `environment.selinux_source` as `termux`, `root` or `unavailable`. It accepts only exact Android SELinux mode words. No `setenforce` or policy modification occurs.
+- API-05 05-1 security is still **at most PARTIAL** when root, Enforcing, secure parent and secure query policy are observed. The mutation policy may legitimately be `NOT_CONFIGURED` while the mutation socket is disabled; the report separately records `mutation_policy_state` and `mutation_readiness_blockers`.
+- An **existing but insecure** mutation policy, a mutation socket reachable without secure mutation policy, or any query socket reachable without secure query policy **blocks** 05-1. Unprovisioned query policy also blocks query readiness.
+- Query-only negative-authentication evidence can make 05-2 PARTIAL without a mutation socket; it never supplies authorization-positive evidence or a final seal. No live gateway is started and no policy is provisioned by this patch.
+- The tested personal-phone case was `Enforcing` via `su`, root-owned 0700 parent, and two absent policies. After H1 that remains 05-1 BLOCKED until the read-only policy is explicitly and correctly provisioned. Do not create a mutation policy merely to make an evidence report appear green.
+
+After application, recapture your baseline with the existing `capture` and `evaluate` commands. If query policy remains missing, security stays BLOCKED for the correct reason. The new `selinux_source: root` should be present. All four real-device gates and supported-host `-race` remain independently open.
