@@ -29,6 +29,7 @@ func run(args []string) int {
 	label := f.String("authority-context", "", "independently pinned Skybind app SELinux label")
 	apk := f.String("authority-apk", "", "approved installed Skybind APK path")
 	digest := f.String("authority-apk-sha256", "", "approved installed Skybind APK SHA256")
+	enableMutations := f.Bool("enable-mutations", false, "independent root-operator mutation socket activation (requires private policy and approval state)")
 	if f.Parse(args) != nil || len(f.Args()) != 0 || !*approved || *uid < 10000 || *uid > 1<<31-1 {
 		fmt.Fprintln(os.Stderr, "API04_OPERATOR_APPROVAL_REQUIRED")
 		return 2
@@ -70,12 +71,53 @@ func run(args []string) int {
 			return daemon.Call(ctx, paths.DaemonSocket, req)
 		},
 	}
+	// Mutation transport is a distinct, disabled-by-default authority. Its
+	// policy cannot broaden P2's read-only query endpoint.
+	var mutationServer *featuregateway.MutationEndpointServer
+	if *enableMutations {
+		mutationPolicy, e := featuregateway.LoadMutationCanonical(policy)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "API04_MUTATION_POLICY_DENIED")
+			return 2
+		}
+		state, e := featuregateway.OpenMutationStore()
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "API04_MUTATION_STATE_DENIED")
+			return 2
+		}
+		mut, e := featuregateway.NewMutationService(guard, mutationPolicy, state, server.Dispatch)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "API04_MUTATION_GUARD_DENIED")
+			return 2
+		}
+		mutationServer = &featuregateway.MutationEndpointServer{Service: mut, ExplicitlyEnabled: true}
+		if e = mutationServer.Start(); e != nil {
+			fmt.Fprintln(os.Stderr, "API04_MUTATION_SOCKET_DENIED")
+			return 2
+		}
+		defer mutationServer.Close()
+	}
 	if err = server.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "API04_SOCKET_BIND_DENIED")
 		return 2
 	}
 	defer server.Close()
-	fmt.Fprintln(os.Stderr, "API04_ROOT_OPERATOR_READY (query only, no grants, not auto-started)")
+	if mutationServer != nil {
+		// Both services share the same verified PM authority; no second
+		// authority listener or mutable R1 grant state is introduced.
+		result := make(chan error, 1)
+		go func() { result <- mutationServer.Serve(ctx) }()
+		defer mutationServer.Close()
+		go func() {
+			if e := <-result; e != nil {
+				fmt.Fprintln(os.Stderr, "API04_MUTATION_SERVER_STOPPED")
+				cancel()
+			}
+		}()
+		fmt.Fprintln(os.Stderr, "API04_ROOT_OPERATOR_READY (query + separately authorized mutations)")
+	} else {
+		fmt.Fprintln(os.Stderr, "API04_ROOT_OPERATOR_READY (query only, no grants, not auto-started)")
+	}
 	if err = server.Serve(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "API04_SERVICE_STOPPED")
 		return 1

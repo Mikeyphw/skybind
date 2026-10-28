@@ -1,0 +1,37 @@
+name: Skybind API-04 P3 scoped mutations (unqualified source)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  p3-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Mutation, query and daemon regressions
+        run: |
+          set -euo pipefail
+          go test -count=1 ./internal/featuregateway ./internal/featureapi ./internal/daemon ./internal/control ./cmd/skybind-api04-gateway ./cmd/skybind-api04-approve
+          go test -race -count=1 ./internal/featuregateway ./internal/featureapi
+          go vet ./internal/featuregateway ./internal/featureapi ./cmd/skybind-api04-gateway ./cmd/skybind-api04-approve
+      - name: Cross-compile separately opted-in root tools
+        env:
+          GOOS: android
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p dist/api04-p3
+          go build -trimpath -ldflags '-buildid=' -o dist/api04-p3/skybind-api04-gateway-android-arm64 ./cmd/skybind-api04-gateway
+          go build -trimpath -ldflags '-buildid=' -o dist/api04-p3/skybind-api04-approve-android-arm64 ./cmd/skybind-api04-approve
+          (cd dist/api04-p3 && sha256sum * > SHA256SUMS.txt)
+          printf '{"schema":"skybind-api04-p3-source-v1","source_sha":"%s","device_qualified":false,"selinux_qualified":false,"release_qualified":false}\n' "$GITHUB_SHA" > dist/api04-p3/source.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skybind-api04-p3-unqualified-arm64
+          path: dist/api04-p3/*
+          if-no-files-found: error
+          retention-days: 14
