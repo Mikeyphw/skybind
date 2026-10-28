@@ -806,6 +806,94 @@ func (e *Engine) StopContext(ctx context.Context, name string) (State, error) {
 	return e.inspect(m)
 }
 
+// stopBindingLocked binds an explicit stop to the EXACT registry revision,
+// configured mount, desired state, owned process incarnation, and FUSE mount
+// identity observed at preview time. Caller holds e.mu across both verification
+// and the subsequent stop, preventing the lifecycle engine from swapping the
+// target between proof consumption and detachment.
+func (e *Engine) stopBindingLocked(name string) (previewproof.Binding, State, error) {
+	if err := e.loadDesired(); err != nil {
+		return previewproof.Binding{}, State{}, err
+	}
+	m, err := e.getMount(name)
+	if err != nil {
+		return previewproof.Binding{}, State{}, err
+	}
+	state, err := e.inspect(m)
+	if err != nil || state.Observed != "RUNNING" || !state.Desired {
+		return previewproof.Binding{}, State{}, errors.New("mount_stop_preview_requires_owned_running_mount")
+	}
+	ownedProcess, owned, err := e.owned(m)
+	if err != nil || !owned {
+		return previewproof.Binding{}, State{}, errors.New("mount_stop_preview_owner_unverified")
+	}
+	observed, exists, err := e.obs.Mount(m.Mountpoint)
+	if err != nil || !exists || !strings.HasPrefix(observed.FsType, "fuse") || ownedProcess.MountID == "" || observed.MountID != ownedProcess.MountID {
+		return previewproof.Binding{}, State{}, errors.New("mount_stop_preview_mount_unverified")
+	}
+	registry, err := e.store.Snapshot()
+	if err != nil {
+		return previewproof.Binding{}, State{}, err
+	}
+	// Serialize a typed structure so future added fields cannot accidentally
+	// drop ownership, desired-state or mount-config parameters from the digest.
+	material, err := json.Marshal(struct {
+		Revision uint64           `json:"revision"`
+		Config   config.Mount     `json:"config"`
+		Owner    Ownership        `json:"owner"`
+		FUSE     MountObservation `json:"fuse"`
+		Desired  bool             `json:"desired"`
+	}{registry.Revision, m, ownedProcess, observed, state.Desired})
+	if err != nil {
+		return previewproof.Binding{}, State{}, err
+	}
+	return previewproof.Binding{Action: "mount.stop", Subject: name, Revision: registry.Revision, Digest: previewproof.Digest(material)}, state, nil
+}
+
+// StopPreview issues a daemon-private, single-use stop proof. It fails closed
+// unless the mount is both desired and verified running under owned FUSE.
+func (e *Engine) StopPreview(name string) (map[string]any, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	binding, state, err := e.stopBindingLocked(name)
+	if err != nil {
+		return nil, err
+	}
+	proof, err := e.proofs.Issue(binding, 2*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"proof": proof, "mount": name, "observed": state.Observed, "revision": binding.Revision, "device_qualified": false}, nil
+}
+
+// StopGuardedContext is the ONLY API-04 stop path. The identity fingerprint is
+// rechecked before proof consumption and ownership is checked once again by
+// stopOwnedLocked before any detach or PID signal. Native root-only StopContext
+// remains for existing trusted internal operations and does not cross P3.
+func (e *Engine) StopGuardedContext(ctx context.Context, name, proof string) (State, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	binding, _, err := e.stopBindingLocked(name)
+	if err != nil {
+		return State{}, err
+	}
+	if err := e.proofs.Consume(proof, binding); err != nil {
+		return State{}, err
+	}
+	m, err := e.getMount(name)
+	if err != nil {
+		return State{}, err
+	}
+	if err := e.stopOwnedLocked(ctx, m); err != nil {
+		return State{}, err
+	}
+	e.state[name] = false
+	if err := e.persistDesired(); err != nil {
+		return State{}, err
+	}
+	return e.inspect(m)
+}
+
 // ApplyConfig binds guarded registry publication to old process/mount identity.
 // Lock order is Engine.mu -> Store.mu; other mount operations use the same order.
 // A failed post-publication restart is explicitly reported and recorded. The

@@ -249,12 +249,34 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 			}
 			return mount.StartGuarded(p.Name, p.Proof)
 		})
+		register("mount.stop.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
+			n, err := decodeName(a)
+			if err != nil {
+				return nil, err
+			}
+			return mount.StopPreview(n)
+		})
 		register("mount.stop", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
 			n, e := decodeName(a)
 			if e != nil {
 				return nil, e
 			}
 			return mount.StopContext(ctx, n)
+		})
+		// API-04 P3 uses this distinct proof-gated stop operation; the original
+		// root-only mount.stop API-02 contract remains unchanged.
+		register("mount.stop.guarded", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
+			var p struct {
+				Name  string `json:"name"`
+				Proof string `json:"proof"`
+			}
+			if err := protocol.StrictBytes(a, &p); err != nil {
+				return nil, err
+			}
+			if p.Name == "" || p.Proof == "" {
+				return nil, errors.New("missing mount name or stop proof")
+			}
+			return mount.StopGuardedContext(ctx, p.Name, p.Proof)
 		})
 		register("mount.restart", protocol.Run, func(ctx context.Context, a json.RawMessage) (any, error) {
 			n, e := decodeName(a)

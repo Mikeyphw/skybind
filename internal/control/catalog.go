@@ -57,7 +57,7 @@ func loadCatalog() (CatalogSnapshot, error) {
 			catalogErr = err
 			return
 		}
-		if file.SchemaVersion != 1 || file.Total != 57 || len(file.Operations) != 57 {
+		if file.SchemaVersion != 1 || file.Total != 59 || len(file.Operations) != 59 {
 			catalogErr = errors.New("invalid canonical API catalog size/schema")
 			return
 		}

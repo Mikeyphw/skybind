@@ -29,7 +29,7 @@ func TestDiscoverReportsOnlyFiniteFeaturesAndActualHandlers(t *testing.T) {
 			t.Fatalf("unexpected public op: %s", c.Operation)
 		}
 	}
-	if len(seen) != 16 || !seen["mount.start"].Implemented || !seen["mount.start"].PreviewRequired || seen["mount.stop"].Implemented || !seen["operation.events"].Implemented {
+	if len(seen) != 18 || !seen["mount.start"].Implemented || !seen["mount.start"].PreviewRequired || seen["mount.stop"].Implemented || !seen["operation.events"].Implemented {
 		t.Fatalf("wrong capability truth: %+v", seen)
 	}
 	if _, ok := seen["provider.crypt.password.set"]; ok {

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "product": "Skybind",
-  "total": 57,
+  "total": 59,
   "operations": [
     {
       "name": "runtime.status",
@@ -149,6 +149,20 @@
       "description": "Start one configured mount",
       "implementing_overlay": "SB-O10",
       "webui_consumers": "Mounts, Home, Runtime"
+    },
+    {
+      "name": "mount.stop.preview",
+      "operation_class": "preview",
+      "description": "Preview exact owned FUSE mount identity and configuration revision for guarded stop",
+      "implementing_overlay": "API04-P3-H1",
+      "webui_consumers": "API04 admission and private daemon only"
+    },
+    {
+      "name": "mount.stop.guarded",
+      "operation_class": "run",
+      "description": "Stop owned FUSE mount only after consuming exact revision-bound preview proof",
+      "implementing_overlay": "API04-P3-H1",
+      "webui_consumers": "API04 mutation gateway only"
     },
     {
       "name": "mount.stop",

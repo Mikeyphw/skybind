@@ -2,6 +2,7 @@ import json
 import pathlib
 import tomllib
 import unittest
+from scripts.devtool.typed_catalog_contract import validate_live_catalog
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 class C03Contracts(unittest.TestCase):
  def test_completeness_and_status(self):
@@ -13,7 +14,8 @@ class C03Contracts(unittest.TestCase):
   assert d['starting_position']['gate_qualification']=={'SB-G01':'BLOCKED','SB-G02':'BLOCKED'}
  def test_exact_57_and_c03_coverage(self):
   c=json.loads((ROOT/'internal/control/operations.json').read_text())
-  assert c['total']==57 and len(c['operations'])==57
+  original, live = validate_live_catalog(ROOT, live=c)
+  assert len(original)==57 and len(live)==59
   expected={'jobs.snapshot','jobs.preview','jobs.apply','jobs.status','job.run.preview','job.run','rc.metrics','provider.status','provider.remotes','provider.browse','provider.crypt.password.status','provider.crypt.password.set','provider.crypt.preview','provider.crypt.create','provider.crypt.recovery.status'}
   assert expected == {i['name'] for i in c['operations'] if i['implementing_overlay'] in ('SB-O20','SB-O21','SB-O22','SB-O23','SB-O24')}
  def test_devtool_workflow_and_seal(self):

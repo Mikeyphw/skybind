@@ -39,7 +39,7 @@ func TestConfigurationRPCPreviewApplyAndCapabilities(t *testing.T) {
 	if err := json.Unmarshal(b, &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Total != 57 || len(catalog.Operations) != 57 {
+	if catalog.Total != 59 || len(catalog.Operations) != 59 {
 		t.Fatalf("invalid capability catalog: %+v", catalog)
 	}
 	for _, v := range catalog.Operations {

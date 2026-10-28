@@ -26,7 +26,7 @@ func TestCanonicalMountOperationRegistration(t *testing.T) {
 	for _, v := range e.Descriptors() {
 		all[v.Operation] = true
 	}
-	for _, name := range []string{"mount.list", "mount.status", "mount.health", "mount.start.preview", "mount.start", "mount.stop", "mount.restart", "mount.reconcile", "policy.status", "vfs.profiles", "cache.status", "cache.prune.preview", "cache.prune", "cache.clear.preview", "cache.clear", "cache.forget.preview", "cache.forget"} {
+	for _, name := range []string{"mount.list", "mount.status", "mount.health", "mount.start.preview", "mount.start", "mount.stop.preview", "mount.stop.guarded", "mount.stop", "mount.restart", "mount.reconcile", "policy.status", "vfs.profiles", "cache.status", "cache.prune.preview", "cache.prune", "cache.clear.preview", "cache.clear", "cache.forget.preview", "cache.forget"} {
 		if !all[name] {
 			t.Fatalf("not registered: %s", name)
 		}

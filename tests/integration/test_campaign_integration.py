@@ -2,13 +2,15 @@ from pathlib import Path
 import json
 import tomllib
 import unittest
+from scripts.devtool.typed_catalog_contract import validate_live_catalog
 ROOT=Path(__file__).resolve().parents[2]
 class IntegrationContracts(unittest.TestCase):
   def test_all_57_operations_and_copy_reference(self):
     catalog=json.loads((ROOT/'internal/control/operations.json').read_text())
     canonical=json.loads((ROOT/'docs/contracts/typed-operations.json').read_text())
-    self.assertEqual(catalog['total'],57)
-    self.assertEqual(len(catalog['operations']),57)
+    historical, current = validate_live_catalog(ROOT, live=catalog)
+    self.assertEqual(len(historical),57)
+    self.assertEqual(len(current),59)
     self.assertEqual({e['name'] for e in catalog['operations']},{e['name'] for e in canonical['operations']})
     self.assertTrue((ROOT/'module/webroot/style.css').read_bytes())
     self.assertTrue((ROOT/'tests/fixtures/webui-reference/manifest.json').is_file())

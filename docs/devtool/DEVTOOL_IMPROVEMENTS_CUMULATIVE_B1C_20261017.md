@@ -1415,3 +1415,30 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Security boundaries:** Android PackageManager/proc verifier, kernel `SO_PEERCRED`, UID/signer/SELinux checks, process-incarnation binding for execute, root-only approval, separate fixed abstract endpoint, bounded JSON and record storage. No credentials, global operation history, namespace mutation, R1 grants, BKX code, or auto-activation.
 - **Evidence required:** full transactional Devtool receipt on the pushed P2 commit, Android installed signer/SELinux validation, root gateway/PM bridge lifecycle, negative app UID and signer tests, real FUSE mount start/stop, mid-mutation power-loss/restart journal recovery. None of those gates is asserted PASS by source tests.
 - **Known tradeoff:** `mount.stop` has no native daemon previewproof primitive. The root operator explicitly approves the named mount and Skybind's native stop method still verifies mount/process ownership. An immutable native stop-state proof is a further hardening candidate before declaring device acceptance.
+
+
+## SB-API04-P3-H1 — Native stop-preview proof and strict preview decoding (2026-10-27)
+
+- **Status:** Implemented in source candidate against pushed Skybind API04 P3 `ebf056968a9dac6d6921c1fb73c6b8e449a716e8`; real Devtool transaction and Android installed-device acceptance **OPEN**.
+- **Affected:** `internal/mounts/lifecycle/engine.go`, `internal/daemon/wiring.go`, `internal/control/{operations.json,catalog.go}`, `docs/contracts/typed-operations.json`, `internal/featureapi/feature.go`, and `internal/featuregateway/mutation_service.go` plus tests.
+- **Finding:** API04 P3 used `mount.status` in place of a native stop preview, and forwarded approved `mount.stop` calls to the historical daemon route without a revision-bound proof. The existing strict preview response decoder also rejected API02's valid multi-field `mount.start.preview` payload.
+- **Source fix:** Add native `mount.stop.preview` and distinct `mount.stop.guarded` operations; bind short-lived, single-use proof to exact registry revision, configured mount, desired running state, owned process incarnation and verified FUSE mount identity, checked atomically under lifecycle engine lock immediately before stopping. Preserve the historical API02 `mount.stop` route for root-only callers. The API04 bridge *only* uses the guarded route, requires proof for both start and stop, never leaks native proofs to the client, and correctly extracts proof from multi-field preview payload. Keep P2 query transport and all app consumers unchanged.
+- **Tests:** full `go test -p 2 -count=1 ./...` **PASS** in reconstructed source; targeted `go test -race` **PASS**; `go vet ./...` **PASS**; Android ARM64 gateway and approval command builds **PASS** using `-buildvcs=false` for reconstructed archive metadata. Negative regressions cover forged/replayed proof, changed registry revision, PID reuse, FUSE mount-id swap, stopped mounts and strict real-shaped preview data.
+- **Open:** Exact-source Devtool apply/rollback receipt; Android root daemon, installed signer/SELinux, real FUSE and power-loss tests. Don't activate mutations or mark API05 complete based on host tests.
+
+
+### DT-SKYBIND-API04-H1-BOOTSTRAP-20261028 — original 57 ledger vs approved runtime operations
+
+- **Status:** Source correction implemented in API04 P3-H1 R2; real Devtool transaction and Android device acceptance still OPEN.
+- **Evidence:** H1 transaction `dadc79aa425c41dca157f03dd5595f34` failed six `tests/test_bootstrap.py` assertions at `scripts/devtool/bootstrap_contract.py:54` because runtime had 59 operations and original immutable planning index had 57. Additional live-catalog `57` assumptions were found in C03/integration/crosswalk/WebUI/freeze tests and personal release authority.
+- **Fix:** Add `scripts/devtool/typed_catalog_contract.py` as fail-closed approval for exactly `mount.stop.preview` and `mount.stop.guarded`, validating class, description, source provenance, complete historical 57 semantics, unique names, total count and canonical/embedded catalog byte parity. Update every relevant historical-vs-runtime checker. Preserve the historical 57 and release gate controls; do not forge a seal.
+- **Regression:** new positive and negative bootstrap cases (unapproved 60th operation, wrong class/provenance); full relevant Python suite, native Go/race/vet/ARM64, exact-source Devtool acceptance pending external execution.
+- **Ownership:** Skybind only. No BKX/chrootctl changes.
+
+
+## DT-SKYBIND-API04-H1-RACE-HOST-20261028 — native Android/ARM64 Go race gate
+
+- **Status:** Source remediation in P3-H1 R3; actual Termux Devtool transaction and cross-host race qualification **OPEN**.
+- **Failure evidence:** `7f15e8e908014a60b4b5fd8954a84064` passed the Go package suite, then `.devtool-artifact/validate.sh` exit 2 after `-race is not supported on android/arm64`. Devtool independently verified rollback of 22 changed and four added paths. This is an artifact host-capability mismatch, not a Go assertion failure or a Devtool subprocess defect.
+- **Remedy:** Keep full Go suite mandatory. On *native* Android/ARM64, execute three uncached iterations of the five high-risk packages and emit `RACE_NOT_RUN` / `RACE_GATE_DEFERRED`, never PASS race; supported native hosts run `-race`, other and cross-target environments fail closed. Add host-matrix positive and negative tests; fail any repeated/native race test error.
+- **Open:** independent supported-host Go `-race` receipt, full Devtool accepted transaction, real-device identity/SELinux/FUSE/runtime gates. No general `skip-tests` or `allow-failure` route.

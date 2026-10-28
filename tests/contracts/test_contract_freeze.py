@@ -1,5 +1,6 @@
 import hashlib, json, pathlib, unittest
 from html.parser import HTMLParser
+from scripts.devtool.typed_catalog_contract import validate_live_catalog
 
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 BASE=ROOT/'tests/fixtures/webui-reference'
@@ -34,11 +35,10 @@ class ContractFreeze(unittest.TestCase):
   self.assertEqual(m['interaction_proofs']['status'],'NOT_EXECUTED')
 
  def test_57_operation_inventory(self):
-  c=json.loads((ROOT/'docs/contracts/typed-operations.json').read_text())
-  self.assertEqual(c['total'],len(c['operations']))
-  self.assertEqual(c['total'],57)
-  self.assertEqual(len({x['name'] for x in c['operations']}),57)
-  for x in c['operations']:
+  originals, current = validate_live_catalog(ROOT)
+  self.assertEqual(len(originals),57)
+  self.assertEqual(len(current),59)
+  for x in originals.values():
    self.assertRegex(x['implementing_overlay'],r'^SB-O\d{2}$')
    self.assertTrue(x['webui_consumers'])
 

@@ -24,6 +24,8 @@ var operations = map[string]protocol.Class{
 	"mount.status":               protocol.Query,
 	"mount.health":               protocol.Query,
 	"mount.start.preview":        protocol.Preview,
+	"mount.stop.preview":         protocol.Preview,
+	"mount.stop.guarded":         protocol.Run,
 	"mount.start":                protocol.Run,
 	"mount.stop":                 protocol.Run,
 	"mount.restart":              protocol.Run,
@@ -75,7 +77,7 @@ func Discover(descriptors []control.Descriptor) Capabilities {
 		cl := operations[name]
 		caps.Operations = append(caps.Operations, Capability{Operation: name, Class: cl,
 			Implemented:     found[name] == cl,
-			PreviewRequired: name == "mount.start" || name == "namespace.apply" || name == "namespace.rollback"})
+			PreviewRequired: name == "mount.start" || name == "mount.stop.guarded" || name == "namespace.apply" || name == "namespace.rollback"})
 	}
 	return caps
 }

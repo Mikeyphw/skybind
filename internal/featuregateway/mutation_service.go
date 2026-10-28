@@ -122,6 +122,16 @@ func (s *MutationService) featureCall(ctx context.Context, reqID, op string, arg
 	}
 	return inner, nil
 }
+
+// nativeMutationOperation maps API04's narrow public operation to its distinct
+// proof-gated daemon operation. Never use API02's legacy unguarded mount.stop.
+func nativeMutationOperation(op string) string {
+	if op == "mount.stop" {
+		return "mount.stop.guarded"
+	}
+	return op
+}
+
 func (s *MutationService) Process(ctx context.Context, peer brokeripc.KernelPeer, call MutationCall) (MutationResult, error) {
 	var empty MutationResult
 	id, e := s.verify(peer)
@@ -138,9 +148,9 @@ func (s *MutationService) Process(ctx context.Context, peer brokeripc.KernelPeer
 			return empty, e
 		}
 		nativeID := "api04_" + previewID
-		op := "mount.status"
-		if call.Operation == "mount.start" {
-			op = "mount.start.preview"
+		op := "mount.start.preview"
+		if call.Operation == "mount.stop" {
+			op = "mount.stop.preview"
 		}
 		previewReq := "preview_" + previewID
 		inner, e := s.featureCall(ctx, previewReq, op, map[string]string{"name": call.Name})
@@ -148,18 +158,26 @@ func (s *MutationService) Process(ctx context.Context, peer brokeripc.KernelPeer
 			return empty, errors.New("api04_mutation_preview_unavailable")
 		}
 		proof := ""
-		if call.Operation == "mount.start" {
+		if call.Operation == "mount.start" || call.Operation == "mount.stop" {
 			b, e := json.Marshal(inner.Result)
 			if e != nil || len(b) > protocol.MaxResponse {
 				return empty, errors.New("api04_mutation_proof_invalid")
 			}
-			var info struct {
-				Proof string `json:"proof"`
-			}
-			if protocol.StrictBytes(b, &info) != nil || len(info.Proof) < 8 || len(info.Proof) > 4096 {
+			// API02 preview replies contain additional descriptive metadata.
+			// Decode as an object, then require precisely one typed proof field;
+			// don't reject valid native previews for containing mount metadata.
+			var fields map[string]json.RawMessage
+			if protocol.StrictBytes(b, &fields) != nil || fields == nil {
 				return empty, errors.New("api04_mutation_proof_invalid")
 			}
-			proof = info.Proof
+			if json.Unmarshal(fields["proof"], &proof) != nil || len(proof) != 64 {
+				return empty, errors.New("api04_mutation_proof_invalid")
+			}
+			for _, ch := range proof {
+				if !(ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'f') {
+					return empty, errors.New("api04_mutation_proof_invalid")
+				}
+			}
 		}
 		issued := time.Now().Unix()
 		rec := MutationRecord{ID: previewID, RequestID: call.RequestID, NativeID: nativeID, Operation: call.Operation, Mount: call.Name,
@@ -181,10 +199,13 @@ func (s *MutationService) Process(ctx context.Context, peer brokeripc.KernelPeer
 		// Submitted is durable before the first daemon invocation. Unknown
 		// outcomes are NEVER replayed by this API, even after a crash/restart.
 		args := map[string]string{"name": rec.Mount}
-		if rec.Operation == "mount.start" {
-			args["proof"] = rec.NativeProof
+		// Both mutations must carry a native single-use proof. Never reach
+		// API02's original root-only unguarded mount.stop from API04.
+		if rec.NativeProof == "" {
+			return empty, errors.New("api04_mutation_native_proof_missing")
 		}
-		inner, e := s.featureCall(ctx, rec.NativeID, rec.Operation, args)
+		args["proof"] = rec.NativeProof
+		inner, e := s.featureCall(ctx, rec.NativeID, nativeMutationOperation(rec.Operation), args)
 		state := "unknown"
 		if e == nil {
 			if inner.OK {
@@ -228,7 +249,7 @@ func (s *MutationService) Process(ctx context.Context, peer brokeripc.KernelPeer
 					State     string `json:"state"`
 					Action    string `json:"action"`
 				}
-				if json.Unmarshal(raw, &found) == nil && found.RequestID == rec.NativeID && found.Action == rec.Operation {
+				if json.Unmarshal(raw, &found) == nil && found.RequestID == rec.NativeID && found.Action == nativeMutationOperation(rec.Operation) {
 					switch found.State {
 					case "succeeded", "failed", "interrupted", "cancelled", "running":
 						state = found.State

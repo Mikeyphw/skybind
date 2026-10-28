@@ -14,7 +14,7 @@ func TestCatalogTruthAndDeterminism(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Total != 57 || len(c.Operations) != 57 || c.ProtocolVersion != protocol.Version {
+	if c.Total != 59 || len(c.Operations) != 59 || c.ProtocolVersion != protocol.Version {
 		t.Fatalf("wrong catalog %+v", c)
 	}
 	implemented := 0

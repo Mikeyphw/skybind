@@ -47,10 +47,12 @@ func mutationFixture(t *testing.T) (*MutationService, brokeripc.KernelPeer, *Mut
 		var inner protocol.Response
 		switch c.Operation {
 		case "mount.start.preview":
-			inner = protocol.Success(c.RequestID, map[string]any{"proof": "native-single-use-proof-123456"})
+			inner = protocol.Success(c.RequestID, map[string]any{"proof": strings.Repeat("a", 64), "mount": "safeMount", "runtime_verified": true, "device_qualified": false})
+		case "mount.stop.preview":
+			inner = protocol.Success(c.RequestID, map[string]any{"proof": strings.Repeat("b", 64), "mount": "safeMount", "revision": 8})
 		case "mount.status":
-			inner = protocol.Success(c.RequestID, map[string]any{"state": "RUNNING"})
-		case "mount.start", "mount.stop":
+			return protocol.Response{}, fmt.Errorf("P3 cannot use unguarded mount.status as stop preview")
+		case "mount.start", "mount.stop.guarded":
 			*count++
 			inner = protocol.Success(c.RequestID, map[string]string{"state": "OK"})
 		case "operation.status":
@@ -157,8 +159,8 @@ func TestAPI04P3StopRequiresManualApprovalToo(t *testing.T) {
 		t.Fatal(e)
 	}
 	rec, e := store.get(x.PreviewID)
-	if e != nil || rec.NativeProof != "" {
-		t.Fatal("stop unexpectedly acquired native proof", e)
+	if e != nil || rec.NativeProof == "" {
+		t.Fatal("stop missing mandatory native proof", e)
 	}
 	if e = store.approve(x.PreviewID, x.Digest); e != nil {
 		t.Fatal(e)

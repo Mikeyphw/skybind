@@ -1,4 +1,5 @@
 import json, pathlib, re, unittest
+from scripts.devtool.typed_catalog_contract import validate_live_catalog
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 CANON=ROOT/'docs/contracts/typed-operations.json'
 EMBED=ROOT/'internal/control/operations.json'
@@ -12,8 +13,9 @@ EXCLUDED={'migration.status','migration.inspect','migration.preview','migration.
 class CatalogCrosswalk(unittest.TestCase):
  def test_exact_canonical_copy(self):
   self.assertEqual(EMBED.read_bytes(),CANON.read_bytes())
-  c=json.loads(EMBED.read_text());self.assertEqual(c['total'],57)
-  self.assertEqual(len({v['name'] for v in c['operations']}),57)
+  original, current = validate_live_catalog(ROOT)
+  self.assertEqual(len(original), 57)
+  self.assertEqual(len(current), 59)
  def test_original_ui_required_operations_in_scope(self):
   js=WEBUI.read_text();body=js.split('function requiredOperations(caps) {',1)[1].split('async function ensureConnected',1)[0]
   array=body.split('const required = [',1)[1].split('];',1)[0]

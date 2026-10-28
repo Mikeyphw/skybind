@@ -30,7 +30,7 @@ func TestM05UIOptionalOperationsExplicitWithoutFrozenCatalogDrift(t *testing.T) 
 		t.Fatal("unexpected root shell operation allowed")
 	}
 	c, err := e.Catalog()
-	if err != nil || c.Total != 57 || len(c.Operations) != 57 {
+	if err != nil || c.Total != 59 || len(c.Operations) != 59 {
 		t.Fatalf("CFS1 catalog drift: %+v %v", c, err)
 	}
 	for _, item := range c.Operations {

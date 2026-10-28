@@ -5,6 +5,7 @@ This checks *planning/inventory*, never claims a release/device seal.
 import json
 import tomllib
 from pathlib import Path
+from scripts.devtool.typed_catalog_contract import validate_live_catalog
 ROOT=Path(__file__).resolve().parents[2]
 DOCS=ROOT/'docs/roadmap'
 # Initial campaign targets plus subsequently approved product/API targets.
@@ -50,8 +51,7 @@ def check_all():
  assert set(coverage.values()) <= set(ids)
  ops=data['all_57_typed_operations'];assert len(ops)==57
  assert len({x['name'] for x in ops})==57
- live=json.loads((ROOT/'internal/control/operations.json').read_text())
- assert {x['name'] for x in ops}=={x['name'] for x in live['operations']}
+ validate_live_catalog(ROOT, historical=ops)
  for e in packages:
   assert len(e['originals'])==len(set(e['originals']))
  assert all(x in ['BLOCKED'] for x in data['starting_position']['gate_qualification'].values())

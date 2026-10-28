@@ -65,7 +65,15 @@ def source(root:Path)->dict:
         hashes[rel]=digest(p)
     need(hashes[paths[0]]==hashes[paths[1]],'TYPED_CATALOG_BYTES_DIFFER')
     catalog=json.loads((root/paths[1]).read_bytes())
-    need(catalog.get('total')==57 and len(catalog.get('operations',[]))==57,'OPERATIONS_NOT_57')
+    # The original 57 remain immutable; only the two reviewed API04 guarded-stop
+    # operations may extend the live catalog. Fail closed for any other change.
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    try:
+        from scripts.devtool.typed_catalog_contract import validate_live_catalog
+        validate_live_catalog(root, live=catalog)
+    except (AssertionError, ValueError, KeyError, OSError, TypeError) as exc:
+        raise Rejected('UNAPPROVED_TYPED_CATALOG') from exc
     lock=root/'scripts/dev/runtime/source.lock.json'
     ld,hashlock=safe_json(lock)
     need(isinstance(ld.get('newfuture'),dict) and isinstance(ld.get('bclone'),dict),'INVALID_SOURCE_LOCK')
