@@ -72,3 +72,38 @@ A boot ID change and mountinfo observation are **partial evidence only**, not pr
 - The tested personal-phone case was `Enforcing` via `su`, root-owned 0700 parent, and two absent policies. After H1 that remains 05-1 BLOCKED until the read-only policy is explicitly and correctly provisioned. Do not create a mutation policy merely to make an evidence report appear green.
 
 After application, recapture your baseline with the existing `capture` and `evaluate` commands. If query policy remains missing, security stays BLOCKED for the correct reason. The new `selinux_source: root` should be present. All four real-device gates and supported-host `-race` remain independently open.
+
+
+## H2: Personal core qualification independent of unused API-04 (2026-10-29)
+
+**Scope correction:** BKX's installed Android app currently has no API-04 client. Do not provision `/data/adb/skybind/api04-bkx-policy-v1.json`, start either API-04 listener, or alter consumer code solely to make Skybind's native daemon/FUSE/recovery qualification appear ready. This is not a claim that API-04 has passed device acceptance.
+
+The collector's `capture` subcommand remains read-only and compatible with existing v1 evidence files. The `evaluate` subcommand accepts **independent explicit scopes**:
+
+| `--scope` | Meaning | 05-1 security | 05-2 gateway |
+|---|---|---|---|
+| `core` (**default**) | Skybind root/private-state/SELinux evidence and native lifecycle only | Requires root, Android, Enforcing, secure `/data/adb/skybind` parent, and no insecure/active API-04 surfaces | `DEFERRED_NOT_USED` if both API-04 endpoints are inactive |
+| `api04-query` | Opt-in future read-only cross-UID consumer qualification | Additionally requires secure root-owned query policy | At most PARTIAL from approved-peer-negative checks; positive installed-app checks remain open |
+| `api04-full` | Opt-in mutation plus query qualification | Additionally requires both secure root-owned query and mutation policies | Both authorized query and mutation proof/replay device tests remain open |
+
+Any **present insecure policy**, **non-root API-04 socket**, **socket without its secure policy**, or **unexpectedly active or visibility-denied API-04 socket in core mode** blocks 05-1. No scope can turn passive evidence into a final PASS: `core_qualification_complete=false`, `device_qualification_complete=false` and `05-4-final-seal=BLOCKED` remain authoritative. The core lifecycle gate is at most PARTIAL from passive reboot/mount observations made in Termux's namespace, not proof of daemon-owned FUSE state. A true core acceptance requires separately reviewed root-daemon, native runtime, FUSE lifecycle and recovery receipts, plus supported-host Go race evidence.
+
+Evaluate an existing H1 capture **without running a new collection or provisioning BKX policy**:
+
+```sh
+E="$HOME/.local/state/skybind/api05-personal"
+python3 scripts/devtool/api05_personal_device.py evaluate \
+  --scope core --output "$E/report-core.json" "$E/baseline-h1.json"
+cat "$E/report-core.json"
+```
+
+The explicit API-04 flows remain available for later use:
+
+```sh
+python3 scripts/devtool/api05_personal_device.py evaluate \
+  --scope api04-query --output "$E/report-api04-query.json" "$E/baseline-h1.json"
+```
+
+Never use the core `DEFERRED_NOT_USED` status to claim API-04 security, app identity, cross-UID execution or operator-approved mutations have passed. Re-evaluate under the appropriate explicit scope if a consumer is later integrated.
+
+Socket visibility is also bounded: newer captures distinguish `absent` (ENOENT/ECONNREFUSED) from `permission_denied` (EACCES/EPERM) and `unknown_error`. The latter two block security rather than masquerade as a disabled listener; legacy captures lack this field and cannot independently prove absence.

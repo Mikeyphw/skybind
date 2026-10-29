@@ -7,6 +7,7 @@ A source-test PASS is never promoted to real-device acceptance.
 from __future__ import annotations
 
 import argparse
+import errno
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -28,6 +29,7 @@ POLICIES = {
 }
 PARENT = "/data/adb/skybind"
 STAGES = ("baseline", "gateway", "after_reboot", "lifecycle")
+SCOPES = ("core", "api04-query", "api04-full")
 
 
 def command(argv: list[str], *, timeout: int = 6) -> dict:
@@ -63,12 +65,13 @@ def inspect_secure_file(path: str) -> dict:
 
 def probe_socket(address: str, approved_uid: int | None, *, send_denial: bool) -> dict:
     """A non-approved client sends malformed JSON; it never requests a mutation."""
-    result = {"reachable": False, "root_peer": False, "denial": "not_run"}
+    result = {"reachable": False, "root_peer": False, "denial": "not_run", "connect_status": "unknown"}
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
             conn.settimeout(3)
             conn.connect(address)
             result["reachable"] = True
+            result["connect_status"] = "connected"
             creds = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
             pid, uid, gid = struct.unpack("3i", creds)
             result["root_peer"] = uid == 0 and pid > 0
@@ -95,9 +98,20 @@ def probe_socket(address: str, approved_uid: int | None, *, send_denial: bool) -
                 result["denial"] = "pass" if reply.get("error") == expected else "unexpected_response"
             else:
                 result["denial"] = "unexpected_response"
-    except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
+    except OSError as exc:
         if result["reachable"]:
             result["denial"] = "probe_failed"
+        elif exc.errno in (errno.ENOENT, errno.ECONNREFUSED):
+            result["connect_status"] = "absent"
+        elif exc.errno in (errno.EACCES, errno.EPERM):
+            result["connect_status"] = "permission_denied"
+        else:
+            result["connect_status"] = "unknown_error"
+    except (ValueError, UnicodeError, json.JSONDecodeError):
+        if result["reachable"]:
+            result["denial"] = "probe_failed"
+        else:
+            result["connect_status"] = "unknown_error"
     return result
 
 
@@ -162,7 +176,15 @@ def capture(stage: str, approved_uid: int | None, *, denial: bool, mountpoint: s
     }
 
 
-def gate_results(snapshots: list[dict]) -> dict:
+def gate_results(snapshots: list[dict], *, scope: str = "core") -> dict:
+    """Assess independently selected personal-device contracts.
+
+    Core scope never requires an unused API-04 consumer policy or a live gateway.
+    All scopes still fail closed on unexpected/insecure live API-04 endpoints.
+    No passive collector is permitted to issue a final device qualification.
+    """
+    if scope not in SCOPES:
+        raise ValueError("unsupported API05 qualification scope")
     if not snapshots:
         raise ValueError("at least one snapshot required")
     for snap in snapshots:
@@ -174,70 +196,124 @@ def gate_results(snapshots: list[dict]) -> dict:
     env = latest.get("environment", {})
     policies = latest.get("policy", {})
     sock = latest.get("sockets", {})
-    errors = []
+    errors: list[str] = []
     if not env.get("android"):
         errors.append("native_android_not_observed")
     if not env.get("root_available"):
         errors.append("root_probe_unavailable")
     if env.get("selinux") != "Enforcing":
         errors.append("selinux_enforcing_not_observed")
-    # Query-only is a legitimate intermediate configuration. Never require an
-    # unprovisioned, intentionally disabled mutation policy to assess query
-    # security. Neither state grants final API-05 device acceptance.
-    for k in ("parent", "query"):
-        p = policies.get(k, {})
-        if not p.get("observed") or not p.get("secure"):
-            errors.append("root_owned_policy_missing_or_unverified:" + k)
-    mut_policy = policies.get("mutation", {})
-    mut_observed = bool(mut_policy.get("observed"))
-    mut_secure = bool(mut_observed and mut_policy.get("secure"))
-    mutation_blockers = []
-    if not mut_observed:
-        mutation_blockers.append("mutation_policy_not_provisioned")
-    elif not mut_secure:
-        mutation_blockers.append("mutation_policy_insecure")
-        errors.append("root_owned_policy_insecure:mutation")
-    for name in ("query", "mutation"):
-        endpoint = sock.get(name, {})
-        if endpoint.get("reachable") and not endpoint.get("root_peer"):
-            errors.append("nonroot_server_socket:" + name)
-    if sock.get("query", {}).get("reachable") and not policies.get("query", {}).get("secure"):
-        errors.append("query_socket_without_secure_policy")
-    if sock.get("mutation", {}).get("reachable") and not mut_secure:
-        errors.append("mutation_socket_without_secure_policy")
-        mutation_blockers.append("mutation_gateway_exposed_without_secure_policy")
-    # This grade is deliberately PARTIAL at most: root mode, file metadata and
-    # SO_PEERCRED cannot certify installed PackageManager identity/signatures.
-    g1 = "PARTIAL" if not errors else "BLOCKED"
+    parent = policies.get("parent", {})
+    if not parent.get("observed") or not parent.get("secure"):
+        errors.append("root_owned_policy_missing_or_unverified:parent")
+
+    require_query = scope in ("api04-query", "api04-full")
+    require_mutation = scope == "api04-full"
+    query_policy = policies.get("query", {})
+    mutation_policy = policies.get("mutation", {})
+    query_observed = bool(query_policy.get("observed"))
+    mutation_observed = bool(mutation_policy.get("observed"))
+    query_secure = bool(query_observed and query_policy.get("secure"))
+    mutation_secure = bool(mutation_observed and mutation_policy.get("secure"))
     query_peer = sock.get("query", {})
     mutation_peer = sock.get("mutation", {})
-    query_denied = (bool(policies.get("query", {}).get("observed") and policies.get("query", {}).get("secure"))
-                    and query_peer.get("reachable") and query_peer.get("root_peer")
-                    and query_peer.get("denial") == "pass")
-    mutation_denied = (mut_secure and mutation_peer.get("reachable")
-                       and mutation_peer.get("root_peer")
-                       and mutation_peer.get("denial") == "pass")
+
+    for name, observed, secure, required, endpoint in (
+        ("query", query_observed, query_secure, require_query, query_peer),
+        ("mutation", mutation_observed, mutation_secure, require_mutation, mutation_peer),
+    ):
+        if required and not secure:
+            errors.append("root_owned_policy_missing_or_unverified:" + name)
+        elif observed and not secure:
+            # An insecure policy is a problem even if the corresponding gateway
+            # is dormant. Missing optional policies are not a problem.
+            errors.append("root_owned_policy_insecure:" + name)
+        if endpoint.get("connect_status") in ("permission_denied", "unknown_error"):
+            errors.append("api04_endpoint_visibility_unverified:" + name)
+        if endpoint.get("reachable"):
+            if not endpoint.get("root_peer"):
+                errors.append("nonroot_server_socket:" + name)
+            if not secure:
+                errors.append(name + "_socket_without_secure_policy")
+            if scope == "core":
+                # Unexpected exposure of an unused privileged endpoint must
+                # never be mistaken for normal core-only device readiness.
+                errors.append("api04_endpoint_active_outside_core_scope:" + name)
+
+    mutation_blockers = []
+    if not mutation_observed:
+        mutation_blockers.append("mutation_policy_not_provisioned")
+    elif not mutation_secure:
+        mutation_blockers.append("mutation_policy_insecure")
+    if mutation_peer.get("reachable") and not mutation_secure:
+        mutation_blockers.append("mutation_gateway_exposed_without_secure_policy")
+
+    # Passive root mode and policy metadata support PARTIAL at most. Installed
+    # package signature and daemon-side lifecycle authority remain unverified.
+    g1 = "PARTIAL" if not errors else "BLOCKED"
+    query_denied = bool(query_secure and query_peer.get("reachable") and
+                        query_peer.get("root_peer") and query_peer.get("denial") == "pass")
+    mutation_denied = bool(mutation_secure and mutation_peer.get("reachable") and
+                           mutation_peer.get("root_peer") and mutation_peer.get("denial") == "pass")
     negative = bool(query_denied and mutation_denied)
-    failed_peer = any(sock.get(name, {}).get("reachable") and not sock.get(name, {}).get("root_peer") for name in ("query", "mutation"))
-    # An independently observed query-side negative probe is useful partial
-    # evidence even if the mutation gateway is deliberately not started.
-    g2 = "BLOCKED" if failed_peer else "PARTIAL" if query_denied or mutation_denied else "NOT_RUN"
+    if scope == "core":
+        g2 = "DEFERRED_NOT_USED" if not any(sock.get(x, {}).get("reachable") for x in ("query", "mutation")) else "BLOCKED"
+    elif any(sock.get(name, {}).get("reachable") and not sock.get(name, {}).get("root_peer") for name in ("query", "mutation")):
+        g2 = "BLOCKED"
+    elif query_denied or (scope == "api04-full" and mutation_denied):
+        g2 = "PARTIAL"
+    else:
+        g2 = "NOT_RUN"
+
     baseline = next((x for x in snapshots if x["stage"] == "baseline"), None)
     reboot = next((x for x in snapshots if x["stage"] == "after_reboot"), None)
-    distinct_boot = bool(baseline and reboot and baseline["environment"].get("boot_id") and reboot["environment"].get("boot_id") and baseline["environment"]["boot_id"] != reboot["environment"]["boot_id"])
-    observed_mount = bool(baseline and reboot and baseline.get("mount", {}).get("observed") and reboot.get("mount", {}).get("observed"))
+    distinct_boot = bool(baseline and reboot and baseline["environment"].get("boot_id") and
+                         reboot["environment"].get("boot_id") and
+                         baseline["environment"]["boot_id"] != reboot["environment"]["boot_id"])
+    observed_mount = bool(baseline and reboot and baseline.get("mount", {}).get("observed") and
+                          reboot.get("mount", {}).get("observed"))
     g3 = "PARTIAL" if distinct_boot and observed_mount else "NOT_RUN"
+
+    outstanding = [
+        "independent Skybind root-daemon and native CLI/runtime provenance",
+        "actual named FUSE mount start-stop/reconciliation with daemon-owned observations",
+        "crash/lost-reply/reboot recovery device receipts",
+        "supported-host -race receipt and source-bound core qualification review",
+    ]
+    if require_query:
+        outstanding.extend([
+            "independent installed consumer PackageManager identity/signature/SELinux attestation",
+            "authorized-client positive query and unapproved-client denial receipts",
+        ])
+    if require_mutation:
+        outstanding.append("approved mutation preview/proof/replay/recovery device receipts")
+
     return {
-        "schema": SCHEMA, "device_qualification_complete": False,
-        "gates": {"05-1-security": g1, "05-2-gateway": g2, "05-3-lifecycle": g3, "05-4-final-seal": "BLOCKED"},
-        "observations": {"security_blockers": errors,
-                         "mutation_policy_state": "SECURE" if mut_secure else "INSECURE" if mut_observed else "NOT_CONFIGURED",
-                         "mutation_readiness_blockers": mutation_blockers,
-                         "unapproved_client_rejected_at_query_socket": bool(query_denied),
-                         "unapproved_client_rejected_at_mutation_socket": bool(mutation_denied),
-                         "unapproved_client_rejected_at_both_sockets": negative,
-                         "reboot_observed": distinct_boot, "mount_observation_only": observed_mount},
-        "still_required": ["independent installed PackageManager identity/signature/SELinux attestation", "authorized-client positive query and approved mutation preview/proof tests", "actual named-mount start-stop/reconciliation with daemon-owned observations", "crash/lost-reply/reboot recovery device receipts", "supported-host -race receipt and source-bound final qualification"],
+        "schema": SCHEMA,
+        "scope": scope,
+        "core_qualification_complete": False,
+        "device_qualification_complete": False,
+        "gates": {"05-1-security": g1, "05-2-gateway": g2,
+                  "05-3-lifecycle": g3, "05-4-final-seal": "BLOCKED"},
+        "deferred": {"api04_query": not require_query,
+                     "api04_mutation": not require_mutation,
+                     "reason": "no_current_consumer" if scope == "core" else "outside_selected_scope"},
+        "observations": {
+            "security_blockers": errors,
+            "query_policy_state": "SECURE" if query_secure else "INSECURE" if query_observed else "NOT_CONFIGURED",
+            "mutation_policy_state": "SECURE" if mutation_secure else "INSECURE" if mutation_observed else "NOT_CONFIGURED",
+            "mutation_readiness_blockers": mutation_blockers,
+            "api04_socket_observation": {
+                name: sock.get(name, {}).get("connect_status", "legacy_unknown")
+                for name in ("query", "mutation")
+            },
+            "unapproved_client_rejected_at_query_socket": query_denied,
+            "unapproved_client_rejected_at_mutation_socket": mutation_denied,
+            "unapproved_client_rejected_at_both_sockets": negative,
+            "reboot_observed": distinct_boot,
+            "mount_observation_only": observed_mount,
+        },
+        "still_required": outstanding,
     }
 
 
@@ -270,6 +346,7 @@ def main(argv: list[str] | None = None) -> int:
     take.add_argument("--mountpoint", help="optional observation in Termux's own mount namespace")
     check = commands.add_parser("evaluate", help="fail-closed report from collected evidence")
     check.add_argument("--output", required=True, type=Path)
+    check.add_argument("--scope", choices=SCOPES, default="core", help="default core excludes dormant, unused API04 gateways; explicit API04 scopes retain their gates")
     check.add_argument("snapshots", nargs="+", type=Path)
     args = parser.parse_args(argv)
     try:
@@ -280,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("negative probe requires independent approved UID pin")
             result = capture(args.stage, args.approved_consumer_uid, denial=args.probe_unapproved_client, mountpoint=args.mountpoint)
         else:
-            result = gate_results([json.loads(p.read_text(encoding="utf-8")) for p in args.snapshots])
+            result = gate_results([json.loads(p.read_text(encoding="utf-8")) for p in args.snapshots], scope=args.scope)
         atomic_json(args.output, result)
         print("API05_EVIDENCE_WRITTEN:" + str(args.output))
         if args.command == "evaluate":

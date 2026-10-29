@@ -26,9 +26,13 @@ def fixture(stage="gateway", **kwargs):
     return base
 
 
+def legacy(snapshots):
+    return a.gate_results(snapshots, scope="api04-query")
+
+
 class PersonalDeviceEvidence(unittest.TestCase):
     def test_negative_sockets_never_claim_positive_acceptance(self):
-        got = a.gate_results([fixture()])
+        got = legacy([fixture()])
         self.assertEqual(got["gates"]["05-2-gateway"], "PARTIAL")
         self.assertEqual(got["gates"]["05-4-final-seal"], "BLOCKED")
         self.assertFalse(got["device_qualification_complete"])
@@ -36,29 +40,29 @@ class PersonalDeviceEvidence(unittest.TestCase):
     def test_nonroot_server_is_blocked(self):
         s = fixture()
         s["sockets"]["mutation"]["root_peer"] = False
-        result = a.gate_results([s])
+        result = legacy([s])
         self.assertEqual(result["gates"]["05-2-gateway"], "BLOCKED")
         self.assertIn("nonroot_server_socket:mutation", result["observations"]["security_blockers"])
 
     def test_unavailable_policy_never_passes(self):
         s = fixture()
         s["policy"]["query"]["secure"] = False
-        self.assertEqual(a.gate_results([s])["gates"]["05-1-security"], "BLOCKED")
+        self.assertEqual(legacy([s])["gates"]["05-1-security"], "BLOCKED")
 
     def test_permissive_android_never_qualifies_security(self):
         s = fixture()
         s["environment"]["selinux"] = "Permissive"
-        self.assertEqual(a.gate_results([s])["gates"]["05-1-security"], "BLOCKED")
+        self.assertEqual(legacy([s])["gates"]["05-1-security"], "BLOCKED")
 
     def test_not_android_never_qualifies(self):
         s = fixture()
         s["environment"]["android"] = False
-        self.assertEqual(a.gate_results([s])["gates"]["05-1-security"], "BLOCKED")
+        self.assertEqual(legacy([s])["gates"]["05-1-security"], "BLOCKED")
 
     def test_mutation_socket_absent_keeps_query_evidence_partial(self):
         s = fixture()
         s["sockets"]["mutation"]["reachable"] = False
-        got = a.gate_results([s])
+        got = legacy([s])
         self.assertEqual(got["gates"]["05-2-gateway"], "PARTIAL")
         self.assertFalse(got["observations"]["unapproved_client_rejected_at_both_sockets"])
         self.assertFalse(got["observations"]["unapproved_client_rejected_at_mutation_socket"])
@@ -66,19 +70,19 @@ class PersonalDeviceEvidence(unittest.TestCase):
     def test_reboot_needs_changed_boot_id_and_mount_observation(self):
         baseline = fixture(stage="baseline")
         reboot = fixture(stage="after_reboot")
-        self.assertEqual(a.gate_results([baseline,reboot])["gates"]["05-3-lifecycle"], "NOT_RUN")
+        self.assertEqual(legacy([baseline,reboot])["gates"]["05-3-lifecycle"], "NOT_RUN")
         reboot["environment"]["boot_id"] = "boot2"
-        self.assertEqual(a.gate_results([baseline,reboot])["gates"]["05-3-lifecycle"], "PARTIAL")
-        self.assertEqual(a.gate_results([baseline,reboot])["gates"]["05-4-final-seal"], "BLOCKED")
+        self.assertEqual(legacy([baseline,reboot])["gates"]["05-3-lifecycle"], "PARTIAL")
+        self.assertEqual(legacy([baseline,reboot])["gates"]["05-4-final-seal"], "BLOCKED")
 
     def test_forged_final_seal_fails_closed(self):
         s = fixture(device_qualification_complete=True)
         with self.assertRaisesRegex(ValueError, "forged"):
-            a.gate_results([s])
+            legacy([s])
 
     def test_unknown_schema_fails_closed(self):
         with self.assertRaises(ValueError):
-            a.gate_results([fixture(schema="wrong")])
+            legacy([fixture(schema="wrong")])
 
     def test_no_mountpoint_is_not_mount_evidence(self):
         self.assertFalse(a.mount_snapshot(None)["observed"])
@@ -136,13 +140,13 @@ class PersonalDeviceEvidence(unittest.TestCase):
             self.assertEqual(a.observe_selinux(), {"mode": "unavailable", "source": "unavailable"})
         s = fixture()
         s["environment"]["selinux"] = "unavailable"
-        self.assertEqual(a.gate_results([s])["gates"]["05-1-security"], "BLOCKED")
+        self.assertEqual(legacy([s])["gates"]["05-1-security"], "BLOCKED")
 
     def test_query_only_configuration_is_partial_security_not_final_acceptance(self):
         s = fixture()
         s["policy"]["mutation"] = {"observed": False, "secure": False}
         s["sockets"]["mutation"] = {"reachable": False, "root_peer": False, "denial": "not_run"}
-        got = a.gate_results([s])
+        got = legacy([s])
         self.assertEqual(got["gates"]["05-1-security"], "PARTIAL")
         self.assertEqual(got["gates"]["05-2-gateway"], "PARTIAL")
         self.assertEqual(got["gates"]["05-4-final-seal"], "BLOCKED")
@@ -154,7 +158,7 @@ class PersonalDeviceEvidence(unittest.TestCase):
     def test_missing_query_policy_still_blocks_security(self):
         s = fixture()
         s["policy"]["query"] = {"observed": False, "secure": False}
-        self.assertEqual(a.gate_results([s])["gates"]["05-1-security"], "BLOCKED")
+        self.assertEqual(legacy([s])["gates"]["05-1-security"], "BLOCKED")
 
     def test_exact_personal_phone_baseline_reports_true_missing_query_blocker(self):
         s = fixture(stage="baseline")
@@ -162,7 +166,7 @@ class PersonalDeviceEvidence(unittest.TestCase):
         for name in ("query", "mutation"):
             s["policy"][name] = {"observed": False, "secure": False}
             s["sockets"][name] = {"reachable": False, "root_peer": False, "denial": "not_run"}
-        got = a.gate_results([s])
+        got = legacy([s])
         self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
         self.assertEqual(got["observations"]["security_blockers"], ["root_owned_policy_missing_or_unverified:query"])
         self.assertEqual(got["observations"]["mutation_policy_state"], "NOT_CONFIGURED")
@@ -173,28 +177,28 @@ class PersonalDeviceEvidence(unittest.TestCase):
         s = fixture()
         s["policy"]["mutation"] = {"observed": False, "secure": True}
         s["sockets"]["mutation"] = {"reachable": False, "root_peer": False, "denial": "not_run"}
-        got = a.gate_results([s])
+        got = legacy([s])
         self.assertEqual(got["observations"]["mutation_policy_state"], "NOT_CONFIGURED")
         self.assertFalse(got["observations"]["unapproved_client_rejected_at_mutation_socket"])
 
     def test_insecure_mutation_policy_never_qualifies_query_only(self):
         s = fixture()
         s["policy"]["mutation"] = {"observed": True, "secure": False}
-        got = a.gate_results([s])
+        got = legacy([s])
         self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
         self.assertIn("root_owned_policy_insecure:mutation", got["observations"]["security_blockers"])
 
     def test_mutation_endpoint_without_policy_is_security_blocker(self):
         s = fixture()
         s["policy"]["mutation"] = {"observed": False, "secure": False}
-        got = a.gate_results([s])
+        got = legacy([s])
         self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
         self.assertIn("mutation_socket_without_secure_policy", got["observations"]["security_blockers"])
 
     def test_query_endpoint_without_query_policy_is_security_blocker(self):
         s = fixture()
         s["policy"]["query"] = {"observed": False, "secure": False}
-        got = a.gate_results([s])
+        got = legacy([s])
         self.assertIn("query_socket_without_secure_policy", got["observations"]["security_blockers"])
 
     def test_capture_evidence_includes_selinux_source_without_sensitive_output(self):
@@ -209,6 +213,121 @@ class PersonalDeviceEvidence(unittest.TestCase):
             inp.write_text(json.dumps(fixture()))
             self.assertEqual(a.main(["evaluate", "--output", str(out), str(inp)]), 0)
             self.assertEqual(json.loads(out.read_text())["gates"]["05-4-final-seal"], "BLOCKED")
+
+
+class PersonalCoreScopeTests(unittest.TestCase):
+    def _disabled(self):
+        s = fixture(stage="baseline")
+        s["environment"]["selinux_source"] = "root"
+        for name in ("query", "mutation"):
+            s["policy"][name] = {"observed": False, "secure": False}
+            s["sockets"][name] = {"reachable": False, "root_peer": False, "denial": "not_run"}
+        return s
+
+    def test_exact_user_baseline_is_core_partial_without_unused_api04_policy(self):
+        got = a.gate_results([self._disabled()])
+        self.assertEqual(got["scope"], "core")
+        self.assertEqual(got["gates"]["05-1-security"], "PARTIAL")
+        self.assertEqual(got["gates"]["05-2-gateway"], "DEFERRED_NOT_USED")
+        self.assertEqual(got["gates"]["05-3-lifecycle"], "NOT_RUN")
+        self.assertEqual(got["gates"]["05-4-final-seal"], "BLOCKED")
+        self.assertEqual(got["observations"]["security_blockers"], [])
+        self.assertTrue(got["deferred"]["api04_query"])
+        self.assertTrue(got["deferred"]["api04_mutation"])
+        self.assertFalse(got["core_qualification_complete"])
+        self.assertFalse(got["device_qualification_complete"])
+        self.assertFalse(any("PackageManager" in x for x in got["still_required"]))
+
+    def test_query_opt_in_keeps_missing_policy_blocking(self):
+        got = a.gate_results([self._disabled()], scope="api04-query")
+        self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
+        self.assertIn("root_owned_policy_missing_or_unverified:query", got["observations"]["security_blockers"])
+        self.assertFalse(got["deferred"]["api04_query"])
+
+    def test_full_opt_in_requires_both_policies(self):
+        got = a.gate_results([self._disabled()], scope="api04-full")
+        self.assertIn("root_owned_policy_missing_or_unverified:query", got["observations"]["security_blockers"])
+        self.assertIn("root_owned_policy_missing_or_unverified:mutation", got["observations"]["security_blockers"])
+        self.assertFalse(got["deferred"]["api04_mutation"])
+
+    def test_core_rejects_unexpected_live_root_query_endpoint(self):
+        s = self._disabled()
+        s["policy"]["query"] = {"observed": True, "secure": True}
+        s["sockets"]["query"] = {"reachable": True, "root_peer": True, "denial": "not_run"}
+        got = a.gate_results([s])
+        self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
+        self.assertEqual(got["gates"]["05-2-gateway"], "BLOCKED")
+        self.assertIn("api04_endpoint_active_outside_core_scope:query", got["observations"]["security_blockers"])
+
+    def test_core_rejects_unexpected_live_mutation_endpoint(self):
+        s = self._disabled()
+        s["sockets"]["mutation"] = {"reachable": True, "root_peer": False, "denial": "not_run"}
+        got = a.gate_results([s])
+        self.assertIn("nonroot_server_socket:mutation", got["observations"]["security_blockers"])
+        self.assertIn("mutation_socket_without_secure_policy", got["observations"]["security_blockers"])
+
+    def test_core_does_not_treat_socket_access_denied_as_absent(self):
+        s = self._disabled()
+        s["sockets"]["query"]["connect_status"] = "permission_denied"
+        got = a.gate_results([s])
+        self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
+        self.assertIn("api04_endpoint_visibility_unverified:query", got["observations"]["security_blockers"])
+
+    def test_socket_probe_distinguishes_absent_from_selinux_denial(self):
+        import errno
+        for errnum, status in ((errno.ECONNREFUSED, "absent"),
+                               (errno.ENOENT, "absent"),
+                               (errno.EACCES, "permission_denied"),
+                               (errno.EPERM, "permission_denied")):
+            with self.subTest(status=status, errno=errnum):
+                with patch.object(a.socket, "socket") as mock:
+                    mock.return_value.__enter__.return_value.connect.side_effect = OSError(errnum, "probe")
+                    got = a.probe_socket(a.QUERY, None, send_denial=False)
+                self.assertEqual(got["connect_status"], status)
+                self.assertFalse(got["reachable"])
+
+    def test_core_rejects_present_insecure_policy_without_live_gateway(self):
+        s = self._disabled()
+        s["policy"]["query"] = {"observed": True, "secure": False}
+        got = a.gate_results([s])
+        self.assertIn("root_owned_policy_insecure:query", got["observations"]["security_blockers"])
+
+    def test_core_preserves_selinux_and_root_fail_closed(self):
+        for key, val in (("selinux", "Permissive"), ("root_available", False), ("android", False)):
+            s = self._disabled()
+            s["environment"][key] = val
+            got = a.gate_results([s])
+            self.assertEqual(got["gates"]["05-1-security"], "BLOCKED")
+
+    def test_core_reboot_only_partial_mount_evidence(self):
+        a1 = self._disabled()
+        b = self._disabled()
+        b["stage"] = "after_reboot"
+        b["environment"]["boot_id"] = "boot2"
+        a1["mount"] = {"observed": True, "namespace": "termux_self_not_daemon"}
+        b["mount"] = {"observed": True, "namespace": "termux_self_not_daemon"}
+        got = a.gate_results([a1, b])
+        self.assertEqual(got["gates"]["05-3-lifecycle"], "PARTIAL")
+        self.assertFalse(got["core_qualification_complete"])
+
+    def test_unknown_scope_fails_closed(self):
+        with self.assertRaises(ValueError):
+            a.gate_results([self._disabled()], scope="ignore")
+
+    def test_cli_core_default_and_explicit_query(self):
+        with tempfile.TemporaryDirectory() as d:
+            inp = Path(d) / "baseline.json"
+            core = Path(d) / "core.json"
+            query = Path(d) / "query.json"
+            inp.write_text(json.dumps(self._disabled()))
+            self.assertEqual(a.main(["evaluate", "--output", str(core), str(inp)]), 0)
+            self.assertEqual(a.main(["evaluate", "--scope", "api04-query", "--output", str(query), str(inp)]), 0)
+            self.assertEqual(json.loads(core.read_text())["gates"]["05-1-security"], "PARTIAL")
+            self.assertEqual(json.loads(query.read_text())["gates"]["05-1-security"], "BLOCKED")
+
+    def test_core_forged_final_acceptance_fails(self):
+        with self.assertRaisesRegex(ValueError, "forged"):
+            a.gate_results([self._disabled() | {"device_qualification_complete": True}])
 
 
 if __name__ == "__main__":
