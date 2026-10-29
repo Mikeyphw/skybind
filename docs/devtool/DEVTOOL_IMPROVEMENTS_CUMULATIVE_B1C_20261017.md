@@ -1478,3 +1478,10 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Affected project:** Skybind WebUI embedded bridge. BKX is unrelated. No root daemon, mount lifecycle, or consumer integration changes are needed.
 - **Fix candidate:** Parse bounded nonnegative composite Go/rclone duration tokens (`ns`, `us`, `µs`, `ms`, `s`, `m`, `h`) and standalone `d`/`w`, preserve zero/off and numeric seconds, fail closed for malformed and unsafe magnitudes. Add coverage for every built-in VFS profile, fractions and invalid input.
 - **Status:** SOURCE_IMPLEMENTED; device/WebUI review and Devtool receipt pending. This does not prove the mount can start or has been qualified under API-05.
+
+
+## UI02 — Embedded manager nonzero-exit masking typed RPC denial (2026-10-29)
+- **Observed:** personal Android support bundle `skybind-support-bae0d4c1dddfdf0b51988eb6645f19fe.zip` shows repeated `mount.status` operation failures while other daemon RPCs succeed, and user saw `Embedded backend exited with status 1` following updated module installation.
+- **Affected:** `module/webroot/bridge.js` `embeddedExec()` (discarded valid structured `ok:false` response when root CLI returned status 1). Root bridge emit-on-failure behavior in `cmd/skybind/main.go` remains unchanged.
+- **Remediation:** accept only *same-request-id*, schema-v1 typed negative error payload on nonzero callback, preserving real operation code; continue failing closed on mismatches/malformed output and never retry mutations.
+- **Status:** SOURCE_IMPLEMENTED_LOCAL_TEST_PASS; DEVICE_WEBUI_NOT_YET_RETSETED; underlying `mount.status` rejection OPEN and must be diagnosed from device receipts. No API04 or BKX changes. See `docs/repairs/SB_API05_UI02_EMBEDDED_EXIT1_ERROR_VISIBILITY_20261029.md`.

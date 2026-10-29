@@ -60,7 +60,7 @@ function embeddedAvailable() {
   return Boolean(globalThis.ksu && typeof globalThis.ksu.exec === 'function');
 }
 
-async function embeddedExec(encoded, timeoutMs = 30000) {
+async function embeddedExec(encoded, expectedRequestId, timeoutMs = 30000) {
   if (!embeddedAvailable()) throw new Error('Embedded manager bridge is unavailable');
   if (!/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error('Embedded request encoding is invalid');
   const callback = `skybind_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
@@ -80,11 +80,27 @@ async function embeddedExec(encoded, timeoutMs = 30000) {
       clearTimeout(timer);
       cleanup();
       const out = bounded(stdout, MAX_TEXT);
+      // The root CLI emits a valid typed JSON failure before exiting 1. This
+      // is an operation rejection, NOT a transport crash: preserve its exact
+      // code/category for the UI, but only for the requesting envelope.
+      let reply = null;
+      try { reply = JSON.parse(out); } catch (_) { /* malformed stdout */ }
+      const matching = reply?.schema_version === SCHEMA_VERSION &&
+        reply?.request_id === expectedRequestId && typeof reply?.ok === 'boolean';
       if (Number(errno) !== 0) {
+        if (matching && reply.ok === false &&
+            typeof reply.error?.code === 'string' && reply.error.code.length > 0) {
+          resolve(reply);
+          return;
+        }
         reject(new Error(bounded(stderr || `Embedded backend exited with status ${errno}`)));
         return;
       }
-      try { resolve(JSON.parse(out)); } catch (_) { reject(new Error('Embedded backend returned invalid JSON')); }
+      if (!matching) {
+        reject(new Error('Embedded backend returned invalid or mismatched JSON'));
+        return;
+      }
+      resolve(reply);
     };
     try { globalThis.ksu.exec(command, JSON.stringify({}), callback); }
     catch (error) { clearTimeout(timer); cleanup(); reject(error); }
@@ -230,7 +246,7 @@ async function sendEnvelope(envelope) {
     return normalizeResponse(await response.json());
   }
   if (selected === 'embedded') {
-    return normalizeResponse(await embeddedExec(base64url(envelope)));
+    return normalizeResponse(await embeddedExec(base64url(envelope), envelope.request_id));
   }
   throw new Error('Transport is not selected');
 }
