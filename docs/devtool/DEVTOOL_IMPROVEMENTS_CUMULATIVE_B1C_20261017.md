@@ -1470,3 +1470,11 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Evidence:** 39 Python unit regressions on exact pushed H1 content, including the user's actual device baseline, scope-separated negative checks, replay of v1 snapshots and forged-success rejection. Mandatory Devtool transaction and live-phone re-evaluation are **OPEN**; no BKX/chroot-ctl change.
 - **Contract:** `05-2-gateway=DEFERRED_NOT_USED` in core mode is neither PASS nor failure of native Skybind. Core and device qualification flags remain false, final seal BLOCKED until separate runtime/mount/recovery/supported-host race evidence is reviewed. If an API04 consumer is ever enabled, rerun under the explicit query or full scope, and independently qualify installed PackageManager and SELinux behavior.
 - **Status:** SOURCE-TESTED / TRANSACTION-PENDING / CORE-DEVICE-ACCEPTANCE-OPEN; API04 DEVICE ACCEPTANCE DEFERRED, NOT WAIVED.
+
+
+### SB-API05-UI01 — Built-in VFS presets rejected at embedded bridge (2026-10-29)
+
+- **Evidence:** `internal/mounts/policy/policy.go` emits native `time.Duration.String()` profiles (such as `120h0m0s`, `5m0s`, `1m0s` in the observed installed WebUI); `module/webroot/model.js` accepts composite durations, but `module/webroot/bridge.js` accepted only one `s|m|h|d|w` unit, returning `Unsupported duration` before `config.validate` reached the daemon. The Add mount → Performance / Review mount wizard was blocked with `INTERNAL` for its own presets.
+- **Affected project:** Skybind WebUI embedded bridge. BKX is unrelated. No root daemon, mount lifecycle, or consumer integration changes are needed.
+- **Fix candidate:** Parse bounded nonnegative composite Go/rclone duration tokens (`ns`, `us`, `µs`, `ms`, `s`, `m`, `h`) and standalone `d`/`w`, preserve zero/off and numeric seconds, fail closed for malformed and unsafe magnitudes. Add coverage for every built-in VFS profile, fractions and invalid input.
+- **Status:** SOURCE_IMPLEMENTED; device/WebUI review and Devtool receipt pending. This does not prove the mount can start or has been qualified under API-05.

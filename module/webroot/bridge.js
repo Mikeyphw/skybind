@@ -269,12 +269,37 @@ function nativeValue(reply) {
 async function native(name, klass, args={}) {
   return nativeValue(await sendEnvelope(requestEnvelope(name,klass,args)));
 }
-function seconds(input) {
-  if (typeof input === 'number') return Math.max(0,Math.floor(input));
-  const str=String(input||'').toLowerCase().trim(); if (!str || str==='off' || str==='0') return 0;
-  const pattern=/^(\d+(?:\.\d+)?)(s|m|h|d|w)$/;
-  const m=str.match(pattern); if(!m) throw new Error('Unsupported duration; use 30s, 15m, 24h or 7d');
-  return Math.floor(Number(m[1])*({s:1,m:60,h:3600,d:86400,w:604800})[m[2]]);
+// Accept the rclone/Go duration strings emitted by native VFS profiles as
+// well as the short d/w notation offered by the editor. Do not silently
+// coerce malformed, negative or overflowing values into a valid duration.
+export function seconds(input) {
+  const invalid = () => { throw new Error('Unsupported duration; use 30s, 15m, 24h, 7d or Go-style 1h30m0s'); };
+  if (typeof input === 'number') {
+    if (!Number.isSafeInteger(input) || input < 0) return invalid();
+    return input;
+  }
+  const str = String(input ?? '').trim().toLowerCase();
+  if (!str || str === 'off' || str === '0') return 0;
+  if (str.length > 128) return invalid();
+  const short = str.match(/^(\d+(?:\.\d+)?)([dw])$/);
+  if (short) {
+    const total = Number(short[1]) * (short[2] === 'd' ? 86400 : 604800);
+    if (!Number.isSafeInteger(Math.floor(total)) || !Number.isFinite(total)) return invalid();
+    return Math.floor(total);
+  }
+  const token = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/gy;
+  const units = { ns: 1e-9, us: 1e-6, 'µs': 1e-6, ms: 1e-3, s: 1, m: 60, h: 3600 };
+  let total = 0;
+  let offset = 0;
+  while (offset < str.length) {
+    token.lastIndex = offset;
+    const part = token.exec(str);
+    if (!part || token.lastIndex === offset) return invalid();
+    total += Number(part[1]) * units[part[2]];
+    if (!Number.isFinite(total) || total > Number.MAX_SAFE_INTEGER) return invalid();
+    offset = token.lastIndex;
+  }
+  return Math.floor(total);
 }
 function byteCount(input) {
   if(typeof input==='number')return Math.max(0,Math.floor(input));
