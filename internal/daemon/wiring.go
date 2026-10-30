@@ -229,6 +229,26 @@ func EngineWithServices(j *journal.Journal, s *config.Store, mount *lifecycle.En
 			}
 			return mount.Status(n)
 		})
+		// Operator-only recovery of records that no longer name a live FUSE
+		// process or an observed mount. Never signal, unmount or auto-start.
+		register("mount.stale.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
+			n, e := decodeName(a)
+			if e != nil {
+				return nil, e
+			}
+			return mount.StaleRecoveryPreview(n)
+		})
+		register("mount.stale.recover", protocol.Run, func(_ context.Context, a json.RawMessage) (any, error) {
+			var p struct {
+				Name            string `json:"name"`
+				Proof           string `json:"proof"`
+				OperatorApprove bool   `json:"operator_approve"`
+			}
+			if e := protocol.StrictBytes(a, &p); e != nil {
+				return nil, e
+			}
+			return mount.RecoverStaleRecord(p.Name, p.Proof, p.OperatorApprove)
+		})
 		register("mount.start.preview", protocol.Preview, func(_ context.Context, a json.RawMessage) (any, error) {
 			n, e := decodeName(a)
 			if e != nil {

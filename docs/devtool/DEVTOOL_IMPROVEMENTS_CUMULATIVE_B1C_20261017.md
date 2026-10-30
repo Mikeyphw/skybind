@@ -1485,3 +1485,16 @@ This addendum is based on inspected and locally executable source from both uplo
 - **Affected:** `module/webroot/bridge.js` `embeddedExec()` (discarded valid structured `ok:false` response when root CLI returned status 1). Root bridge emit-on-failure behavior in `cmd/skybind/main.go` remains unchanged.
 - **Remediation:** accept only *same-request-id*, schema-v1 typed negative error payload on nonzero callback, preserving real operation code; continue failing closed on mismatches/malformed output and never retry mutations.
 - **Status:** SOURCE_IMPLEMENTED_LOCAL_TEST_PASS; DEVICE_WEBUI_NOT_YET_RETSETED; underlying `mount.status` rejection OPEN and must be diagnosed from device receipts. No API04 or BKX changes. See `docs/repairs/SB_API05_UI02_EMBEDDED_EXIT1_ERROR_VISIBILITY_20261029.md`.
+
+## 2026-10-29 — API-05 stale FUSE ownership record after module replacement (R1)
+
+- **Evidence (real Android):** `safegdrive` persisted ownership PID 3634 and an old start-ticks/executable binding. `/proc/3634/exe` now identifies Android `/vendor/bin/mtk_agpsd`; daemon namespace no longer sees the configured mountpoint; a separate process-mountinfo sweep returned no matches. `mount.list` succeeded while `mount.status`/`mount.health` both returned generic `operation_failed`. API-04 is deferred and unrelated.
+- **Source cause:** `Engine.owned` refuses PID identity drift, correctly preventing SIGTERM/unmount of an unrelated process. `Supervisor.Reconcile` skips failed `Status`, and `Start` refuses stale ownership; no safe explicit recovery path existed.
+- **Implementation:** `API05_STALE_RECORD_R1` adds root-CLI-only, proof-bound, no-autostart stale ownership recovery. Rechecks canonical private ownership, current PID incarnation, absence of mount in daemon and all readable process mount namespaces; archives old 0600 record; sets persistent desired=false before unlinking it; issues no process signal, unmount, config rewrite or cache cleanup. Fail closed on unknown namespaces or current ownership. Tests include reusable PID, active mount, forged/replayed proof, stale snapshot and no side effects.
+- **Status:** SOURCE_IMPLEMENTED / DEVICE_PENDING. Explicit recovery and user-authorized remount on installed Android still need separate evidence, as do upgrade/reboot regression receipts. Current active mount and private state must not be forcibly detached or purged.
+- **Follow-up:** Evaluate daemon-side recovery coverage when `/proc` namespace enumeration is denied on the personal device. Do not weaken the incomplete-inspection guard to manufacture a PASS. Repair generic `mount.status` error observability separately, without exposing provider output.
+
+## 2026-10-29 — API-05 stale FUSE recovery R2 rebase after UI02
+- **Reason:** user has applied UI02 embedded error-transport fix first; previous R1 overlay pinned to `bab07e7d` would reject subsequent source and overwrite UI02 ledger addition.
+- **Implementation:** byte-identical R1 Go/CLI recovery payload with post-UI02 source pins and merged cumulative ledger. UI02 `module/webroot/bridge.js` and UI02 tests/docs are not replaced.
+- **Status:** R2 SOURCE-PACKAGED, Devtool transaction / Android runtime INSTALL / explicit guarded recovery OPEN. R1 should not be applied over UI02. No BKX or API04 changes.

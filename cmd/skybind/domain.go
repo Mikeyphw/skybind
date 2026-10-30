@@ -63,6 +63,10 @@ func translateDomain(args []string, input io.Reader) (string, []byte, error) {
 			return empty("mount.list")
 		case "status":
 			return named("mount.status")
+		case "stale-preview":
+			return named("mount.stale.preview")
+		case "stale-recover":
+			return inputObj("mount.stale.recover")
 		case "health":
 			return named("mount.health")
 		case "preview":

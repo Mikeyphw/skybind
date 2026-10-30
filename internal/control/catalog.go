@@ -88,6 +88,9 @@ func SchemaForOperation(name string) string {
 	}
 }
 func Lookup(name string) (CatalogItem, bool) {
+	if v, ok := lookupStaleRecoveryExtension(name); ok {
+		return v, true
+	}
 	if v, ok := lookupOfflineExtension(name); ok {
 		return v, true
 	}
